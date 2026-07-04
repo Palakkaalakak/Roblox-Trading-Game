@@ -1,0 +1,12 @@
+# Project place file
+/RobloxTradingGameDevelopmentDoNotTouch.rbxlx
+
+# Build artifacts
+/*.rbxl
+/*.rbxm
+
+# Roblox Studio lock files
+/*.rbxlx.lock
+/*.rbxl.lock
+
+sourcemap.json
