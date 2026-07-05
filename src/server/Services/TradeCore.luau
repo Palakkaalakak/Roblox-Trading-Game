@@ -124,6 +124,7 @@ function TradeCore.setConfirm(record: any, byUserId: number, confirmed: boolean,
 	if record.a.confirmed and record.b.confirmed then
 		record.state = "Confirmed"
 		record.settlementId = "settle_" .. record.tradeId -- deterministic => idempotent everywhere
+		record.confirmedAt = now -- grace countdown anchor (settlement waits)
 	end
 	touch(record, now)
 	return record, nil
@@ -226,6 +227,7 @@ function TradeCore.viewFor(record: any, userId: number, otherName: string?): any
 		state = record.state,
 		v = record.v,
 		expiresAt = record.expiresAt,
+		confirmedAt = record.confirmedAt,
 		abortReason = record.abortReason,
 		you = {
 			offer = me.offer,

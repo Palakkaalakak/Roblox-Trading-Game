@@ -83,6 +83,45 @@ function Components.button(props: { [string]: any }?, onClick: (() -> ())?): Tex
 end
 
 --------------------------------------------------------------------------------
+-- Item icon (placeholder art)
+--------------------------------------------------------------------------------
+
+-- Every item display renders its art through here. Items carry an imageId
+-- (Simulator Icon Pack decals for now); missing art falls back to a
+-- rarity-tinted placeholder.
+local PLACEHOLDER_IMAGE = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+
+-- Square icon: ImageLabel named "Icon".
+function Components.itemIcon(parent: Instance, size: UDim2, position: UDim2?): ImageLabel
+	local icon = create("ImageLabel", {
+		Name = "Icon",
+		Image = PLACEHOLDER_IMAGE,
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		Size = size,
+		Position = position or UDim2.new(),
+		ScaleType = Enum.ScaleType.Fit,
+		ImageColor3 = Theme.Rarity.Common,
+	})
+	create("UICorner", { CornerRadius = Theme.CornerSmall }).Parent = icon
+	icon.Parent = parent
+	return icon
+end
+
+-- Point an icon at a snapshot: real art unmodified, placeholder tinted.
+function Components.setIcon(icon: ImageLabel, snapshot: any?)
+	local imageId = snapshot and snapshot.imageId or nil
+	if imageId then
+		icon.Image = imageId
+		icon.ImageColor3 = Color3.new(1, 1, 1)
+	else
+		icon.Image = PLACEHOLDER_IMAGE
+		icon.ImageColor3 = (snapshot and Theme.Rarity[snapshot.rarity]) or Theme.Rarity.Common
+	end
+end
+
+--------------------------------------------------------------------------------
 -- Stats
 --------------------------------------------------------------------------------
 
@@ -132,13 +171,13 @@ function Components.statBlock(parent: Instance): (snapshot: any?) -> ()
 	end
 end
 
--- Item tile: rarity-striped card with name, count badge, stat block.
--- Returns (frame, updateFn(snapshot, count)).
+-- Item tile: icon-dominant card (PS99-style) — stripe, big icon, name,
+-- "X in existence", rarity, stat block. Returns (frame, updateFn).
 function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (snapshot: any?, count: number?) -> ())
 	local tile = create(onClick and "TextButton" or "Frame", {
 		BackgroundColor3 = Theme.BgLight,
 		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(126, 132),
+		Size = UDim2.fromOffset(126, 168),
 		Text = onClick and "" or nil,
 		AutoButtonColor = onClick and true or nil,
 		Name = itemId,
@@ -155,19 +194,12 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 	create("UICorner", { CornerRadius = UDim.new(0, 3) }).Parent = stripe
 	stripe.Parent = tile
 
-	local nameLabel = Components.label({
-		Position = UDim2.fromOffset(8, 9),
-		Size = UDim2.new(1, -40, 0, 16),
-		Text = itemId,
-		TextSize = 13,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-	})
-	nameLabel.Parent = tile
+	local icon = Components.itemIcon(tile, UDim2.fromOffset(46, 46), UDim2.new(0.5, -23, 0, 11))
 
 	local countBadge = Components.label({
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -6, 0, 9),
-		Size = UDim2.fromOffset(30, 16),
+		Position = UDim2.new(1, -6, 0, 8),
+		Size = UDim2.fromOffset(34, 16),
 		Text = "",
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Right,
@@ -175,31 +207,43 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 	})
 	countBadge.Parent = tile
 
+	local nameLabel = Components.label({
+		Position = UDim2.fromOffset(6, 60),
+		Size = UDim2.new(1, -12, 0, 15),
+		Text = itemId,
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+	nameLabel.Parent = tile
+
 	-- supply subtitle: "X in existence"
 	local existenceLabel = Components.label({
-		Position = UDim2.fromOffset(8, 26),
-		Size = UDim2.new(1, -16, 0, 13),
+		Position = UDim2.fromOffset(6, 76),
+		Size = UDim2.new(1, -12, 0, 12),
 		Text = "",
 		Font = Theme.FontLight,
-		TextSize = 11,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = Theme.TextDim,
 	})
 	existenceLabel.Parent = tile
 
 	local rarityLabel = Components.label({
-		Position = UDim2.fromOffset(8, 40),
-		Size = UDim2.new(1, -16, 0, 13),
+		Position = UDim2.fromOffset(6, 89),
+		Size = UDim2.new(1, -12, 0, 12),
 		Text = "",
 		Font = Theme.FontLight,
-		TextSize = 11,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = Theme.TextDim,
 	})
 	rarityLabel.Parent = tile
 
 	local statsHolder = create("Frame", {
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(8, 58),
-		Size = UDim2.new(1, -16, 0, 66),
+		Position = UDim2.fromOffset(8, 106),
+		Size = UDim2.new(1, -16, 0, 56),
 	})
 	statsHolder.Parent = tile
 	local updateStats = Components.statBlock(statsHolder)
@@ -214,6 +258,7 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 			rarityLabel.Text = snapshot.rarity or ""
 			rarityLabel.TextColor3 = Theme.Rarity[snapshot.rarity] or Theme.TextDim
 			stripe.BackgroundColor3 = Theme.Rarity[snapshot.rarity] or Theme.Rarity.Common
+			Components.setIcon(icon, snapshot)
 			local supply = snapshot.supply
 			if supply and supply.state == "Known" and supply.value ~= nil then
 				existenceLabel.Text = tostring(supply.value) .. " in existence"
@@ -225,6 +270,93 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 		updateStats(snapshot)
 	end
 	return tile :: Frame, update
+end
+
+--------------------------------------------------------------------------------
+-- Tooltip (hover info card)
+--------------------------------------------------------------------------------
+
+-- One floating card per ScreenGui. Returns {attach(guiObject, getSnapshot)}.
+function Components.makeTooltip(gui: ScreenGui)
+	local card = Components.panel({
+		Size = UDim2.fromOffset(190, 118),
+		Visible = false,
+		ZIndex = 50,
+		BackgroundColor3 = Theme.Bg,
+	})
+	card.Parent = gui
+
+	local title = Components.label({
+		Position = UDim2.fromOffset(10, 6),
+		Size = UDim2.new(1, -20, 0, 16),
+		Text = "",
+		TextSize = 14,
+		ZIndex = 51,
+	})
+	title.Parent = card
+
+	local sub = Components.label({
+		Position = UDim2.fromOffset(10, 24),
+		Size = UDim2.new(1, -20, 0, 13),
+		Text = "",
+		Font = Theme.FontLight,
+		TextSize = 11,
+		TextColor3 = Theme.TextDim,
+		ZIndex = 51,
+	})
+	sub.Parent = card
+
+	local body = Components.label({
+		Position = UDim2.fromOffset(10, 42),
+		Size = UDim2.new(1, -20, 1, -50),
+		Text = "",
+		Font = Theme.FontLight,
+		TextSize = 12,
+		TextColor3 = Theme.TextPrimary,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = true,
+		ZIndex = 51,
+	})
+	body.Parent = card
+
+	local function show(snapshot: any?, count: number?, anchor: GuiObject)
+		if snapshot == nil then
+			return
+		end
+		title.Text = snapshot.name or "?"
+		title.TextColor3 = Theme.Rarity[snapshot.rarity] or Theme.TextPrimary
+		local supplyText = statText(snapshot.supply)
+		sub.Text = (snapshot.rarity or "?") .. " · " .. supplyText .. " in existence"
+			.. ((count and count > 1) and (" · you offer x" .. count) or "")
+		body.Text = ("Value: %s\nDemand: %s\nRAP: %s"):format(
+			statText(snapshot.value),
+			statText(snapshot.demand),
+			statText(snapshot.rap)
+		)
+		local pos = anchor.AbsolutePosition
+		local size = anchor.AbsoluteSize
+		local guiWidth = gui.AbsoluteSize.X
+		local x = math.clamp(pos.X + size.X + 8, 0, guiWidth - 198)
+		local y = math.max(pos.Y - 10, 0)
+		card.Position = UDim2.fromOffset(x, y)
+		card.Visible = true
+	end
+
+	local function hide()
+		card.Visible = false
+	end
+
+	return {
+		attach = function(obj: GuiObject, getSnapshot: () -> (any?, number?))
+			obj.MouseEnter:Connect(function()
+				local snapshot, count = getSnapshot()
+				show(snapshot, count, obj)
+			end)
+			obj.MouseLeave:Connect(hide)
+			obj.Destroying:Connect(hide)
+		end,
+		hide = hide,
+	}
 end
 
 return Components

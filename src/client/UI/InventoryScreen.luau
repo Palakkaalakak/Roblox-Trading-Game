@@ -51,7 +51,7 @@ function InventoryScreen.build(gui: ScreenGui)
 		CanvasSize = UDim2.new(),
 	})
 	create("UIGridLayout", {
-		CellSize = UDim2.fromOffset(126, 132),
+		CellSize = UDim2.fromOffset(126, 168),
 		CellPadding = UDim2.fromOffset(10, 10),
 		SortOrder = Enum.SortOrder.Name,
 	}).Parent = scroll

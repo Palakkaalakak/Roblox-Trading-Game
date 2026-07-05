@@ -58,6 +58,7 @@ function PoolService.generateDefs(seq: number, seed: number, existingNames: { [s
 				name = row.name,
 				totalSupply = row.totalSupply,
 				assignmentWeight = Rarity.defaultWeightFor(row.totalSupply),
+				imageId = row.imageId,
 			})
 		end
 		return defs
@@ -65,6 +66,26 @@ function PoolService.generateDefs(seq: number, seed: number, existingNames: { [s
 
 	local rng = Random.new(seed)
 	local usedNames = {}
+
+	-- icons: shuffle the candidate pool, avoid ones already used by existing
+	-- items where possible (recycle when exhausted)
+	local usedIcons = {}
+	for _, item in EconomyService.allItems() do
+		if item.imageId then
+			usedIcons[item.imageId] = true
+		end
+	end
+	local freshIcons, recycledIcons = {}, {}
+	for _, imageId in Items.IconPool do
+		table.insert(usedIcons[imageId] and recycledIcons or freshIcons, imageId)
+	end
+	local iconOrder = #freshIcons >= #Items.PoolTemplate and freshIcons or Items.IconPool
+	iconOrder = table.clone(iconOrder)
+	for i = #iconOrder, 2, -1 do
+		local j = rng:NextInteger(1, i)
+		iconOrder[i], iconOrder[j] = iconOrder[j], iconOrder[i]
+	end
+
 	for i, slot in Items.PoolTemplate do
 		local name
 		for _ = 1, 200 do
@@ -86,6 +107,7 @@ function PoolService.generateDefs(seq: number, seed: number, existingNames: { [s
 			name = name,
 			totalSupply = supply,
 			assignmentWeight = Rarity.defaultWeightFor(supply),
+			imageId = iconOrder[i],
 		})
 	end
 	return defs
@@ -265,6 +287,17 @@ function PoolService.Start()
 	local pool = readPool()
 	if pool then
 		adoptPool(pool)
+		-- backfill: pool #1 items registered before icons existed get their
+		-- imageIds patched (generateDefs(1) is deterministic, same itemIds)
+		if pool.seq == 1 then
+			for _, itemId in pool.itemIds do
+				local item = EconomyService.getItem(itemId)
+				if item and item.imageId == nil then
+					EconomyService.registerItems(PoolService.generateDefs(1, pool.seed or 0, {}))
+					break
+				end
+			end
+		end
 	else
 		if tryAcquireLock() then
 			-- re-check under lock, then seed

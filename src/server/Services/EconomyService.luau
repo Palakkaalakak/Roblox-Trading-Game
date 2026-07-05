@@ -96,8 +96,11 @@ function EconomyService.registerItems(defs: { any })
 					totalSupply = def.totalSupply,
 					assignmentWeight = def.assignmentWeight,
 					rarity = Rarity.tierFor(def.totalSupply),
+					imageId = def.imageId,
 					createdAt = now,
 				}
+			elseif old[def.itemId].imageId == nil and def.imageId ~= nil then
+				old[def.itemId].imageId = def.imageId -- backfill icons on old entries
 			end
 		end
 		registry = old
@@ -275,6 +278,7 @@ function EconomyService.snapshot(itemId: string): any?
 		itemId = itemId,
 		name = item.name,
 		rarity = item.rarity,
+		imageId = item.imageId,
 		-- supply is always known (authoritative count; 0 is a real value)
 		supply = stat(true, circulating),
 		demand = stat((rec.demandSamples or 0) >= EconomyConfig.MinSamples.Demand, math.floor(demand * 100 + 0.5) / 100),

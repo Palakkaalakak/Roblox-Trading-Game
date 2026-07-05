@@ -357,6 +357,19 @@ end
 -- any server, at any time (everything downstream is idempotent).
 function TradeService.progress(record: any)
 	if record.state == "Confirmed" then
+		-- PS99-style grace window: both accepted, but deposits wait a few
+		-- seconds so either player can still cancel. Server-enforced.
+		local graceEndsAt = (record.confirmedAt or 0) + TradeConfig.ConfirmGraceSeconds
+		local remaining = graceEndsAt - os.time()
+		if remaining > 0 then
+			task.delay(remaining + 0.1, function()
+				local fresh = fetch(record.tradeId)
+				if fresh and fresh.state == "Confirmed" then
+					TradeService.progress(fresh)
+				end
+			end)
+			return
+		end
 		attemptDeposit(record, "a")
 		attemptDeposit(record, "b")
 	elseif record.state == "Settling" then

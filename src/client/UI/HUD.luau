@@ -14,15 +14,58 @@ local create = Components.create
 local HUD = {}
 
 function HUD.build(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> () })
-	-- gem pill
+	-- Icon button in the style of the StarterGui example: bare pack icon as
+	-- an ImageButton (square, scale-sized), caps caption below in golden
+	-- yellow with a black stroke.
+	local CAPTION_GOLD = Color3.fromRGB(253, 179, 30)
+	local function iconButton(image: string, caption: string, position: UDim2, onClick: () -> ())
+		local btn = create("ImageButton", {
+			Image = image,
+			BackgroundTransparency = 1,
+			AutoButtonColor = true,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = position,
+			Size = UDim2.fromScale(0.074, 0.106),
+			ScaleType = Enum.ScaleType.Fit,
+		})
+		create("UIAspectRatioConstraint", { AspectRatio = 1 }).Parent = btn
+		create("UICorner", { CornerRadius = UDim.new(0.22, 0) }).Parent = btn
+
+		local label = create("TextLabel", {
+			BackgroundTransparency = 1,
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 1.28, 0),
+			Size = UDim2.new(1.4, 0, 0.66, 0),
+			Font = Theme.Font,
+			Text = caption,
+			TextColor3 = CAPTION_GOLD,
+			TextScaled = true,
+		})
+		create("UIStroke", { Color = Color3.new(0, 0, 0), Thickness = 2.5 }).Parent = label
+		label.Parent = btn
+
+		btn.Activated:Connect(onClick)
+		btn.Parent = gui
+		return btn
+	end
+
+	-- gem pill (top-left currency readout)
 	local gemPill = Components.panel({
 		Position = UDim2.fromOffset(12, 12),
 		Size = UDim2.fromOffset(140, 36),
 	})
+	local gemPillIcon = create("ImageLabel", {
+		Image = Theme.Icons.Gem,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(24, 24),
+		Position = UDim2.fromOffset(8, 6),
+		ScaleType = Enum.ScaleType.Fit,
+	})
+	gemPillIcon.Parent = gemPill
 	local gemLabel = Components.label({
-		Position = UDim2.fromOffset(10, 0),
-		Size = UDim2.new(1, -20, 1, 0),
-		Text = "💎 0",
+		Position = UDim2.fromOffset(38, 0),
+		Size = UDim2.new(1, -46, 1, 0),
+		Text = "0",
 		TextSize = 16,
 		TextColor3 = Theme.Gem,
 	})
@@ -30,41 +73,22 @@ function HUD.build(gui: ScreenGui, toggles: { inventory: () -> (), picker: () ->
 	gemPill.Parent = gui
 
 	State.Observe(InventoryController.gems, function(gems)
-		gemLabel.Text = "💎 " .. tostring(gems)
+		gemLabel.Text = tostring(gems)
 	end)
 
-	-- buttons
-	local invButton = Components.button({
-		Position = UDim2.fromOffset(12, 56),
-		Size = UDim2.fromOffset(140, 34),
-		Text = "🎒 Inventory",
-		BackgroundColor3 = Theme.BgLight,
-	}, toggles.inventory)
-	invButton.Parent = gui
-
-	local tradeButton = Components.button({
-		Position = UDim2.fromOffset(12, 96),
-		Size = UDim2.fromOffset(140, 34),
-		Text = "🔁 Trade",
-	}, toggles.picker)
-	tradeButton.Parent = gui
+	-- right-edge icon button stack (per the StarterGui example)
+	iconButton(Theme.Icons.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77), toggles.inventory)
+	iconButton(Theme.Icons.Trade, "TRADE", UDim2.fromScale(0.955, 0.57), toggles.picker)
 
 	-- DEBUG ONLY: gem faucet button (remove with DebugConfig for release)
 	local DebugConfig = require(game:GetService("ReplicatedStorage").Shared.Config.DebugConfig)
 	if DebugConfig.GiveGemsEnabled then
 		local Net = require(script.Parent.Parent.Net)
-		local debugBtn = Components.button({
-			Position = UDim2.fromOffset(12, 136),
-			Size = UDim2.fromOffset(140, 34),
-			Text = ("+%d 💎 (debug)"):format(DebugConfig.GiveGemsAmount),
-			BackgroundColor3 = Theme.Warn,
-			TextColor3 = Theme.Bg,
-		}, function()
+		iconButton(Theme.Icons.Gem, ("+%d (DEBUG)"):format(DebugConfig.GiveGemsAmount), UDim2.fromScale(0.955, 0.37), function()
 			task.spawn(function()
 				Net.invoke("DebugGiveGems")
 			end)
 		end)
-		debugBtn.Parent = gui
 	end
 
 	-- toasts (settle/abort/errors)

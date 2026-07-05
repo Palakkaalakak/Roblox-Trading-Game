@@ -28,6 +28,15 @@ local Theme = {
 
 	Corner = UDim.new(0, 10),
 	CornerSmall = UDim.new(0, 6),
+
+	-- UI chrome icons (Simulator Icon Pack decals)
+	Icons = {
+		Gem = "rbxassetid://17368064384",
+		Trade = "rbxassetid://15403064919",
+		Inventory = "rbxassetid://15402958715",
+		Accept = "rbxassetid://17368190066",
+		Deny = "rbxassetid://17368208554",
+	},
 }
 
 return Theme

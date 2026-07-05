@@ -1,8 +1,14 @@
 --!strict
--- TradeScreen: two-panel trade UI (yours vs theirs) modeled on Roblox native /
--- Pet-Sim trading. Item slots, gem field, per-side confirm lights, cancel.
--- Includes the invite prompt and the trade-partner picker.
--- Pure render-from-view: every frame of state comes from TradeController.trade.
+-- TradeScreen: PS99-style trade window.
+--   * two 3x3 icon-slot offer grids side by side (you / them)
+--   * gems chip per side (yours opens an inline amount editor)
+--   * bottom sheet = your inventory as icon tiles, click to add
+--   * click your offer slot to remove; hover any slot/tile for full stats
+--   * big ACCEPT toggle per player with green state dots
+--   * both accepted -> server-enforced countdown (cancel still allowed),
+--     then the trade locks and settles
+-- Pure render-from-view: TradeController.trade is the only state source.
+-- Includes the invite popup and the player-search picker.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -20,52 +26,57 @@ local localPlayer = Players.LocalPlayer
 
 local TradeScreen = {}
 
+local GRID = 3 -- 3x3 slots
+local SLOT = 92
+local SLOT_PAD = 8
+
 --------------------------------------------------------------------------------
--- One offer panel (a side)
+-- One offer side (grid of icon slots + gems chip + accept dot)
 --------------------------------------------------------------------------------
 
-local SLOTS = TradeConfig.MaxSlotsPerSide -- 8 -> 4x2 grid
-
-local function buildSidePanel(parent: Instance, xOffset: number, mine: boolean)
+local function buildSide(parent: Instance, mine: boolean, tooltip: any)
+	local width = GRID * SLOT + (GRID - 1) * SLOT_PAD + 24
 	local panel = Components.panel({
-		Position = UDim2.new(0, xOffset, 0, 40),
-		Size = UDim2.new(0.5, -18, 1, -150),
+		Position = mine and UDim2.fromOffset(14, 64) or UDim2.new(1, -(width + 14), 0, 64),
+		Size = UDim2.fromOffset(width, GRID * SLOT + (GRID - 1) * SLOT_PAD + 96),
 		BackgroundColor3 = Theme.Bg,
 	})
 	panel.Parent = parent
 
 	local header = Components.label({
-		Position = UDim2.fromOffset(10, 6),
-		Size = UDim2.new(1, -40, 0, 20),
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -60, 0, 20),
 		Text = mine and "You" or "Them",
 		TextSize = 15,
 	})
 	header.Parent = panel
 
-	local confirmDot = create("Frame", {
+	local acceptPill = Components.label({
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -10, 0, 8),
-		Size = UDim2.fromOffset(16, 16),
-		BackgroundColor3 = Theme.TextDim,
-		BorderSizePixel = 0,
+		Position = UDim2.new(1, -12, 0, 8),
+		Size = UDim2.fromOffset(96, 20),
+		Text = "not ready",
+		TextSize = 11,
+		Font = Theme.FontLight,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Theme.TextDim,
 	})
-	create("UICorner", { CornerRadius = UDim.new(1, 0) }).Parent = confirmDot
-	confirmDot.Parent = panel
+	acceptPill.Parent = panel
 
 	local grid = create("Frame", {
-		Position = UDim2.fromOffset(10, 32),
-		Size = UDim2.new(1, -20, 1, -104),
+		Position = UDim2.fromOffset(12, 34),
+		Size = UDim2.fromOffset(GRID * SLOT + (GRID - 1) * SLOT_PAD, GRID * SLOT + (GRID - 1) * SLOT_PAD),
 		BackgroundTransparency = 1,
 	})
 	create("UIGridLayout", {
-		CellSize = UDim2.fromOffset(118, 64),
-		CellPadding = UDim2.fromOffset(8, 8),
+		CellSize = UDim2.fromOffset(SLOT, SLOT),
+		CellPadding = UDim2.fromOffset(SLOT_PAD, SLOT_PAD),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}).Parent = grid
 	grid.Parent = panel
 
 	local slots = {}
-	for i = 1, SLOTS do
+	for i = 1, GRID * GRID do
 		local slot = create(mine and "TextButton" or "Frame", {
 			BackgroundColor3 = Theme.BgLight,
 			BorderSizePixel = 0,
@@ -74,164 +85,219 @@ local function buildSidePanel(parent: Instance, xOffset: number, mine: boolean)
 			AutoButtonColor = mine and true or nil,
 		})
 		Components.corner(Theme.CornerSmall).Parent = slot
-		Components.stroke(Theme.Stroke, 1).Parent = slot
+		local slotStroke = Components.stroke(Theme.Stroke, 1)
+		slotStroke.Parent = slot
 
-		local nameLabel = Components.label({
-			Position = UDim2.fromOffset(6, 4),
-			Size = UDim2.new(1, -12, 0, 15),
+		local plus = Components.label({
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = mine and "+" or "",
+			TextSize = 22,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextColor3 = Theme.Stroke,
+		})
+		plus.Parent = slot
+
+		local icon = Components.itemIcon(slot, UDim2.new(1, -22, 1, -22), UDim2.fromOffset(11, 11))
+		icon.Visible = false
+		icon.ZIndex = 2
+
+		local countBadge = Components.label({
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -5, 1, -3),
+			Size = UDim2.fromOffset(36, 14),
 			Text = "",
 			TextSize = 12,
-			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = Theme.Warn,
+			ZIndex = 3,
 		})
-		nameLabel.Parent = slot
-
-		local metaLabel = Components.label({
-			Position = UDim2.fromOffset(6, 21),
-			Size = UDim2.new(1, -12, 0, 13),
-			Text = "",
-			Font = Theme.FontLight,
-			TextSize = 11,
-			TextColor3 = Theme.TextDim,
-		})
-		metaLabel.Parent = slot
-
-		local statLabel = Components.label({
-			Position = UDim2.fromOffset(6, 36),
-			Size = UDim2.new(1, -12, 0, 24),
-			Text = "",
-			Font = Theme.FontLight,
-			TextSize = 10,
-			TextColor3 = Theme.TextDim,
-			TextWrapped = true,
-			TextYAlignment = Enum.TextYAlignment.Top,
-		})
-		statLabel.Parent = slot
+		countBadge.Parent = slot
 
 		slot.Parent = grid
-		slots[i] = { frame = slot, name = nameLabel, meta = metaLabel, stat = statLabel, itemId = nil :: string? }
+		local entry = {
+			frame = slot,
+			icon = icon,
+			plus = plus,
+			count = countBadge,
+			stroke = slotStroke,
+			itemId = nil :: string?,
+			itemCount = 0,
+		}
+		slots[i] = entry
 
 		if mine then
 			(slot :: any).Activated:Connect(function()
-				local itemId = slots[i].itemId
-				if itemId then
-					TradeController.removeItem(itemId)
+				if entry.itemId then
+					TradeController.removeItem(entry.itemId)
 				end
 			end)
 		end
+
+		tooltip.attach(slot, function()
+			local snap = entry.itemId and EconomyController.get(entry.itemId) or nil
+			return snap, entry.itemCount
+		end)
 	end
 
-	-- gems row
-	local gemsRow = Components.panel({
+	-- gems chip
+	local gemsChip = create(mine and "TextButton" or "Frame", {
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 10, 1, -10),
-		Size = UDim2.new(1, -20, 0, 50),
+		Position = UDim2.new(0, 12, 1, -10),
+		Size = UDim2.new(1, -24, 0, 40),
 		BackgroundColor3 = Theme.BgLight,
+		BorderSizePixel = 0,
+		Text = mine and "" or nil,
+		AutoButtonColor = mine and true or nil,
 	})
-	gemsRow.Parent = panel
+	Components.corner(Theme.CornerSmall).Parent = gemsChip
+	gemsChip.Parent = panel
 
-	local gemsTitle = Components.label({
-		Position = UDim2.fromOffset(8, 2),
-		Size = UDim2.new(1, -16, 0, 16),
-		Text = "💎 Gems",
-		TextSize = 12,
+	local gemIcon = create("ImageLabel", {
+		Image = Theme.Icons.Gem,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromOffset(24, 24),
+		Position = UDim2.fromOffset(8, 8),
+		ScaleType = Enum.ScaleType.Fit,
+	})
+	gemIcon.Parent = gemsChip
+
+	local gemsLabel = Components.label({
+		Position = UDim2.fromOffset(40, 0),
+		Size = UDim2.new(1, -48, 1, 0),
+		Text = "0",
+		TextSize = 16,
 		TextColor3 = Theme.Gem,
 	})
-	gemsTitle.Parent = gemsRow
+	gemsLabel.Parent = gemsChip
 
-	local gemsValue: TextLabel | TextBox
+	local editHint = mine and Components.label({
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 0),
+		Size = UDim2.fromOffset(80, 40),
+		Text = "edit ✎",
+		TextSize = 11,
+		Font = Theme.FontLight,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Theme.TextDim,
+	}) or nil
+	if editHint then
+		editHint.Parent = gemsChip
+	end
+
+	-- inline gem editor (yours only), swapped in over the chip
+	local gemEditor
 	if mine then
-		gemsValue = create("TextBox", {
-			Position = UDim2.fromOffset(8, 20),
-			Size = UDim2.new(1, -70, 0, 24),
+		gemEditor = create("Frame", {
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 12, 1, -10),
+			Size = UDim2.new(1, -24, 0, 40),
 			BackgroundColor3 = Theme.Bg,
+			BorderSizePixel = 0,
+			Visible = false,
+		})
+		Components.corner(Theme.CornerSmall).Parent = gemEditor
+		Components.stroke(Theme.Accent, 1.5).Parent = gemEditor
+		gemEditor.Parent = panel
+
+		local box = create("TextBox", {
+			Position = UDim2.fromOffset(8, 7),
+			Size = UDim2.new(1, -100, 0, 26),
+			BackgroundColor3 = Theme.BgLight,
 			BorderSizePixel = 0,
 			Font = Theme.Font,
 			TextColor3 = Theme.TextPrimary,
 			TextSize = 14,
 			Text = "0",
+			PlaceholderText = "gem amount",
 			ClearTextOnFocus = false,
 		})
-		Components.corner(Theme.CornerSmall).Parent = gemsValue
-		local setBtn = Components.button({
+		Components.corner(Theme.CornerSmall).Parent = box
+		box.Parent = gemEditor
+
+		local okBtn = Components.button({
 			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -8, 0, 20),
-			Size = UDim2.fromOffset(52, 24),
-			Text = "Set",
+			Position = UDim2.new(1, -46, 0, 7),
+			Size = UDim2.fromOffset(38, 26),
+			Text = "OK",
 			TextSize = 12,
+			BackgroundColor3 = Theme.Good,
 		}, function()
-			local n = tonumber((gemsValue :: TextBox).Text)
+			local n = tonumber(box.Text)
 			if n then
-				TradeController.setGems(n)
+				TradeController.setGems(math.max(0, math.floor(n)))
 			end
+			gemEditor.Visible = false
+			gemsChip.Visible = true
 		end)
-		setBtn.Parent = gemsRow
-	else
-		gemsValue = Components.label({
-			Position = UDim2.fromOffset(8, 20),
-			Size = UDim2.new(1, -16, 0, 24),
-			Text = "0",
-			TextSize = 15,
-		})
+		okBtn.Parent = gemEditor
+
+		local cancelEditBtn = Components.button({
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -6, 0, 7),
+			Size = UDim2.fromOffset(34, 26),
+			Text = "✕",
+			TextSize = 12,
+			BackgroundColor3 = Theme.BgLight,
+		}, function()
+			gemEditor.Visible = false
+			gemsChip.Visible = true
+		end)
+		cancelEditBtn.Parent = gemEditor;
+
+		(gemsChip :: any).Activated:Connect(function()
+			local view = TradeController.trade:get()
+			box.Text = view and tostring(view.you.offer.gems) or "0"
+			gemsChip.Visible = false
+			gemEditor.Visible = true
+			box:CaptureFocus()
+		end)
 	end
-	gemsValue.Parent = gemsRow
 
 	return {
 		panel = panel,
 		header = header,
-		confirmDot = confirmDot,
+		acceptPill = acceptPill,
 		slots = slots,
-		gemsValue = gemsValue,
+		gemsLabel = gemsLabel,
+		gemsChip = gemsChip,
+		gemEditor = gemEditor,
 		mine = mine,
 	}
 end
 
 local function renderSide(side: any, offer: any, confirmed: boolean, stats: { [string]: any })
-	-- slots
-	local i = 1
 	local sortedIds = {}
 	for itemId in offer.items do
 		table.insert(sortedIds, itemId)
 	end
 	table.sort(sortedIds)
-	for _, itemId in sortedIds do
-		if i > SLOTS then
-			break
+
+	for i, entry in side.slots do
+		local itemId = sortedIds[i]
+		if itemId then
+			local snap = stats[itemId]
+			entry.itemId = itemId
+			entry.itemCount = offer.items[itemId]
+			entry.plus.Text = ""
+			entry.icon.Visible = true
+			Components.setIcon(entry.icon, snap)
+			entry.count.Text = offer.items[itemId] > 1 and ("x" .. offer.items[itemId]) or ""
+			entry.stroke.Color = snap and (Theme.Rarity[snap.rarity] or Theme.Stroke) or Theme.Stroke
+			entry.stroke.Thickness = 1.5
+		else
+			entry.itemId = nil
+			entry.itemCount = 0
+			entry.plus.Text = side.mine and "+" or ""
+			entry.icon.Visible = false
+			entry.count.Text = ""
+			entry.stroke.Color = Theme.Stroke
+			entry.stroke.Thickness = 1
 		end
-		local count = offer.items[itemId]
-		local slot = side.slots[i]
-		local snap = stats[itemId]
-		slot.itemId = itemId
-		slot.name.Text = (snap and snap.name or itemId) .. (count > 1 and (" x" .. count) or "")
-		slot.name.TextColor3 = snap and (Theme.Rarity[snap.rarity] or Theme.TextPrimary) or Theme.TextPrimary
-		slot.meta.Text = snap and (snap.rarity .. " · " .. Components.statText(snap.supply) .. " in existence") or ""
-		slot.stat.Text = snap
-				and ("Value: %s · Demand: %s · RAP: %s"):format(
-					Components.statText(snap.value),
-					Components.statText(snap.demand),
-					Components.statText(snap.rap)
-				)
-			or ""
-		i += 1
-	end
-	for j = i, SLOTS do
-		local slot = side.slots[j]
-		slot.itemId = nil
-		slot.name.Text = ""
-		slot.meta.Text = ""
-		slot.stat.Text = ""
 	end
 
-	-- gems
-	if side.mine then
-		if not (side.gemsValue :: TextBox):IsFocused() then
-			(side.gemsValue :: TextBox).Text = tostring(offer.gems)
-		end
-	else
-		(side.gemsValue :: TextLabel).Text = tostring(offer.gems)
-	end
-
-	-- confirm light
-	side.confirmDot.BackgroundColor3 = confirmed and Theme.Good or Theme.TextDim
+	side.gemsLabel.Text = tostring(offer.gems)
+	side.acceptPill.Text = confirmed and "READY ✔" or "not ready"
+	side.acceptPill.TextColor3 = confirmed and Theme.Good or Theme.TextDim
 end
 
 --------------------------------------------------------------------------------
@@ -239,27 +305,31 @@ end
 --------------------------------------------------------------------------------
 
 function TradeScreen.build(gui: ScreenGui)
+	local tooltip = Components.makeTooltip(gui)
+
+	local sideWidth = GRID * SLOT + (GRID - 1) * SLOT_PAD + 24
+	local panelWidth = sideWidth * 2 + 42
 	local panel = Components.panel({
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.fromOffset(860, 560),
+		Size = UDim2.fromOffset(panelWidth, 640),
 		Visible = false,
 	})
 	panel.Parent = gui
 
 	local title = Components.label({
-		Position = UDim2.fromOffset(14, 8),
-		Size = UDim2.new(1, -28, 0, 24),
-		Text = "🔁 Trade",
+		Position = UDim2.fromOffset(16, 10),
+		Size = UDim2.new(1, -32, 0, 24),
+		Text = "Trading",
 		TextSize = 18,
 	})
 	title.Parent = panel
 
 	local hint = Components.label({
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 12),
-		Size = UDim2.fromOffset(360, 16),
-		Text = "Any offer change resets both confirms",
+		Position = UDim2.new(1, -16, 0, 14),
+		Size = UDim2.fromOffset(320, 16),
+		Text = "changing an offer resets both READYs",
 		Font = Theme.FontLight,
 		TextSize = 11,
 		TextColor3 = Theme.TextDim,
@@ -267,41 +337,126 @@ function TradeScreen.build(gui: ScreenGui)
 	})
 	hint.Parent = panel
 
-	local yourSide = buildSidePanel(panel, 12, true)
-	local theirSide = buildSidePanel(panel, 0, false)
-	theirSide.panel.Position = UDim2.new(0.5, 6, 0, 40)
+	local yourSide = buildSide(panel, true, tooltip)
+	local theirSide = buildSide(panel, false, tooltip)
 
-	-- pick strip: your inventory, click to add
-	local strip = Components.panel({
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 12, 1, -52),
-		Size = UDim2.new(1, -24, 0, 46),
+	-- bottom sheet: your inventory as icon tiles
+	local sheetY = 64 + GRID * SLOT + (GRID - 1) * SLOT_PAD + 96 + 8
+	local sheet = Components.panel({
+		Position = UDim2.fromOffset(14, sheetY),
+		Size = UDim2.new(1, -28, 0, 128),
 		BackgroundColor3 = Theme.Bg,
 	})
-	strip.Parent = panel
-	local stripScroll = create("ScrollingFrame", {
-		Position = UDim2.fromOffset(6, 6),
-		Size = UDim2.new(1, -12, 1, -12),
+	sheet.Parent = panel
+
+	local sheetTitle = Components.label({
+		Position = UDim2.fromOffset(10, 4),
+		Size = UDim2.fromOffset(200, 16),
+		Text = "Your items — click to offer",
+		TextSize = 11,
+		Font = Theme.FontLight,
+		TextColor3 = Theme.TextDim,
+	})
+	sheetTitle.Parent = sheet
+
+	local sheetScroll = create("ScrollingFrame", {
+		Position = UDim2.fromOffset(8, 22),
+		Size = UDim2.new(1, -16, 1, -30),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ScrollBarThickness = 4,
+		ScrollBarThickness = 5,
 		AutomaticCanvasSize = Enum.AutomaticSize.X,
 		CanvasSize = UDim2.new(),
 		ScrollingDirection = Enum.ScrollingDirection.X,
 	})
 	create("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 6),
+		Padding = UDim.new(0, 8),
 		SortOrder = Enum.SortOrder.Name,
-	}).Parent = stripScroll
-	stripScroll.Parent = strip
+	}).Parent = sheetScroll
+	sheetScroll.Parent = sheet
 
-	-- bottom buttons
-	local confirmBtn = Components.button({
+	local sheetTiles: { [string]: any } = {}
+
+	local function refreshSheet()
+		local inventory = InventoryController.inventory:get()
+		local stats = EconomyController.stats:get()
+		local view = TradeController.trade:get()
+		local offered = view and view.you.offer.items or {}
+
+		for itemId, tile in sheetTiles do
+			if inventory[itemId] == nil then
+				tile.frame:Destroy()
+				sheetTiles[itemId] = nil
+			end
+		end
+		for itemId, count in inventory do
+			local tile = sheetTiles[itemId]
+			if tile == nil then
+				local frame = create("TextButton", {
+					Size = UDim2.fromOffset(74, 88),
+					BackgroundColor3 = Theme.BgLight,
+					BorderSizePixel = 0,
+					Text = "",
+					AutoButtonColor = true,
+					Name = itemId,
+				})
+				Components.corner(Theme.CornerSmall).Parent = frame
+				local stroke = Components.stroke(Theme.Stroke, 1)
+				stroke.Parent = frame
+
+				local icon = Components.itemIcon(frame, UDim2.fromOffset(44, 44), UDim2.new(0.5, -22, 0, 6))
+				local nameLabel = Components.label({
+					Position = UDim2.fromOffset(4, 52),
+					Size = UDim2.new(1, -8, 0, 22),
+					Text = itemId,
+					TextSize = 10,
+					Font = Theme.FontLight,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextWrapped = true,
+				})
+				nameLabel.Parent = frame
+
+				local countLabel = Components.label({
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -4, 0, 2),
+					Size = UDim2.fromOffset(30, 12),
+					Text = "",
+					TextSize = 11,
+					TextXAlignment = Enum.TextXAlignment.Right,
+					TextColor3 = Theme.Warn,
+					ZIndex = 3,
+				})
+				countLabel.Parent = frame
+
+				frame.Activated:Connect(function()
+					TradeController.addItem(itemId)
+				end)
+				tooltip.attach(frame, function()
+					return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
+				end)
+
+				frame.Parent = sheetScroll
+				tile = { frame = frame, icon = icon, name = nameLabel, count = countLabel, stroke = stroke }
+				sheetTiles[itemId] = tile
+			end
+			local snap = stats[itemId]
+			local remaining = count - (offered[itemId] or 0)
+			tile.name.Text = snap and snap.name or itemId
+			tile.count.Text = "x" .. remaining
+			tile.frame.BackgroundTransparency = remaining <= 0 and 0.6 or 0
+			Components.setIcon(tile.icon, snap)
+			tile.stroke.Color = snap and (Theme.Rarity[snap.rarity] or Theme.Stroke) or Theme.Stroke
+		end
+	end
+
+	-- bottom bar: accept / cancel / status
+	local acceptBtn = Components.button({
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -12, 1, -10),
-		Size = UDim2.fromOffset(150, 34),
-		Text = "Confirm ✔",
+		Position = UDim2.new(1, -14, 1, -12),
+		Size = UDim2.fromOffset(190, 42),
+		Text = "ACCEPT ✔",
+		TextSize = 16,
 		BackgroundColor3 = Theme.Good,
 	}, function()
 		local view = TradeController.trade:get()
@@ -309,13 +464,14 @@ function TradeScreen.build(gui: ScreenGui)
 			TradeController.setConfirm(not view.you.confirmed)
 		end
 	end)
-	confirmBtn.Parent = panel
+	acceptBtn.Parent = panel
 
 	local cancelBtn = Components.button({
 		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 12, 1, -10),
-		Size = UDim2.fromOffset(110, 34),
+		Position = UDim2.new(0, 14, 1, -12),
+		Size = UDim2.fromOffset(120, 42),
 		Text = "Cancel",
+		TextSize = 14,
 		BackgroundColor3 = Theme.Bad,
 	}, function()
 		TradeController.cancel()
@@ -324,8 +480,8 @@ function TradeScreen.build(gui: ScreenGui)
 
 	local statusLabel = Components.label({
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -16),
-		Size = UDim2.fromOffset(380, 22),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		Size = UDim2.fromOffset(380, 20),
 		Text = "",
 		TextSize = 13,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -333,48 +489,61 @@ function TradeScreen.build(gui: ScreenGui)
 	})
 	statusLabel.Parent = panel
 
-	-- strip tiles rebuilt from inventory
-	local stripTiles: { [string]: TextButton } = {}
-	local function refreshStrip()
-		local inventory = InventoryController.inventory:get()
-		local stats = EconomyController.stats:get()
-		for itemId, btn in stripTiles do
-			if inventory[itemId] == nil then
-				btn:Destroy()
-				stripTiles[itemId] = nil
-			end
+	-- countdown overlay (server grace window after both accept)
+	local countdownBar = Components.panel({
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 36),
+		Size = UDim2.fromOffset(360, 26),
+		BackgroundColor3 = Theme.Bg,
+		Visible = false,
+	})
+	countdownBar.Parent = panel
+	local countdownLabel = Components.label({
+		Size = UDim2.new(1, -16, 1, 0),
+		Position = UDim2.fromOffset(8, 0),
+		Text = "",
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = Theme.Warn,
+	})
+	countdownLabel.Parent = countdownBar
+
+	local countdownThread: thread? = nil
+	local function stopCountdown()
+		if countdownThread then
+			task.cancel(countdownThread)
+			countdownThread = nil
 		end
-		for itemId, count in inventory do
-			local btn = stripTiles[itemId]
-			if btn == nil then
-				btn = Components.button({
-					Size = UDim2.fromOffset(150, 30),
-					Text = itemId,
-					TextSize = 11,
-					BackgroundColor3 = Theme.BgLight,
-					Name = itemId,
-				}, function()
-					TradeController.addItem(itemId)
-				end)
-				btn.Parent = stripScroll
-				stripTiles[itemId] = btn
-			end
-			local snap = stats[itemId]
-			btn.Text = ("%s x%d"):format(snap and snap.name or itemId, count)
-			btn.TextColor3 = snap and (Theme.Rarity[snap.rarity] or Theme.TextPrimary) or Theme.TextPrimary
-		end
+		countdownBar.Visible = false
 	end
 
-	-- render loop from view
+	local function startCountdown(confirmedAt: number)
+		stopCountdown()
+		countdownBar.Visible = true
+		countdownThread = task.spawn(function()
+			while true do
+				local remaining = (confirmedAt + TradeConfig.ConfirmGraceSeconds) - workspace:GetServerTimeNow()
+				if remaining <= 0 then
+					countdownLabel.Text = "Locking in — completing trade…"
+					break
+				end
+				countdownLabel.Text = ("Both ready! Completing in %d… (Cancel to stop)"):format(math.ceil(remaining))
+				task.wait(0.2)
+			end
+		end)
+	end
+
+	-- render from view
 	local function render(view: any)
 		if view == nil then
 			panel.Visible = false
+			stopCountdown()
+			tooltip.hide()
 			return
 		end
 		panel.Visible = true
 		local stats = EconomyController.stats:get()
 
-		-- make sure we have stats for everything on screen
 		local wanted = {}
 		for itemId in view.you.offer.items do
 			table.insert(wanted, itemId)
@@ -384,32 +553,40 @@ function TradeScreen.build(gui: ScreenGui)
 		end
 		EconomyController.ensure(wanted)
 
-		theirSide.header.Text = view.them.name or ("User " .. tostring(view.them.userId))
+		title.Text = "Trading with " .. (view.them.name or ("User " .. tostring(view.them.userId)))
 		yourSide.header.Text = localPlayer.Name .. " (you)"
+		theirSide.header.Text = view.them.name or "Them"
 
 		renderSide(yourSide, view.you.offer, view.you.confirmed, stats)
 		renderSide(theirSide, view.them.offer, view.them.confirmed, stats)
 
-		confirmBtn.Text = view.you.confirmed and "Unconfirm" or "Confirm ✔"
-		confirmBtn.BackgroundColor3 = view.you.confirmed and Theme.Warn or Theme.Good
+		acceptBtn.Text = view.you.confirmed and "UNACCEPT" or "ACCEPT ✔"
+		acceptBtn.BackgroundColor3 = view.you.confirmed and Theme.Warn or Theme.Good
 
-		if view.state == "Confirmed" or view.state == "Settling" then
-			statusLabel.Text = "Both confirmed — settling…"
-		elseif view.you.confirmed and not view.them.confirmed then
-			statusLabel.Text = "Waiting for " .. (view.them.name or "partner") .. "…"
-		elseif view.them.confirmed and not view.you.confirmed then
-			statusLabel.Text = (view.them.name or "Partner") .. " confirmed — your move"
-		else
+		if view.state == "Confirmed" and view.confirmedAt then
+			startCountdown(view.confirmedAt)
 			statusLabel.Text = ""
+		elseif view.state == "Settling" then
+			stopCountdown()
+			statusLabel.Text = "Exchanging items…"
+		else
+			stopCountdown()
+			if view.you.confirmed and not view.them.confirmed then
+				statusLabel.Text = "Waiting for " .. (view.them.name or "partner") .. "…"
+			elseif view.them.confirmed and not view.you.confirmed then
+				statusLabel.Text = (view.them.name or "Partner") .. " is ready — accept to continue"
+			else
+				statusLabel.Text = ""
+			end
 		end
 
-		refreshStrip()
+		refreshSheet()
 	end
 
 	State.Observe(TradeController.trade, render)
 	State.Observe(InventoryController.inventory, function()
 		if panel.Visible then
-			refreshStrip()
+			refreshSheet()
 		end
 	end)
 	State.Observe(EconomyController.stats, function()
@@ -436,7 +613,7 @@ function TradeScreen.build(gui: ScreenGui)
 	})
 	inviteText.Parent = invitePanel
 
-	local acceptBtn = Components.button({
+	local acceptInviteBtn = Components.button({
 		Position = UDim2.fromOffset(12, 42),
 		Size = UDim2.fromOffset(150, 32),
 		Text = "Accept",
@@ -444,7 +621,7 @@ function TradeScreen.build(gui: ScreenGui)
 	}, function()
 		TradeController.respond(true)
 	end)
-	acceptBtn.Parent = invitePanel
+	acceptInviteBtn.Parent = invitePanel
 
 	local declineBtn = Components.button({
 		AnchorPoint = Vector2.new(1, 0),
@@ -465,7 +642,7 @@ function TradeScreen.build(gui: ScreenGui)
 	end)
 
 	--------------------------------------------------------------------------------
-	-- Partner picker
+	-- Partner picker (search anyone who has ever joined)
 	--------------------------------------------------------------------------------
 
 	local picker = Components.panel({
@@ -495,7 +672,6 @@ function TradeScreen.build(gui: ScreenGui)
 	end)
 	pickerClose.Parent = picker
 
-	-- search box: username OR userId, matches anyone who has ever joined
 	local searchBox = create("TextBox", {
 		Position = UDim2.fromOffset(12, 40),
 		Size = UDim2.new(1, -24, 0, 30),
@@ -531,6 +707,7 @@ function TradeScreen.build(gui: ScreenGui)
 		end
 	end
 
+	-- never list the local player: you can't trade yourself
 	local function addResult(userId: number, name: string, order: number): boolean
 		if userId == localPlayer.UserId then
 			return false
@@ -561,7 +738,6 @@ function TradeScreen.build(gui: ScreenGui)
 		notice.Parent = listScroll
 	end
 
-	-- empty query -> players in this server; otherwise server-side directory search
 	local searchSeq = 0
 	local function runSearch()
 		local query = searchBox.Text
@@ -583,7 +759,7 @@ function TradeScreen.build(gui: ScreenGui)
 		task.spawn(function()
 			local result = Net.invoke("SearchPlayers", query)
 			if seq ~= searchSeq or not picker.Visible then
-				return -- stale response
+				return
 			end
 			clearResults()
 			if not result.ok then
