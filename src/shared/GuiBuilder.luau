@@ -584,6 +584,147 @@ local function buildTradePanel(parent: Instance)
 end
 
 --------------------------------------------------------------------------------
+-- NPC limited store panel
+--------------------------------------------------------------------------------
+
+local function buildStorePanel(parent: Instance)
+	local store = panel("StorePanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(660, 520),
+		Visible = false,
+	}, parent)
+
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -60, 0, 24),
+		Text = "✨ Limited Store",
+		TextSize = 18,
+	}, store)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, store)
+
+	-- shown only when EVERY item is sold out
+	label("OutOfStockBanner", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 34),
+		Size = UDim2.new(1, -28, 0, 22),
+		Text = "Out of stock!",
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Bad,
+		Visible = false,
+	}, store)
+
+	local grid = new("ScrollingFrame", {
+		Name = "StoreGrid",
+		Position = UDim2.fromOffset(12, 60),
+		Size = UDim2.new(1, -24, 1, -72),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, store)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(150, 170),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, grid)
+
+	-- template tile
+	local tile = new("Frame", {
+		Name = "StoreTile",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, grid)
+	corner(tile, 6)
+	stroke(tile, C.Stroke, 1)
+	local icon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, -22, 0, 8),
+		Size = UDim2.fromOffset(44, 44),
+		ScaleType = Enum.ScaleType.Fit,
+	}, tile)
+	corner(icon, 6)
+	label("ItemName", {
+		Position = UDim2.fromOffset(6, 54),
+		Size = UDim2.new(1, -12, 0, 15),
+		Text = "Item",
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, tile)
+	label("StockLabel", {
+		Position = UDim2.fromOffset(6, 70),
+		Size = UDim2.new(1, -12, 0, 13),
+		Text = "?/? left",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, tile)
+	label("PriceLabel", {
+		Position = UDim2.fromOffset(6, 86),
+		Size = UDim2.new(1, -12, 0, 18),
+		Text = "💎 ?",
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gem,
+	}, tile)
+	button("BuyButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.new(1, -16, 0, 30),
+		Text = "Buy",
+		TextSize = 13,
+		BackgroundColor3 = C.Good,
+	}, tile)
+	local soldOut = new("Frame", {
+		Name = "SoldOutOverlay",
+		BackgroundColor3 = C.Bg,
+		BackgroundTransparency = 0.25,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 1, 0),
+		Visible = false,
+		ZIndex = 5,
+	}, tile)
+	corner(soldOut, 6)
+	label("Text", {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = "SOLD OUT",
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Bad,
+		ZIndex = 6,
+	}, soldOut)
+
+	return store
+end
+
+-- Non-destructive: add just the store panel to an existing TradingModals
+-- (preserves manual edits elsewhere). No-op if it already exists.
+function GuiBuilder.addStorePanel()
+	local modals = game:GetService("StarterGui"):FindFirstChild("TradingModals")
+	if modals == nil then
+		return "TradingModals missing — run GuiBuilder.build() first"
+	end
+	if modals:FindFirstChild("StorePanel") then
+		return "StorePanel already present"
+	end
+	buildStorePanel(modals)
+	return "StorePanel added"
+end
+
+--------------------------------------------------------------------------------
 -- Modals (inventory, invite, search, tooltip)
 --------------------------------------------------------------------------------
 
@@ -633,6 +774,7 @@ local function buildModals(parent: Instance)
 	buildItemTile(grid)
 
 	buildTradePanel(gui)
+	buildStorePanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {

@@ -23,6 +23,7 @@ local Components = require(UI.Components)
 local HUD = require(UI.HUD)
 local InventoryScreen = require(UI.InventoryScreen)
 local TradeScreen = require(UI.TradeScreen)
+local StoreScreen = require(UI.StoreScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
@@ -39,5 +40,19 @@ HUD.wire(hudGui, {
 		TradeScreen.togglePicker()
 	end,
 })
+StoreScreen.wire(modalGui, tooltip, function(text, color)
+	if HUD.toast then
+		HUD.toast(text, color)
+	end
+end)
+
+-- store NPC: walking up + triggering its prompt opens the shop
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local StoreConfig = require(game:GetService("ReplicatedStorage").Shared.Config.StoreConfig)
+ProximityPromptService.PromptTriggered:Connect(function(prompt)
+	if prompt.Name == StoreConfig.PromptName then
+		StoreScreen.open()
+	end
+end)
 
 print("[Client] trading UI ready")

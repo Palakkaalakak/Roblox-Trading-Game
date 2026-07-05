@@ -28,6 +28,7 @@ local Enums = {
 		Trade = "trade",
 		Refund = "refund",
 		Mailbox = "mailbox",
+		Store = "store",
 	},
 
 	-- Remote names, single registry. Functions = request/response, Events = server pushes.
@@ -37,6 +38,8 @@ local Enums = {
 		"GetCurrentPool", -- () -> {poolId, items}
 		"SearchPlayers", -- (query) -> {ok, results = {{userId, name}}}
 		"DebugGiveGems", -- () -> {ok} — debug only, removed for release
+		"GetStore", -- () -> {ok, items = {storeItem}} — NPC limited store listing
+		"BuyItem", -- (itemId) -> {ok, price?, err?}
 		"RequestTrade", -- (targetUserId) -> {ok, tradeId?}
 		"RespondToRequest", -- (tradeId, accept) -> {ok}
 		"SetOffer", -- (tradeId, offer) -> {ok}

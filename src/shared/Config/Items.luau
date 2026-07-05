@@ -23,11 +23,13 @@ local Items = {
 	StarterGems = 0,
 
 	-- totalSupply >= threshold -> that tier (checked top-down). Below all -> Mythical.
+	-- Starter pools are HUGE (mythicals included, so even they stay cheap);
+	-- small-supply items (the limited store, future events) land Mythical.
 	RarityThresholds = {
-		{ tier = "Common", min = 750 },
-		{ tier = "Rare", min = 300 },
-		{ tier = "Legendary", min = 100 },
-		-- < 100 -> Mythical
+		{ tier = "Common", min = 15000 },
+		{ tier = "Rare", min = 6000 },
+		{ tier = "Legendary", min = 2000 },
+		-- < 2000 -> Mythical
 	},
 
 	-- assignmentWeight default = round(totalSupply ^ exponent * scale).
@@ -48,11 +50,11 @@ local Items = {
 	-- invariant: >=2 Common, >=1 Rare, >=1 Legendary-or-Mythical.
 	-- imageId: decal ids from the Simulator Icon Pack (Workspace).
 	InitialPool = {
-		{ name = "Stone Relic", totalSupply = 1000, imageId = "rbxassetid://17368402884" }, -- crate
-		{ name = "Amber Idol", totalSupply = 800, imageId = "rbxassetid://12129301834" }, -- trophy
-		{ name = "Jade Serpent", totalSupply = 450, imageId = "rbxassetid://15403270948" }, -- green potion
-		{ name = "Crimson Crown", totalSupply = 150, imageId = "rbxassetid://16912465495" }, -- crown
-		{ name = "Void Shard", totalSupply = 60, imageId = "rbxassetid://15402964203" }, -- beta gem
+		{ name = "Stone Relic", totalSupply = 20000, imageId = "rbxassetid://17368402884" }, -- crate
+		{ name = "Amber Idol", totalSupply = 16000, imageId = "rbxassetid://12129301834" }, -- trophy
+		{ name = "Jade Serpent", totalSupply = 9000, imageId = "rbxassetid://15403270948" }, -- green potion
+		{ name = "Crimson Crown", totalSupply = 3200, imageId = "rbxassetid://16912465495" }, -- crown
+		{ name = "Void Shard", totalSupply = 1200, imageId = "rbxassetid://15402964203" }, -- beta gem
 	},
 
 	-- Icon candidates for procedurally generated pools (rotation). Drawn
@@ -89,11 +91,11 @@ local Items = {
 	-- One entry per slot; supply rolled uniformly in [min, max].
 	-- Template guarantees the rarity spread structurally.
 	PoolTemplate = {
-		{ min = 750, max = 1200 }, -- Common
-		{ min = 750, max = 1200 }, -- Common
-		{ min = 300, max = 600 }, -- Rare
-		{ min = 100, max = 250 }, -- Legendary
-		{ min = 40, max = 90 }, -- Mythical
+		{ min = 15000, max = 24000 }, -- Common
+		{ min = 15000, max = 24000 }, -- Common
+		{ min = 6000, max = 12000 }, -- Rare
+		{ min = 2000, max = 5000 }, -- Legendary
+		{ min = 800, max = 1800 }, -- Mythical
 	},
 
 	-- Name generation for rotated pools.

@@ -19,13 +19,13 @@ return {
 	name = "PureLogic",
 	tests = {
 		["rarity threshold boundaries"] = function()
-			eq(Rarity.tierFor(1000), "Common")
-			eq(Rarity.tierFor(750), "Common")
-			eq(Rarity.tierFor(749), "Rare")
-			eq(Rarity.tierFor(300), "Rare")
-			eq(Rarity.tierFor(299), "Legendary")
-			eq(Rarity.tierFor(100), "Legendary")
-			eq(Rarity.tierFor(99), "Mythical")
+			eq(Rarity.tierFor(20000), "Common")
+			eq(Rarity.tierFor(15000), "Common")
+			eq(Rarity.tierFor(14999), "Rare")
+			eq(Rarity.tierFor(6000), "Rare")
+			eq(Rarity.tierFor(5999), "Legendary")
+			eq(Rarity.tierFor(2000), "Legendary")
+			eq(Rarity.tierFor(1999), "Mythical")
 			eq(Rarity.tierFor(1), "Mythical")
 		end,
 
@@ -127,18 +127,36 @@ return {
 		end,
 
 		["value formula: N/A below circulating threshold, else >= 1"] = function()
-			eq(EconomyService.computeValue(0, 0), nil, "circ 0 must be N/A")
-			local v1 = EconomyService.computeValue(1, 0)
+			eq(EconomyService.computeValue(1000, 0, 0), nil, "circ 0 must be N/A")
+			local v1 = EconomyService.computeValue(1000, 1, 0)
 			assert(v1 ~= nil and v1 >= 1, "circ 1 must be a real value")
 		end,
 
-		["value formula: scarcer is worth more, demand raises value"] = function()
-			local scarce = EconomyService.computeValue(10, 0) :: number
-			local common = EconomyService.computeValue(1000, 0) :: number
+		["value formula: scarcer cap is worth more, demand raises value"] = function()
+			local scarce = EconomyService.computeValue(50, 1, 0) :: number
+			local common = EconomyService.computeValue(20000, 1, 0) :: number
 			assert(scarce > common, "scarcity inversion")
-			local hot = EconomyService.computeValue(100, 50) :: number
-			local cold = EconomyService.computeValue(100, 0) :: number
+			assert(common <= 2, "huge-pool items must be cheap: " .. common)
+			local hot = EconomyService.computeValue(1000, 1, 50) :: number
+			local cold = EconomyService.computeValue(1000, 1, 0) :: number
 			assert(hot > cold, "demand should raise value")
+		end,
+
+		["store pricing: rarity, cap scarcity, and depletion all raise price"] = function()
+			local StoreService = require(script.Parent.Parent.Services.StoreService)
+			-- depletion ramp: fresh < half sold < last copy
+			local fresh = StoreService.priceFor("Mythical", 100, 100)
+			local half = StoreService.priceFor("Mythical", 100, 50)
+			local last = StoreService.priceFor("Mythical", 100, 1)
+			assert(fresh < half and half < last, "depletion must raise price")
+			-- lower total supply = pricier at same fill fraction
+			local small = StoreService.priceFor("Mythical", 25, 25)
+			local big = StoreService.priceFor("Mythical", 100, 100)
+			assert(small > big, "smaller cap must be pricier")
+			-- rarity base ordering
+			local myth = StoreService.priceFor("Mythical", 100, 100)
+			local common = StoreService.priceFor("Common", 100, 100)
+			assert(myth > common, "higher rarity must be pricier")
 		end,
 	},
 }

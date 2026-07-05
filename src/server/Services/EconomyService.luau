@@ -46,11 +46,15 @@ local function decayedDemand(record: any, now: number): number
 end
 
 -- value = max(1, round(Base * scarcity * demandFactor)); nil when N/A.
-function EconomyService.computeValue(circulating: number, demandEMA: number): number?
+-- Scarcity is based on the item's TOTAL supply cap, so huge starter pools
+-- stay cheap from copy one (a 20k-supply mythical is not a jackpot), while
+-- genuinely scarce items (limited store, future events) are worth more.
+-- Still N/A until at least one copy exists.
+function EconomyService.computeValue(totalSupply: number, circulating: number, demandEMA: number): number?
 	if circulating < EconomyConfig.MinSamples.ValueCirculating then
 		return nil
 	end
-	local scarcity = (EconomyConfig.ReferenceSupply / math.max(circulating, 1)) ^ EconomyConfig.SupplyExponent
+	local scarcity = (EconomyConfig.ReferenceSupply / math.max(totalSupply, 1)) ^ EconomyConfig.SupplyExponent
 	local demandFactor = 1 + EconomyConfig.DemandCoefficient * math.log10(1 + math.max(demandEMA, 0))
 	return math.max(1, math.floor(EconomyConfig.ValueBase * scarcity * demandFactor + 0.5))
 end
@@ -285,7 +289,7 @@ function EconomyService.snapshot(itemId: string): any?
 	local now = os.time()
 	local demand = decayedDemand(rec, now)
 	local circulating = rec.circulating or 0
-	local value = EconomyService.computeValue(circulating, demand)
+	local value = EconomyService.computeValue(item.totalSupply, circulating, demand)
 
 	return {
 		itemId = itemId,
@@ -305,11 +309,12 @@ end
 
 -- Value used inside price imputation (server-side, nil-safe fallback 1).
 function EconomyService.valueOf(itemId: string): number
+	local item = EconomyService.getItem(itemId)
 	local rec = getRecord(itemId)
-	if rec == nil then
+	if item == nil or rec == nil then
 		return 1
 	end
-	local v = EconomyService.computeValue(rec.circulating or 0, decayedDemand(rec, os.time()))
+	local v = EconomyService.computeValue(item.totalSupply, rec.circulating or 0, decayedDemand(rec, os.time()))
 	return v or 1
 end
 

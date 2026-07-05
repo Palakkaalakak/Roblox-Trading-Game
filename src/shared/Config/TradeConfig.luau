@@ -27,6 +27,8 @@ local TradeConfig = {
 		GetStats = { 30, 10 },
 		SearchPlayers = { 30, 10 },
 		DebugGiveGems = { 30, 10 },
+		GetStore = { 30, 10 },
+		BuyItem = { 20, 6 },
 	},
 }
 
