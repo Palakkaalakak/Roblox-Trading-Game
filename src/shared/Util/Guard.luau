@@ -51,7 +51,8 @@ function Guard.checkOfferShape(v: any): (boolean, string?)
 	if not Guard.isNonNegativeInt(gems) or gems > TradeConfig.MaxGemsPerOffer then
 		return false, "bad_gems"
 	end
-	local slots = 0
+	-- one COPY per UI slot: the cap is total copies across the offer
+	local copies = 0
 	for itemId, count in items do
 		if not Guard.isString(itemId, 64) then
 			return false, "bad_item_id"
@@ -59,8 +60,8 @@ function Guard.checkOfferShape(v: any): (boolean, string?)
 		if not Guard.isPositiveInt(count) or count > TradeConfig.MaxCountPerSlot then
 			return false, "bad_item_count"
 		end
-		slots += 1
-		if slots > TradeConfig.MaxSlotsPerSide then
+		copies += count
+		if copies > TradeConfig.MaxSlotsPerSide then
 			return false, "too_many_slots"
 		end
 	end

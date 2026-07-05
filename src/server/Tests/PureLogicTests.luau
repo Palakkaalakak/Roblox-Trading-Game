@@ -117,12 +117,13 @@ return {
 				local ok = Guard.checkOfferShape(offer)
 				assert(not ok, "case " .. i .. " should be rejected")
 			end
-			-- too many slots
-			local items = {}
+			-- copy cap: 9 copies fit (one per slot), 10 do not
+			local nine = {}
 			for i = 1, 9 do
-				items["itm_" .. i] = 1
+				nine["itm_" .. i] = 1
 			end
-			assert(not Guard.checkOfferShape({ items = items, gems = 0 }), "slot cap not enforced")
+			assert(Guard.checkOfferShape({ items = nine, gems = 0 }), "9 copies should fit")
+			assert(not Guard.checkOfferShape({ items = { itm_a = 10 }, gems = 0 }), "copy cap not enforced")
 		end,
 
 		["value formula: N/A below circulating threshold, else >= 1"] = function()

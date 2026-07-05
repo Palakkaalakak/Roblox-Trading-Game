@@ -1,5 +1,7 @@
 --!strict
--- Client bootstrap: controllers first (state + remote wiring), then UI.
+-- Client bootstrap: controllers first (state + remote wiring), then wire the
+-- StarterGui-built GUI (TradingHUD / TradingModals — built by GuiBuilder,
+-- editable in Studio).
 
 local Players = game:GetService("Players")
 
@@ -16,29 +18,20 @@ InventoryController.Start()
 EconomyController.Start()
 TradeController.Start()
 
--- UI
 local UI = script.UI
+local Components = require(UI.Components)
 local HUD = require(UI.HUD)
 local InventoryScreen = require(UI.InventoryScreen)
 local TradeScreen = require(UI.TradeScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
+local modalGui = playerGui:WaitForChild("TradingModals") :: ScreenGui
 
-local hudGui = Instance.new("ScreenGui")
-hudGui.Name = "TradingHUD"
-hudGui.ResetOnSpawn = false
-hudGui.DisplayOrder = 10
-hudGui.Parent = playerGui
-
-local modalGui = Instance.new("ScreenGui")
-modalGui.Name = "TradingModals"
-modalGui.ResetOnSpawn = false
-modalGui.DisplayOrder = 20
-modalGui.Parent = playerGui
-
-InventoryScreen.build(modalGui)
-TradeScreen.build(modalGui)
-HUD.build(hudGui, {
+local tooltip = Components.wireTooltip(modalGui)
+InventoryScreen.wire(modalGui, tooltip)
+TradeScreen.wire(modalGui, tooltip)
+HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
 	end,
