@@ -81,19 +81,19 @@ function EconomyController.Start()
 		end
 	end)
 
-	-- pool banner + pre-warm pool item stats
+	-- pre-warm current pool stats (fast retries while the server boots)
 	task.spawn(function()
-		for _ = 1, 30 do
+		for _ = 1, 60 do
 			local result = Net.invoke("GetCurrentPool")
 			if result.ok then
 				EconomyController.pool:set({ poolId = result.poolId, seq = result.seq, items = result.items })
 				absorb(result.items)
 				break
 			end
-			task.wait(1)
+			task.wait(0.3)
 		end
 		-- reconcile pass: early snapshots may predate join-time economy writes
-		task.wait(3)
+		task.wait(1)
 		local known = {}
 		for itemId in EconomyController.stats:get() do
 			table.insert(known, itemId)

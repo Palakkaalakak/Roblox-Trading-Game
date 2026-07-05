@@ -273,8 +273,13 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		renderSide(yourSide, view.you.offer, view.you.confirmed, stats)
 		renderSide(theirSide, view.them.offer, view.them.confirmed, stats)
 
-		acceptBtn.Text = view.you.confirmed and "UNACCEPT" or "ACCEPT ✔"
-		acceptBtn.BackgroundColor3 = view.you.confirmed and Theme.Warn or Theme.Good
+		if TradeController.pendingConfirm:get() then
+			acceptBtn.Text = "…"
+			acceptBtn.BackgroundColor3 = Theme.BgLight
+		else
+			acceptBtn.Text = view.you.confirmed and "UNACCEPT" or "ACCEPT ✔"
+			acceptBtn.BackgroundColor3 = view.you.confirmed and Theme.Warn or Theme.Good
+		end
 
 		if view.state == "Confirmed" and view.confirmedAt then
 			startCountdown(view.confirmedAt)
@@ -299,6 +304,9 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	end
 
 	State.Observe(TradeController.trade, render)
+	State.Observe(TradeController.pendingConfirm, function()
+		render(TradeController.trade:get())
+	end)
 	State.Observe(InventoryController.inventory, function()
 		if picker.Visible then
 			refreshPicker()

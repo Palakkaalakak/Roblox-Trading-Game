@@ -41,7 +41,7 @@ return {
 			eq(r.state, "Opened", "one confirm must not advance")
 			r = TradeCore.setConfirm(r, B, true, T0 + 5) :: any
 			eq(r.state, "Confirmed", "both confirms must advance")
-			assert(r.settlementId == "settle_t1", "deterministic settlement id")
+			assert(r.settlementId == "settle_t1_r1", "deterministic settlement id")
 
 			r = TradeCore.markDeposited(r, A, T0 + 6) :: any
 			eq(r.state, "Confirmed")
@@ -135,6 +135,34 @@ return {
 			r = TradeCore.markDeposited(r, A, T0 + 5) :: any
 			local _, err = TradeCore.markDeposited(r, A, T0 + 6)
 			eq(err, "already_deposited")
+		end,
+
+		["unaccept during grace reverts to Opened, round scopes ids"] = function()
+			local r = freshOpened()
+			r = TradeCore.setOffer(r, A, offer({ itm_x = 1 }, 0), T0 + 2, 300) :: any
+			r = TradeCore.setConfirm(r, A, true, T0 + 3) :: any
+			r = TradeCore.setConfirm(r, B, true, T0 + 4) :: any
+			eq(r.state, "Confirmed")
+			eq(r.round, 1)
+			assert(r.confirmedAt == T0 + 4, "confirmedAt stamped")
+
+			-- A bails during the countdown
+			r = TradeCore.setConfirm(r, A, false, T0 + 5) :: any
+			eq(r.state, "Opened", "unaccept must revert to Opened")
+			eq(r.confirmedAt, nil)
+			eq(r.settlementId, nil)
+			assert(r.b.confirmed, "other side's accept survives")
+
+			-- both accept again: new round, new settlement id
+			r = TradeCore.setConfirm(r, A, true, T0 + 6) :: any
+			eq(r.state, "Confirmed")
+			eq(r.round, 2)
+			eq(r.settlementId, "settle_" .. r.tradeId .. "_r2")
+
+			-- once a deposit lands, unaccept is too late
+			r = TradeCore.markDeposited(r, A, T0 + 7) :: any
+			local _, err = TradeCore.setConfirm(r, B, false, T0 + 8)
+			eq(err, "too_late")
 		end,
 
 		["expiry only in Invited/Opened"] = function()

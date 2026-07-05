@@ -12,6 +12,7 @@ local TradeController = {}
 
 TradeController.trade = State.Value(nil :: any) -- sanitized view or nil
 TradeController.invite = State.Value(nil :: any) -- {tradeId, fromUserId, fromName} or nil
+TradeController.pendingConfirm = State.Value(false) -- accept toggle in flight (optimistic UI)
 TradeController.settled = Signal.new() -- (tradeId, items, gems) — toast hook
 TradeController.aborted = Signal.new() -- (tradeId, reason)
 TradeController.actionError = Signal.new() -- (code) — surface rejections
@@ -91,11 +92,13 @@ end
 
 function TradeController.setConfirm(confirmed: boolean)
 	local tradeId = currentTradeId()
-	if tradeId == nil then
+	if tradeId == nil or TradeController.pendingConfirm:get() then
 		return
 	end
+	TradeController.pendingConfirm:set(true)
 	task.spawn(function()
 		local result = Net.invoke("SetConfirm", tradeId, confirmed)
+		TradeController.pendingConfirm:set(false)
 		if not result.ok then
 			TradeController.actionError:Fire(result.err or "failed")
 		end

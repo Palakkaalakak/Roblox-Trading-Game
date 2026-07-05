@@ -112,18 +112,40 @@ end
 -- Set/unset confirm. When both sides are confirmed the record advances to
 -- Confirmed — the ONLY path there, and it happens atomically with the second
 -- confirm inside the same transform.
+-- UNACCEPT is also legal during the Confirmed grace window (deposits haven't
+-- started): it drops the trade back to Opened, keeping the other side's
+-- accept. The grace re-drive sees state ~= Confirmed and stands down.
 function TradeCore.setConfirm(record: any, byUserId: number, confirmed: boolean, now: number): (any?, string?)
-	if record.state ~= "Opened" then
-		return nil, "bad_state"
-	end
 	local key = TradeCore.sideKeyOf(record, byUserId)
 	if key == nil then
 		return nil, "not_participant"
 	end
+
+	if record.state == "Confirmed" then
+		if confirmed then
+			return nil, "bad_state" -- already fully accepted
+		end
+		if record.a.deposited or record.b.deposited then
+			return nil, "too_late" -- escrow already started; countdown is over
+		end
+		record[key].confirmed = false
+		record.state = "Opened"
+		record.confirmedAt = nil
+		record.settlementId = nil
+		touch(record, now)
+		return record, nil
+	end
+
+	if record.state ~= "Opened" then
+		return nil, "bad_state"
+	end
 	record[key].confirmed = confirmed
 	if record.a.confirmed and record.b.confirmed then
 		record.state = "Confirmed"
-		record.settlementId = "settle_" .. record.tradeId -- deterministic => idempotent everywhere
+		-- round-scoped ids: an escrow refunded after an unaccept can never
+		-- alias a later confirm round's deposit/settle idempotency keys
+		record.round = (record.round or 0) + 1
+		record.settlementId = ("settle_%s_r%d"):format(record.tradeId, record.round)
 		record.confirmedAt = now -- grace countdown anchor (settlement waits)
 	end
 	touch(record, now)

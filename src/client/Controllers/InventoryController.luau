@@ -19,31 +19,34 @@ function InventoryController.Start()
 		InventoryController.gems:set(gems)
 	end)
 
-	-- hydrate (retry while profile loads server-side). A second pass a few
-	-- seconds later covers the join-time race where the starter grant's push
+	-- hydrate (retry fast while profile loads server-side). One extra pass a
+	-- second later covers the join-time race where the starter grant's push
 	-- fires before this client's listeners are live.
 	task.spawn(function()
-		local hydrated = false
-		for _ = 1, 30 do
+		local function hydrateOnce(): boolean
 			local result = Net.invoke("GetInventory")
 			if result.ok then
 				InventoryController.inventory:set(result.inventory, true)
 				InventoryController.gems:set(result.gems)
-				hydrated = true
+				return true
+			end
+			return false
+		end
+
+		local hydrated = false
+		for _ = 1, 60 do
+			hydrated = hydrateOnce()
+			if hydrated then
 				break
 			end
-			task.wait(1)
+			task.wait(0.3)
 		end
 		if not hydrated then
 			warn("[Inventory] hydrate failed")
 			return
 		end
-		task.wait(3)
-		local result = Net.invoke("GetInventory")
-		if result.ok then
-			InventoryController.inventory:set(result.inventory, true)
-			InventoryController.gems:set(result.gems)
-		end
+		task.wait(1)
+		hydrateOnce()
 	end)
 end
 

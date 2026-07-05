@@ -155,6 +155,12 @@ end
 -- Refunds + abort
 --------------------------------------------------------------------------------
 
+-- Claim ids are scoped to the confirm round so escrow refunded after an
+-- unaccept can never alias a later round's keys.
+local function claimIdFor(kind: string, record: any, userId: number, round: number?): string
+	return ("%s_%s_r%d_%d"):format(kind, record.tradeId, round or record.round or 1, userId)
+end
+
 -- Return escrowed goods to a side. Local player -> direct apply; otherwise
 -- mailbox. Idempotent via deterministic claimId on both paths.
 local function refundSide(record: any, key: string)
@@ -162,7 +168,7 @@ local function refundSide(record: any, key: string)
 	if not side.deposited or side.refunded then
 		return
 	end
-	local claimId = "refund_" .. record.tradeId .. "_" .. tostring(side.userId)
+	local claimId = claimIdFor("refund", record, side.userId)
 	local player = Players:GetPlayerByUserId(side.userId)
 	local delivered = false
 
@@ -280,7 +286,7 @@ local function creditSide(record: any, key: string): boolean
 		return true
 	end
 	local goods = record[TradeCore.otherKey(key)].offer
-	local claimId = "settle_" .. record.tradeId .. "_" .. tostring(side.userId)
+	local claimId = claimIdFor("settle", record, side.userId)
 	local player = Players:GetPlayerByUserId(side.userId)
 	local delivered = false
 
@@ -321,7 +327,8 @@ local function attemptDeposit(record: any, key: string)
 		return -- their server (or the sweep after they rejoin) handles it
 	end
 
-	local claimId = "deposit_" .. record.tradeId .. "_" .. tostring(side.userId)
+	local round = record.round or 1
+	local claimId = claimIdFor("deposit", record, side.userId, round)
 	local ok, err = InventoryService.applyDelta(player, negate(side.offer), Enums.GrantSource.Trade, claimId)
 	if not ok then
 		AnalyticsService.log("deposit_failed", { tradeId = record.tradeId, userId = side.userId, err = err })
@@ -331,22 +338,26 @@ local function attemptDeposit(record: any, key: string)
 	DataService.saveNow(player)
 
 	local committed, mErr = mutate(record.tradeId, function(r)
+		if (r.round or 1) ~= round then
+			return nil, "round_changed" -- unaccept+reaccept raced us
+		end
 		return TradeCore.markDeposited(r, side.userId, os.time())
 	end)
 	if committed then
 		TradeService.progress(committed)
 		notifyLocal(committed)
 		publishPing(record.tradeId)
-	elseif mErr == "bad_state" then
-		-- trade got aborted while we escrowed: undo our escrow (idempotent)
+	elseif mErr == "bad_state" or mErr == "round_changed" then
+		-- trade aborted OR dropped back to Opened (unaccept during grace)
+		-- while we escrowed: undo our escrow. Round-scoped claim id keeps
+		-- this refund from ever colliding with a later round.
 		local current = fetch(record.tradeId)
-		if current and current.state == "Aborted" then
-			local refundClaim = "refund_" .. record.tradeId .. "_" .. tostring(side.userId)
+		if current == nil or current.state ~= "Settling" and current.state ~= "Settled" then
 			InventoryService.applyDelta(
 				player,
 				{ items = side.offer.items, gems = side.offer.gems },
 				Enums.GrantSource.Refund,
-				refundClaim
+				claimIdFor("refund", record, side.userId, round)
 			)
 			DataService.saveNow(player)
 		end

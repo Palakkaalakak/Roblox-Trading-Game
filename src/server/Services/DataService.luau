@@ -164,7 +164,14 @@ local function recordSeen(player: Player)
 	end)
 end
 
-local function refreshSeenCache()
+local seenCacheAt = 0
+local SEEN_CACHE_TTL = 10
+
+local function refreshSeenCache(force: boolean?)
+	if not force and os.clock() - seenCacheAt < SEEN_CACHE_TTL then
+		return -- fresh enough; keeps SearchPlayers off the DataStore hot path
+	end
+	seenCacheAt = os.clock()
 	pcall(function()
 		local all = seenStore:GetAsync("all")
 		if all then
