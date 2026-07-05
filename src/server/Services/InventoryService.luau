@@ -118,6 +118,20 @@ function InventoryService.Start()
 		end
 		return { ok = true, inventory = profile.Inventory, gems = profile.Gems }
 	end)
+
+	-- DEBUG ONLY: +gems button faucet. Delete with DebugConfig for release.
+	local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
+	local RateLimitService = require(script.Parent.RateLimitService) :: any
+	Net.bindFunction("DebugGiveGems", function(player)
+		if not DebugConfig.GiveGemsEnabled then
+			return { ok = false, err = "disabled" }
+		end
+		if not RateLimitService.check(player, "DebugGiveGems") then
+			return { ok = false, err = "rate_limited" }
+		end
+		local ok, err = InventoryService.applyDelta(player, { gems = DebugConfig.GiveGemsAmount }, "debug")
+		return { ok = ok, err = err }
+	end)
 end
 
 return InventoryService

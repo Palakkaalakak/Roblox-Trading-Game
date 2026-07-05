@@ -35,6 +35,8 @@ local Enums = {
 		"GetInventory", -- () -> {gems, inventory, poolItemIds}
 		"GetStats", -- (itemIds) -> {snapshots}
 		"GetCurrentPool", -- () -> {poolId, items}
+		"SearchPlayers", -- (query) -> {ok, results = {{userId, name}}}
+		"DebugGiveGems", -- () -> {ok} — debug only, removed for release
 		"RequestTrade", -- (targetUserId) -> {ok, tradeId?}
 		"RespondToRequest", -- (tradeId, accept) -> {ok}
 		"SetOffer", -- (tradeId, offer) -> {ok}

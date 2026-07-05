@@ -18,9 +18,9 @@ local Items = {
 	-- heterogeneous enough for starter-vs-starter trading.
 	StarterBundleSize = 4,
 
-	-- Gems granted alongside the starter bundle (placeholder faucet so the
-	-- gem side of trades can move before any shop exists). Tunable.
-	StarterGems = 100,
+	-- Gems granted alongside the starter bundle. 0 for now — the gem faucet
+	-- arrives with the shop phase; use the debug button meanwhile.
+	StarterGems = 0,
 
 	-- totalSupply >= threshold -> that tier (checked top-down). Below all -> Mythical.
 	RarityThresholds = {

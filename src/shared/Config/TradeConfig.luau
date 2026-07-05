@@ -21,6 +21,8 @@ local TradeConfig = {
 		SetConfirm = { 20, 8 },
 		CancelTrade = { 10, 5 },
 		GetStats = { 30, 10 },
+		SearchPlayers = { 30, 10 },
+		DebugGiveGems = { 30, 10 },
 	},
 }
 

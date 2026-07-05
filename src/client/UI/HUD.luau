@@ -49,34 +49,23 @@ function HUD.build(gui: ScreenGui, toggles: { inventory: () -> (), picker: () ->
 	}, toggles.picker)
 	tradeButton.Parent = gui
 
-	-- pool banner (top center)
-	local banner = Components.panel({
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 8),
-		Size = UDim2.fromOffset(620, 30),
-	})
-	local bannerLabel = Components.label({
-		Size = UDim2.new(1, -16, 1, 0),
-		Position = UDim2.fromOffset(8, 0),
-		Text = "Starter pool: loading…",
-		TextSize = 13,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = Theme.TextDim,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-	})
-	bannerLabel.Parent = banner
-	banner.Parent = gui
-
-	State.Observe(EconomyController.pool, function(pool)
-		if pool == nil then
-			return
-		end
-		local names = {}
-		for _, snap in pool.items do
-			table.insert(names, snap.name)
-		end
-		bannerLabel.Text = ("Starter pool #%d: %s"):format(pool.seq, table.concat(names, " · "))
-	end)
+	-- DEBUG ONLY: gem faucet button (remove with DebugConfig for release)
+	local DebugConfig = require(game:GetService("ReplicatedStorage").Shared.Config.DebugConfig)
+	if DebugConfig.GiveGemsEnabled then
+		local Net = require(script.Parent.Parent.Net)
+		local debugBtn = Components.button({
+			Position = UDim2.fromOffset(12, 136),
+			Size = UDim2.fromOffset(140, 34),
+			Text = ("+%d 💎 (debug)"):format(DebugConfig.GiveGemsAmount),
+			BackgroundColor3 = Theme.Warn,
+			TextColor3 = Theme.Bg,
+		}, function()
+			task.spawn(function()
+				Net.invoke("DebugGiveGems")
+			end)
+		end)
+		debugBtn.Parent = gui
+	end
 
 	-- toasts (settle/abort/errors)
 	local toastHolder = create("Frame", {

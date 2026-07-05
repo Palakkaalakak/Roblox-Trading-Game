@@ -22,8 +22,10 @@ function Guard.isNonNegativeInt(v: any): boolean
 	return Guard.isInt(v) and v >= 0
 end
 
+-- Note: Studio local test-server players get NEGATIVE user ids (-1, -2, …),
+-- so nonzero integers are accepted; negatives never occur in production.
 function Guard.isUserId(v: any): boolean
-	return Guard.isPositiveInt(v) and v < 2 ^ 52
+	return Guard.isInt(v) and v ~= 0 and math.abs(v) < 2 ^ 52
 end
 
 function Guard.isBool(v: any): boolean

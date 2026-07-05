@@ -98,13 +98,14 @@ local function statText(stat: any): string
 end
 Components.statText = statText
 
--- Four-line stat block: Value / Demand / Supply / RAP. update(snapshot) refreshes.
+-- Stat block: Value / Demand / RAP, fully written out. Supply lives in the
+-- tile subtitle ("X in existence"), not here. update(snapshot) refreshes.
 function Components.statBlock(parent: Instance): (snapshot: any?) -> ()
 	local rows = {}
-	local defs = { { "V", "value" }, { "D", "demand" }, { "S", "supply" }, { "RAP", "rap" } }
+	local defs = { { "Value", "value" }, { "Demand", "demand" }, { "RAP", "rap" } }
 	local holder = create("Frame", {
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 56),
+		Size = UDim2.new(1, 0, 0, 42),
 		Name = "Stats",
 	})
 	create("UIListLayout", { Padding = UDim.new(0, 0), FillDirection = Enum.FillDirection.Vertical }).Parent = holder
@@ -174,8 +175,19 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 	})
 	countBadge.Parent = tile
 
-	local rarityLabel = Components.label({
+	-- supply subtitle: "X in existence"
+	local existenceLabel = Components.label({
 		Position = UDim2.fromOffset(8, 26),
+		Size = UDim2.new(1, -16, 0, 13),
+		Text = "",
+		Font = Theme.FontLight,
+		TextSize = 11,
+		TextColor3 = Theme.TextDim,
+	})
+	existenceLabel.Parent = tile
+
+	local rarityLabel = Components.label({
+		Position = UDim2.fromOffset(8, 40),
 		Size = UDim2.new(1, -16, 0, 13),
 		Text = "",
 		Font = Theme.FontLight,
@@ -186,8 +198,8 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 
 	local statsHolder = create("Frame", {
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(8, 44),
-		Size = UDim2.new(1, -16, 0, 80),
+		Position = UDim2.fromOffset(8, 58),
+		Size = UDim2.new(1, -16, 0, 66),
 	})
 	statsHolder.Parent = tile
 	local updateStats = Components.statBlock(statsHolder)
@@ -202,6 +214,12 @@ function Components.itemTile(itemId: string, onClick: (() -> ())?): (Frame, (sna
 			rarityLabel.Text = snapshot.rarity or ""
 			rarityLabel.TextColor3 = Theme.Rarity[snapshot.rarity] or Theme.TextDim
 			stripe.BackgroundColor3 = Theme.Rarity[snapshot.rarity] or Theme.Rarity.Common
+			local supply = snapshot.supply
+			if supply and supply.state == "Known" and supply.value ~= nil then
+				existenceLabel.Text = tostring(supply.value) .. " in existence"
+			else
+				existenceLabel.Text = "N/A in existence"
+			end
 		end
 		countBadge.Text = (count and count > 1) and ("x" .. tostring(count)) or ""
 		updateStats(snapshot)

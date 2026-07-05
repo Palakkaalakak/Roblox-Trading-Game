@@ -26,8 +26,10 @@ DataService.ProfileReleased = Signal.new() -- (player)
 
 local profileStore: any -- SessionStore
 local mailboxStore: any -- raw adapter datastore
+local seenStore: any -- directory of every player who ever joined (for search)
 local sessions: { [number]: any } = {} -- userId -> Session
 local loadedPlayers: { [number]: boolean } = {}
+local seenCache: { [string]: any } = {} -- userId(string) -> {name, lastSeen}
 
 local function template()
 	return {
@@ -145,10 +147,67 @@ function DataService.mailboxClaim(player: Player): { any }
 end
 
 --------------------------------------------------------------------------------
+-- Seen-players directory (search by name or userId)
+--------------------------------------------------------------------------------
+
+local function recordSeen(player: Player)
+	local key = tostring(player.UserId)
+	seenCache[key] = { name = player.Name, lastSeen = os.time() }
+	task.spawn(function()
+		pcall(function()
+			seenStore:UpdateAsync("all", function(old)
+				old = old or {}
+				old[key] = { name = player.Name, lastSeen = os.time() }
+				return old
+			end)
+		end)
+	end)
+end
+
+local function refreshSeenCache()
+	pcall(function()
+		local all = seenStore:GetAsync("all")
+		if all then
+			seenCache = all
+		end
+	end)
+end
+
+-- Search every player that has EVER joined the game: userId exact/prefix or
+-- case-insensitive name substring. Returns up to `limit` {userId, name}.
+function DataService.searchPlayers(query: string, limit: number): { any }
+	local q = query:lower():gsub("^%s+", ""):gsub("%s+$", "")
+	if #q == 0 then
+		return {}
+	end
+	local isNumeric = q:match("^%-?%d+$") ~= nil
+	local results = {}
+	for key, info in seenCache do
+		local match = false
+		if isNumeric and (key == q or key:sub(1, #q) == q) then
+			match = true
+		elseif info.name and info.name:lower():find(q, 1, true) then
+			match = true
+		end
+		if match then
+			table.insert(results, { userId = tonumber(key), name = info.name, lastSeen = info.lastSeen })
+			if #results >= limit then
+				break
+			end
+		end
+	end
+	table.sort(results, function(a, b)
+		return (a.lastSeen or 0) > (b.lastSeen or 0)
+	end)
+	return results
+end
+
+--------------------------------------------------------------------------------
 -- Lifecycle
 --------------------------------------------------------------------------------
 
 local function onPlayerAdded(player: Player)
+	recordSeen(player)
 	local session, reason = profileStore:load(profileKey(player.UserId))
 	if session == nil then
 		AnalyticsService.log("profile_load_failed", { userId = player.UserId, reason = reason })
@@ -191,6 +250,8 @@ function DataService.Init()
 	StoreAdapters.init()
 	profileStore = SessionStore.new("PlayerProfiles_v1", template)
 	mailboxStore = StoreAdapters.dataStore("Mailbox_v1")
+	seenStore = StoreAdapters.dataStore("SeenPlayers_v1")
+	refreshSeenCache()
 end
 
 function DataService.Start()
@@ -222,6 +283,20 @@ function DataService.Start()
 				end
 			end
 		end
+	end)
+
+	-- player directory search (name or userId, anyone who ever joined)
+	local Net = require(script.Parent.Parent.Net) :: any
+	local RateLimitService = require(script.Parent.RateLimitService) :: any
+	Net.bindFunction("SearchPlayers", function(player, query)
+		if not RateLimitService.check(player, "SearchPlayers") then
+			return { ok = false, err = "rate_limited" }
+		end
+		if type(query) ~= "string" or #query > 50 then
+			return { ok = false, err = "bad_query" }
+		end
+		refreshSeenCache() -- pick up joins on other servers
+		return { ok = true, results = DataService.searchPlayers(query, 20) }
 	end)
 
 	game:BindToClose(function()

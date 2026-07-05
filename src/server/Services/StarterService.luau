@@ -31,6 +31,11 @@ local ROTATION_WAIT_SECONDS = 10
 
 local StarterService = {}
 
+-- ONE shared RNG stream for all draws on this server. Per-draw Random.new()
+-- can seed identically for players joining the same instant -> identical
+-- bundles; a single advancing stream guarantees each player's roll differs.
+local sharedRng = Random.new(os.time() * 1000 + math.floor(os.clock() * 1e6) % 1000)
+
 -- Build weighted candidate list from a pool: items with reserve > 0.
 local function candidatesFrom(pool: any): { any }
 	local out = {}
@@ -48,7 +53,7 @@ end
 function StarterService.drawBundle(k: number): { [string]: number }
 	local grant: { [string]: number } = {}
 	local secured = 0
-	local rng = Random.new()
+	local rng = sharedRng
 
 	while secured < k do
 		local pool = PoolService.getCurrentPool()

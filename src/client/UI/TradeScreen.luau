@@ -13,6 +13,7 @@ local Components = require(script.Parent.Components)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
+local Net = require(script.Parent.Parent.Net)
 
 local create = Components.create
 local localPlayer = Players.LocalPlayer
@@ -202,12 +203,11 @@ local function renderSide(side: any, offer: any, confirmed: boolean, stats: { [s
 		slot.itemId = itemId
 		slot.name.Text = (snap and snap.name or itemId) .. (count > 1 and (" x" .. count) or "")
 		slot.name.TextColor3 = snap and (Theme.Rarity[snap.rarity] or Theme.TextPrimary) or Theme.TextPrimary
-		slot.meta.Text = snap and snap.rarity or ""
+		slot.meta.Text = snap and (snap.rarity .. " · " .. Components.statText(snap.supply) .. " in existence") or ""
 		slot.stat.Text = snap
-				and ("V:%s D:%s S:%s RAP:%s"):format(
+				and ("Value: %s · Demand: %s · RAP: %s"):format(
 					Components.statText(snap.value),
 					Components.statText(snap.demand),
-					Components.statText(snap.supply),
 					Components.statText(snap.rap)
 				)
 			or ""
@@ -495,74 +495,129 @@ function TradeScreen.build(gui: ScreenGui)
 	end)
 	pickerClose.Parent = picker
 
-	local listScroll = create("ScrollingFrame", {
+	-- search box: username OR userId, matches anyone who has ever joined
+	local searchBox = create("TextBox", {
 		Position = UDim2.fromOffset(12, 40),
-		Size = UDim2.new(1, -24, 1, -128),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		CanvasSize = UDim2.new(),
-	})
-	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.Name }).Parent = listScroll
-	listScroll.Parent = picker
-
-	local idBox = create("TextBox", {
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0, 12, 1, -52),
 		Size = UDim2.new(1, -24, 0, 30),
 		BackgroundColor3 = Theme.BgLight,
 		BorderSizePixel = 0,
 		Font = Theme.FontLight,
 		TextColor3 = Theme.TextPrimary,
 		TextSize = 13,
-		PlaceholderText = "…or enter a UserId (cross-server)",
+		PlaceholderText = "Search by username or UserId…",
 		Text = "",
 		ClearTextOnFocus = false,
 	})
-	Components.corner(Theme.CornerSmall).Parent = idBox
-	idBox.Parent = picker
+	Components.corner(Theme.CornerSmall).Parent = searchBox
+	searchBox.Parent = picker
 
-	local sendBtn = Components.button({
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -12),
-		Size = UDim2.fromOffset(150, 32),
-		Text = "Send request",
-	}, function()
-		local n = tonumber(idBox.Text)
-		if n and n > 0 then
-			picker.Visible = false
-			TradeController.requestTrade(n)
-		end
-	end)
-	sendBtn.Parent = picker
+	local listScroll = create("ScrollingFrame", {
+		Position = UDim2.fromOffset(12, 78),
+		Size = UDim2.new(1, -24, 1, -90),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	})
+	create("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }).Parent = listScroll
+	listScroll.Parent = picker
 
-	local function refreshPicker()
+	local function clearResults()
 		for _, child in listScroll:GetChildren() do
-			if child:IsA("TextButton") then
+			if child:IsA("TextButton") or child:IsA("TextLabel") then
 				child:Destroy()
-			end
-		end
-		for _, player in Players:GetPlayers() do
-			if player ~= localPlayer then
-				local btn = Components.button({
-					Size = UDim2.new(1, 0, 0, 32),
-					Text = player.Name,
-					BackgroundColor3 = Theme.BgLight,
-					Name = player.Name,
-				}, function()
-					picker.Visible = false
-					TradeController.requestTrade(player.UserId)
-				end)
-				btn.Parent = listScroll
 			end
 		end
 	end
 
+	local function addResult(userId: number, name: string, order: number): boolean
+		if userId == localPlayer.UserId then
+			return false
+		end
+		local online = Players:GetPlayerByUserId(userId) ~= nil
+		local btn = Components.button({
+			Size = UDim2.new(1, 0, 0, 32),
+			Text = ("%s  (%d)%s"):format(name, userId, online and "  •in server" or ""),
+			TextSize = 12,
+			BackgroundColor3 = Theme.BgLight,
+			LayoutOrder = order,
+		}, function()
+			picker.Visible = false
+			TradeController.requestTrade(userId)
+		end)
+		btn.Parent = listScroll
+		return true
+	end
+
+	local function showNotice(text: string)
+		local notice = Components.label({
+			Size = UDim2.new(1, 0, 0, 24),
+			Text = text,
+			TextSize = 12,
+			TextColor3 = Theme.TextDim,
+			TextXAlignment = Enum.TextXAlignment.Center,
+		})
+		notice.Parent = listScroll
+	end
+
+	-- empty query -> players in this server; otherwise server-side directory search
+	local searchSeq = 0
+	local function runSearch()
+		local query = searchBox.Text
+		searchSeq += 1
+		local seq = searchSeq
+		clearResults()
+		if query:gsub("%s", "") == "" then
+			local added = 0
+			for _, player in Players:GetPlayers() do
+				if addResult(player.UserId, player.Name, added + 1) then
+					added += 1
+				end
+			end
+			if added == 0 then
+				showNotice("Nobody else in this server — search a name or UserId")
+			end
+			return
+		end
+		task.spawn(function()
+			local result = Net.invoke("SearchPlayers", query)
+			if seq ~= searchSeq or not picker.Visible then
+				return -- stale response
+			end
+			clearResults()
+			if not result.ok then
+				showNotice("Search failed: " .. tostring(result.err))
+				return
+			end
+			local added = 0
+			for _, entry in result.results do
+				if addResult(entry.userId, entry.name or ("User " .. entry.userId), added + 1) then
+					added += 1
+				end
+			end
+			if added == 0 then
+				showNotice("No matches")
+			end
+		end)
+	end
+
+	local searchDebounce: thread? = nil
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		if searchDebounce then
+			task.cancel(searchDebounce)
+		end
+		searchDebounce = task.delay(0.35, function()
+			searchDebounce = nil
+			runSearch()
+		end)
+	end)
+
 	function TradeScreen.togglePicker()
 		picker.Visible = not picker.Visible
 		if picker.Visible then
-			refreshPicker()
+			searchBox.Text = ""
+			runSearch()
 		end
 	end
 
