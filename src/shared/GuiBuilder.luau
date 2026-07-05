@@ -277,7 +277,10 @@ local function buildItemTile(parent: Instance)
 		Position = UDim2.fromOffset(8, 106),
 		Size = UDim2.new(1, -16, 0, 56),
 	}, tile)
-	new("UIListLayout", { FillDirection = Enum.FillDirection.Vertical }, stats)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, stats)
 	for i, statName in { "ValueRow", "DemandRow", "RapRow" } do
 		label(statName, {
 			Size = UDim2.new(1, 0, 0, 14),

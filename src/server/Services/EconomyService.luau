@@ -178,16 +178,19 @@ local function getRecord(itemId: string): any?
 end
 
 -- Atomic transform of the hot record (MemoryStore CAS). Marks dirty + caches.
+-- CRITICAL: the transform passed to UpdateAsync must be PURE — no yields, no
+-- store reads. MemoryStore may invoke it multiple times, and yielding inside
+-- it double-applies mutations (this exact bug inflated circulating counts).
+-- Missing records are seeded BEFORE the CAS, outside the transform.
 local function mutateRecord(itemId: string, transform: (any) -> any?): any?
+	if getRecord(itemId) == nil then
+		return nil -- unknown item; getRecord already tried durable + fresh seed
+	end
 	local result
 	local ok = pcall(function()
 		result = hotMap:UpdateAsync(itemId, function(old)
 			if old == nil then
-				-- seed from durable/fresh before mutating
-				old = getRecord(itemId)
-				if old == nil then
-					return nil
-				end
+				return nil -- key expired between seed and CAS; caller may retry
 			end
 			return transform(old)
 		end)
@@ -279,6 +282,7 @@ function EconomyService.snapshot(itemId: string): any?
 		name = item.name,
 		rarity = item.rarity,
 		imageId = item.imageId,
+		totalSupply = item.totalSupply, -- fixed cap (the Y in "X/Y in existence")
 		-- supply is always known (authoritative count; 0 is a real value)
 		supply = stat(true, circulating),
 		demand = stat((rec.demandSamples or 0) >= EconomyConfig.MinSamples.Demand, math.floor(demand * 100 + 0.5) / 100),

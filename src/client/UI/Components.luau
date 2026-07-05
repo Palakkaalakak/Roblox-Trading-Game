@@ -40,6 +40,18 @@ function Components.rarityColor(rarity: string?): Color3
 	return (rarity and Theme.Rarity[rarity]) or Theme.Rarity.Common
 end
 
+-- "X/Y in existence": X = copies in players' hands, Y = total that can ever
+-- be distributed.
+function Components.existenceText(snapshot: any?): string
+	if snapshot == nil then
+		return "?/? in existence"
+	end
+	local supply = snapshot.supply
+	local x = (supply and supply.state == "Known" and supply.value ~= nil) and tostring(supply.value) or "N/A"
+	local y = snapshot.totalSupply and tostring(snapshot.totalSupply) or "?"
+	return x .. "/" .. y .. " in existence"
+end
+
 -- Fill an ItemTile (template clone) from a snapshot + owned count.
 function Components.fillItemTile(tile: Instance, snapshot: any?, count: number?)
 	local t = tile :: any
@@ -49,12 +61,7 @@ function Components.fillItemTile(tile: Instance, snapshot: any?, count: number?)
 		t.Rarity.TextColor3 = Components.rarityColor(snapshot.rarity)
 		t.Stripe.BackgroundColor3 = Components.rarityColor(snapshot.rarity)
 		Components.setIcon(t.Icon, snapshot)
-		local supply = snapshot.supply
-		if supply and supply.state == "Known" and supply.value ~= nil then
-			t.Existence.Text = tostring(supply.value) .. " in existence"
-		else
-			t.Existence.Text = "N/A in existence"
-		end
+		t.Existence.Text = Components.existenceText(snapshot)
 		t.Stats.ValueRow.Text = "Value: " .. statText(snapshot.value)
 		t.Stats.DemandRow.Text = "Demand: " .. statText(snapshot.demand)
 		t.Stats.RapRow.Text = "RAP: " .. statText(snapshot.rap)
@@ -76,7 +83,7 @@ function Components.wireTooltip(gui: ScreenGui)
 		end
 		title.Text = snapshot.name or "?"
 		title.TextColor3 = Components.rarityColor(snapshot.rarity)
-		sub.Text = (snapshot.rarity or "?") .. " · " .. statText(snapshot.supply) .. " in existence"
+		sub.Text = (snapshot.rarity or "?") .. " · " .. Components.existenceText(snapshot)
 			.. ((count and count > 1) and (" · x" .. count) or "")
 		body.Text = ("Value: %s\nDemand: %s\nRAP: %s"):format(
 			statText(snapshot.value),
