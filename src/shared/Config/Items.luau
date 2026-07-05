@@ -34,6 +34,16 @@ local Items = {
 	AssignmentWeightExponent = 0.75,
 	AssignmentWeightScale = 1,
 
+	-- Store cost (gems) per rarity tier — arbitrary placeholders until the
+	-- rotating store phase. Items with NO store cost (future event-only
+	-- items) display "Store Cost: N/A (Event Item)".
+	StoreCostByRarity = {
+		Common = 100,
+		Rare = 300,
+		Legendary = 750,
+		Mythical = 2000,
+	},
+
 	-- Placeholder initial pool (pool #1). Spread satisfies the pool-generation
 	-- invariant: >=2 Common, >=1 Rare, >=1 Legendary-or-Mythical.
 	-- imageId: decal ids from the Simulator Icon Pack (Workspace).

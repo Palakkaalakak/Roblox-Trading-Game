@@ -40,6 +40,15 @@ function Components.rarityColor(rarity: string?): Color3
 	return (rarity and Theme.Rarity[rarity]) or Theme.Rarity.Common
 end
 
+-- "Store Cost: N gems", or "N/A (Event Item)" for items with no store cost
+-- (future event-only items — none exist yet).
+function Components.storeCostText(snapshot: any?): string
+	if snapshot and snapshot.storeCost then
+		return tostring(snapshot.storeCost)
+	end
+	return "N/A (Event Item)"
+end
+
 -- "X/Y in existence": X = copies in players' hands, Y = total that can ever
 -- be distributed.
 function Components.existenceText(snapshot: any?): string
@@ -62,8 +71,8 @@ function Components.fillItemTile(tile: Instance, snapshot: any?, count: number?)
 		t.Stripe.BackgroundColor3 = Components.rarityColor(snapshot.rarity)
 		Components.setIcon(t.Icon, snapshot)
 		t.Existence.Text = Components.existenceText(snapshot)
-		t.Stats.ValueRow.Text = "Value: " .. statText(snapshot.value)
-		t.Stats.DemandRow.Text = "Demand: " .. statText(snapshot.demand)
+		t.Stats.ValueRow.Text = "Est. Value: " .. statText(snapshot.value)
+		t.Stats.StoreCostRow.Text = "Store Cost: " .. Components.storeCostText(snapshot)
 		t.Stats.RapRow.Text = "RAP: " .. statText(snapshot.rap)
 	end
 	t.CountBadge.Text = (count and count > 1) and ("x" .. tostring(count)) or ""
@@ -85,9 +94,9 @@ function Components.wireTooltip(gui: ScreenGui)
 		title.TextColor3 = Components.rarityColor(snapshot.rarity)
 		sub.Text = (snapshot.rarity or "?") .. " · " .. Components.existenceText(snapshot)
 			.. ((count and count > 1) and (" · x" .. count) or "")
-		body.Text = ("Value: %s\nDemand: %s\nRAP: %s"):format(
+		body.Text = ("Est. Value: %s\nStore Cost: %s\nRAP: %s"):format(
 			statText(snapshot.value),
-			statText(snapshot.demand),
+			Components.storeCostText(snapshot),
 			statText(snapshot.rap)
 		)
 		local pos = anchor.AbsolutePosition

@@ -13,6 +13,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
+local Items = require(ReplicatedStorage.Shared.Config.Items)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local RollingAverage = require(ReplicatedStorage.Shared.Util.RollingAverage)
 local Rarity = require(ReplicatedStorage.Shared.Util.Rarity)
@@ -88,6 +89,7 @@ function EconomyService.registerItems(defs: { any })
 	registryStore:UpdateAsync("all", function(old)
 		old = old or {}
 		for _, def in defs do
+			local rarity = Rarity.tierFor(def.totalSupply)
 			if old[def.itemId] == nil then
 				old[def.itemId] = {
 					itemId = def.itemId,
@@ -95,12 +97,20 @@ function EconomyService.registerItems(defs: { any })
 					name = def.name,
 					totalSupply = def.totalSupply,
 					assignmentWeight = def.assignmentWeight,
-					rarity = Rarity.tierFor(def.totalSupply),
+					rarity = rarity,
 					imageId = def.imageId,
+					-- gems price in the future rotating store; nil = event-only
+					storeCost = def.storeCost or Items.StoreCostByRarity[rarity],
 					createdAt = now,
 				}
-			elseif old[def.itemId].imageId == nil and def.imageId ~= nil then
-				old[def.itemId].imageId = def.imageId -- backfill icons on old entries
+			else
+				-- backfill fields added after the entry was written
+				if old[def.itemId].imageId == nil and def.imageId ~= nil then
+					old[def.itemId].imageId = def.imageId
+				end
+				if old[def.itemId].storeCost == nil then
+					old[def.itemId].storeCost = Items.StoreCostByRarity[rarity]
+				end
 			end
 		end
 		registry = old
@@ -283,6 +293,7 @@ function EconomyService.snapshot(itemId: string): any?
 		rarity = item.rarity,
 		imageId = item.imageId,
 		totalSupply = item.totalSupply, -- fixed cap (the Y in "X/Y in existence")
+		storeCost = item.storeCost, -- gems; nil = event-only item (no store)
 		-- supply is always known (authoritative count; 0 is a real value)
 		supply = stat(true, circulating),
 		demand = stat((rec.demandSamples or 0) >= EconomyConfig.MinSamples.Demand, math.floor(demand * 100 + 0.5) / 100),
@@ -355,6 +366,29 @@ function EconomyService.Init()
 	econStore = StoreAdapters.dataStore("EconomyStore_v1")
 	hotMap = StoreAdapters.sortedMap("EconomyHot_v1")
 	EconomyService.loadRegistry()
+
+	-- one-time backfill: storeCost on entries written before the field existed
+	local needsBackfill = false
+	for _, item in registry do
+		if item.storeCost == nil then
+			needsBackfill = true
+			break
+		end
+	end
+	if needsBackfill then
+		pcall(function()
+			registryStore:UpdateAsync("all", function(old)
+				old = old or {}
+				for _, item in old do
+					if item.storeCost == nil and item.rarity then
+						item.storeCost = Items.StoreCostByRarity[item.rarity]
+					end
+				end
+				registry = old
+				return old
+			end)
+		end)
+	end
 end
 
 function EconomyService.Start()

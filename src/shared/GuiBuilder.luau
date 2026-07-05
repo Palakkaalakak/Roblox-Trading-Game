@@ -281,7 +281,7 @@ local function buildItemTile(parent: Instance)
 		FillDirection = Enum.FillDirection.Vertical,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, stats)
-	for i, statName in { "ValueRow", "DemandRow", "RapRow" } do
+	for i, statName in { "ValueRow", "StoreCostRow", "RapRow" } do
 		label(statName, {
 			Size = UDim2.new(1, 0, 0, 14),
 			Text = "…",
