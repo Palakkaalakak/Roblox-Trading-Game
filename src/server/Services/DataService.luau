@@ -39,6 +39,7 @@ local function template()
 		StarterGranted = false,
 		StarterGrantId = "",
 		ClaimedIds = {},
+		StorePurchases = {}, -- itemId -> lifetime count bought from the limited store
 		Meta = { firstJoin = os.time(), lastLogin = os.time(), joins = 0 },
 	}
 end

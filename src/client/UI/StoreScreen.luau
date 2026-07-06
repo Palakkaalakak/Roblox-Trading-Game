@@ -29,15 +29,29 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local buying = false
 
 	local function renderEntry(tile: any, entry: any)
+		local frame = tile.frame
+		local limit = entry.limit or 1
+		local purchased = entry.purchased or 0
+		local maxed = purchased >= limit
 		local soldOut = entry.remaining <= 0
-		tile.frame.LayoutOrder = entry.order;
-		(tile.frame:WaitForChild("ItemName") :: TextLabel).Text = entry.name;
-		(tile.frame:WaitForChild("StockLabel") :: TextLabel).Text = ("%d/%d left"):format(entry.remaining, entry.totalSupply);
-		(tile.frame:WaitForChild("PriceLabel") :: TextLabel).Text = "💎 " .. tostring(entry.price)
-		Components.setIcon(tile.frame:WaitForChild("Icon") :: ImageLabel, entry);
-		(tile.frame:WaitForChild("SoldOutOverlay") :: Frame).Visible = soldOut
-		local buyBtn = tile.frame:WaitForChild("BuyButton") :: TextButton
-		buyBtn.Visible = not soldOut
+
+		frame.LayoutOrder = entry.order
+		local limitText = "Can buy " .. tostring(limit) .. " max";
+		(frame:WaitForChild("ItemName") :: TextLabel).Text = entry.name;
+		(frame:WaitForChild("StockLabel") :: TextLabel).Text = ("%d/%d left"):format(entry.remaining, entry.totalSupply);
+		(frame:WaitForChild("PriceLabel") :: TextLabel).Text = "💎 " .. tostring(entry.price);
+		(frame:WaitForChild("LimitLabel") :: TextLabel).Text = limitText
+		Components.setIcon(frame:WaitForChild("Icon") :: ImageLabel, entry)
+
+		-- max-reached takes visual priority over sold-out (it's the player's wall)
+		local maxOverlay = frame:WaitForChild("MaxReachedOverlay") :: Frame
+		local soldOverlay = frame:WaitForChild("SoldOutOverlay") :: Frame
+		maxOverlay.Visible = maxed;
+		(maxOverlay:WaitForChild("Sub") :: TextLabel).Text = limitText
+		soldOverlay.Visible = soldOut and not maxed
+
+		local buyBtn = frame:WaitForChild("BuyButton") :: TextButton
+		buyBtn.Visible = not soldOut and not maxed
 	end
 
 	local function refresh()
@@ -73,6 +87,12 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 						buyBtn.Text = "Buy"
 						if buyResult.ok then
 							toast(("Bought %s for %d 💎!"):format(entry.name, buyResult.price), Theme.Good)
+						elseif buyResult.err == "buy_limit" then
+							toast(("Max buy limit reached! Can buy %d max."):format(buyResult.limit or 1), Theme.Warn)
+						elseif buyResult.err == "out_of_stock" then
+							toast(entry.name .. " is sold out!", Theme.Warn)
+						elseif buyResult.err == "insufficient_gems" then
+							toast("Not enough gems!", Theme.Bad)
 						else
 							toast("Purchase failed: " .. tostring(buyResult.err), Theme.Bad)
 						end

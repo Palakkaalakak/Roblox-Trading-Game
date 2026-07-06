@@ -632,7 +632,7 @@ local function buildStorePanel(parent: Instance)
 		CanvasSize = UDim2.new(),
 	}, store)
 	new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(150, 170),
+		CellSize = UDim2.fromOffset(150, 192),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, grid)
@@ -680,6 +680,15 @@ local function buildStorePanel(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.Gem,
 	}, tile)
+	label("LimitLabel", {
+		Position = UDim2.fromOffset(6, 106),
+		Size = UDim2.new(1, -12, 0, 13),
+		Text = "Can buy 1 max",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, tile)
 	button("BuyButton", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
@@ -688,24 +697,47 @@ local function buildStorePanel(parent: Instance)
 		TextSize = 13,
 		BackgroundColor3 = C.Good,
 	}, tile)
-	local soldOut = new("Frame", {
-		Name = "SoldOutOverlay",
-		BackgroundColor3 = C.Bg,
-		BackgroundTransparency = 0.25,
-		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 1, 0),
-		Visible = false,
-		ZIndex = 5,
-	}, tile)
-	corner(soldOut, 6)
-	label("Text", {
-		Size = UDim2.new(1, 0, 1, 0),
-		Text = "SOLD OUT",
-		TextSize = 16,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = C.Bad,
-		ZIndex = 6,
-	}, soldOut)
+
+	-- overlays (shown by StoreScreen). Two lines each.
+	local function overlay(name: string, titleText: string, titleColor: Color3)
+		local ov = new("Frame", {
+			Name = name,
+			BackgroundColor3 = C.Bg,
+			BackgroundTransparency = 0.2,
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, 0, 1, 0),
+			Visible = false,
+			ZIndex = 5,
+		}, tile)
+		corner(ov, 6)
+		label("Text", {
+			AnchorPoint = Vector2.new(0.5, 1),
+			Position = UDim2.new(0.5, 0, 0.5, 4),
+			Size = UDim2.new(1, -8, 0, 40),
+			Text = titleText,
+			TextSize = 14,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Bottom,
+			TextColor3 = titleColor,
+			ZIndex = 6,
+		}, ov)
+		label("Sub", {
+			AnchorPoint = Vector2.new(0.5, 0),
+			Position = UDim2.new(0.5, 0, 0.5, 8),
+			Size = UDim2.new(1, -8, 0, 16),
+			Text = "",
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextColor3 = C.TextDim,
+			ZIndex = 6,
+		}, ov)
+		return ov
+	end
+
+	overlay("SoldOutOverlay", "SOLD OUT", C.Bad)
+	overlay("MaxReachedOverlay", "Max buy limit reached!", C.Warn)
 
 	return store
 end

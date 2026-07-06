@@ -142,21 +142,25 @@ return {
 			assert(hot > cold, "demand should raise value")
 		end,
 
-		["store pricing: rarity, cap scarcity, and depletion all raise price"] = function()
+		["store pricing: cheap base, scarcity + depletion raise price"] = function()
 			local StoreService = require(script.Parent.Parent.Services.StoreService)
+			local StoreConfig = require(ReplicatedStorage.Shared.Config.StoreConfig)
+			-- largest-supply item starts at BaseGems (the ~10 gem floor)
+			local floor = StoreService.priceFor(StoreConfig.SupplyReference, StoreConfig.SupplyReference)
+			eq(floor, StoreConfig.BaseGems, "reference-supply item must price to BaseGems")
+			assert(StoreConfig.BaseGems <= 10, "base must be cheap")
 			-- depletion ramp: fresh < half sold < last copy
-			local fresh = StoreService.priceFor("Mythical", 100, 100)
-			local half = StoreService.priceFor("Mythical", 100, 50)
-			local last = StoreService.priceFor("Mythical", 100, 1)
+			local fresh = StoreService.priceFor(100, 100)
+			local half = StoreService.priceFor(100, 50)
+			local last = StoreService.priceFor(100, 1)
 			assert(fresh < half and half < last, "depletion must raise price")
 			-- lower total supply = pricier at same fill fraction
-			local small = StoreService.priceFor("Mythical", 25, 25)
-			local big = StoreService.priceFor("Mythical", 100, 100)
-			assert(small > big, "smaller cap must be pricier")
-			-- rarity base ordering
-			local myth = StoreService.priceFor("Mythical", 100, 100)
-			local common = StoreService.priceFor("Common", 100, 100)
-			assert(myth > common, "higher rarity must be pricier")
+			assert(StoreService.priceFor(25, 25) > StoreService.priceFor(150, 150), "scarcer must be pricier")
+		end,
+
+		["store buy limit: default is 1"] = function()
+			local StoreConfig = require(ReplicatedStorage.Shared.Config.StoreConfig)
+			eq(StoreConfig.DefaultMaxPerPlayer, 1, "default per-player buy limit must be 1")
 		end,
 	},
 }

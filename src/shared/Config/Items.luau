@@ -40,10 +40,10 @@ local Items = {
 	-- rotating store phase. Items with NO store cost (future event-only
 	-- items) display "Store Cost: N/A (Event Item)".
 	StoreCostByRarity = {
-		Common = 100,
-		Rare = 300,
-		Legendary = 750,
-		Mythical = 2000,
+		Common = 10,
+		Rare = 25,
+		Legendary = 50,
+		Mythical = 100,
 	},
 
 	-- Placeholder initial pool (pool #1). Spread satisfies the pool-generation

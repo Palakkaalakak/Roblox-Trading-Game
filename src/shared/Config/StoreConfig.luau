@@ -11,16 +11,26 @@
 --   2. That's it. Next server boot registers the new item and the store
 --      sells it. The old entry can be deleted from this list.
 --
--- Pricing (computed live server-side):
---   price = StoreCostByRarity[rarity]                 (higher rarity = pricier)
---         * (SupplyReference / totalSupply) ^ SupplyExponent   (scarcer cap = pricier)
---         * (1 + DepletionRamp * fractionSold)        (price climbs as stock sells)
+-- Pricing (computed live server-side). Kept cheap and supply-driven (store
+-- items are all low-supply, so the pool-calibrated rarity tiers don't apply):
+--   price = BaseGems
+--         * (SupplyReference / totalSupply) ^ SupplyExponent   (scarcer = pricier)
+--         * (1 + DepletionRamp * fractionSold)                 (climbs as stock sells)
+-- With SupplyReference = the largest catalog supply, that item starts at
+-- BaseGems (10) and scarcer ones cost a bit more.
 
 local StoreConfig = {
 	-- price knobs
-	SupplyReference = 100,
+	BaseGems = 10, -- cheapest fresh item price
+	SupplyReference = 150, -- ~largest catalog supply; sets the BaseGems floor
 	SupplyExponent = 0.5,
 	DepletionRamp = 1.0, -- last copy costs (1 + ramp) x the fresh price
+
+	-- Per-player PURCHASE limit (persisted; trading is unaffected — players
+	-- can hold more via trades, they just can't BUY more than this).
+	-- Per-item override: add `maxPerPlayer = N` to a Catalog entry.
+	-- Gamepass/per-player boosts: extend StoreService.buyLimitFor().
+	DefaultMaxPerPlayer = 1,
 
 	-- world hookup: ProximityPrompt with this name opens the store
 	PromptName = "StorePrompt",

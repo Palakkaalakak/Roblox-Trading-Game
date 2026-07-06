@@ -15,8 +15,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local StoreConfig = require(ReplicatedStorage.Shared.Config.StoreConfig)
-local Items = require(ReplicatedStorage.Shared.Config.Items)
-local Rarity = require(ReplicatedStorage.Shared.Util.Rarity)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 
 local Net = require(script.Parent.Parent.Net)
@@ -30,21 +28,43 @@ local StoreService = {}
 
 local catalogIds: { string } = {} -- ordered itemIds
 local catalogSet: { [string]: boolean } = {}
+local catalogMeta: { [string]: { maxPerPlayer: number? } } = {} -- itemId -> catalog extras
 
 local function itemIdFor(sku: string): string
 	return "store_" .. sku
 end
 
--- Live price for a store item. Pure given (rarity, totalSupply, remaining).
-function StoreService.priceFor(rarity: string, totalSupply: number, remaining: number): number
-	local base = Items.StoreCostByRarity[rarity] or 100
+-- How many of this item ONE player may buy from the store (lifetime).
+-- Purchases only — trading in more is always allowed. Single extension point:
+--   * per-item override via Catalog `maxPerPlayer`
+--   * later: gamepass/VIP boosts keyed on `player` (add checks here)
+--   * later: per-item event rules
+function StoreService.buyLimitFor(player: Player, itemId: string): number
+	local meta = catalogMeta[itemId]
+	local limit = (meta and meta.maxPerPlayer) or StoreConfig.DefaultMaxPerPlayer
+	-- e.g. future: if PassService.owns(player, DOUBLE_BUY_PASS) then limit *= 2 end
+	return limit
+end
+
+-- Lifetime store-buy count for a player+item (lazy-inits legacy profiles).
+local function purchasedCount(profile: any, itemId: string): number
+	if profile.StorePurchases == nil then
+		profile.StorePurchases = {}
+	end
+	return profile.StorePurchases[itemId] or 0
+end
+
+-- Live price for a store item. Pure given (totalSupply, remaining).
+-- Supply-driven so scarcer items cost more; climbs as stock depletes.
+function StoreService.priceFor(totalSupply: number, remaining: number): number
 	local supplyFactor = (StoreConfig.SupplyReference / math.max(totalSupply, 1)) ^ StoreConfig.SupplyExponent
 	local sold = math.clamp(1 - remaining / math.max(totalSupply, 1), 0, 1)
 	local ramp = 1 + StoreConfig.DepletionRamp * sold
-	return math.max(1, math.floor(base * supplyFactor * ramp + 0.5))
+	return math.max(1, math.floor(StoreConfig.BaseGems * supplyFactor * ramp + 0.5))
 end
 
-local function listing(): { any }
+local function listing(player: Player): { any }
+	local profile = DataService.getProfile(player)
 	local out = {}
 	for _, itemId in catalogIds do
 		local item = EconomyService.getItem(itemId)
@@ -58,7 +78,9 @@ local function listing(): { any }
 				imageId = item.imageId,
 				totalSupply = item.totalSupply,
 				remaining = remaining,
-				price = StoreService.priceFor(item.rarity, item.totalSupply, remaining),
+				price = StoreService.priceFor(item.totalSupply, remaining),
+				limit = StoreService.buyLimitFor(player, itemId),
+				purchased = profile and purchasedCount(profile, itemId) or 0,
 			})
 		end
 	end
@@ -80,12 +102,20 @@ local function handleBuy(player: Player, itemId: any)
 	if item == nil or snap == nil then
 		return { ok = false, err = "unknown_item" }
 	end
+
+	-- per-player buy limit (purchases only; trading in more is fine)
+	local profile = DataService.getProfile(player)
+	local limit = StoreService.buyLimitFor(player, itemId)
+	if profile and purchasedCount(profile, itemId) >= limit then
+		return { ok = false, err = "buy_limit", limit = limit }
+	end
+
 	local remaining = snap.reserveRemaining or 0
 	if remaining <= 0 then
 		return { ok = false, err = "out_of_stock" }
 	end
 
-	local price = StoreService.priceFor(item.rarity, item.totalSupply, remaining)
+	local price = StoreService.priceFor(item.totalSupply, remaining)
 
 	-- charge first (validates funds atomically in-memory)...
 	local charged, chargeErr = InventoryService.applyDelta(player, { gems = -price }, Enums.GrantSource.Store)
@@ -99,10 +129,14 @@ local function handleBuy(player: Player, itemId: any)
 		return { ok = false, err = "out_of_stock" }
 	end
 	InventoryService.applyDelta(player, { items = { [itemId] = 1 } }, Enums.GrantSource.Store)
+	-- record the purchase against the player's limit
+	if profile then
+		profile.StorePurchases[itemId] = purchasedCount(profile, itemId) + 1
+	end
 	DataService.saveNow(player)
 
 	AnalyticsService.log("store_purchase", { userId = player.UserId, itemId = itemId, price = price })
-	return { ok = true, price = price }
+	return { ok = true, price = price, purchased = profile and profile.StorePurchases[itemId] or 1, limit = limit }
 end
 
 function StoreService.Init()
@@ -113,6 +147,7 @@ function StoreService.Init()
 		local itemId = itemIdFor(entry.sku)
 		table.insert(catalogIds, itemId)
 		catalogSet[itemId] = true
+		catalogMeta[itemId] = { maxPerPlayer = entry.maxPerPlayer }
 		table.insert(defs, {
 			itemId = itemId,
 			poolId = "store",
@@ -120,11 +155,7 @@ function StoreService.Init()
 			totalSupply = entry.totalSupply,
 			assignmentWeight = 0, -- never part of starter draws
 			imageId = entry.imageId,
-			storeCost = StoreService.priceFor(
-				Rarity.tierFor(entry.totalSupply),
-				entry.totalSupply,
-				entry.totalSupply
-			),
+			storeCost = StoreService.priceFor(entry.totalSupply, entry.totalSupply),
 		})
 	end
 	EconomyService.registerItems(defs)
@@ -135,7 +166,7 @@ function StoreService.Start()
 		if not RateLimitService.check(player, "GetStore") then
 			return { ok = false, err = "rate_limited" }
 		end
-		return { ok = true, items = listing() }
+		return { ok = true, items = listing(player) }
 	end)
 	Net.bindFunction("BuyItem", handleBuy)
 end
