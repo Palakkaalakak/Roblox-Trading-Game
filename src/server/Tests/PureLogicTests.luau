@@ -142,20 +142,16 @@ return {
 			assert(hot > cold, "demand should raise value")
 		end,
 
-		["store pricing: cheap base, scarcity + depletion raise price"] = function()
+		["store pricing: fixed per-item price from config"] = function()
 			local StoreService = require(script.Parent.Parent.Services.StoreService)
 			local StoreConfig = require(ReplicatedStorage.Shared.Config.StoreConfig)
-			-- largest-supply item starts at BaseGems (the ~10 gem floor)
-			local floor = StoreService.priceFor(StoreConfig.SupplyReference, StoreConfig.SupplyReference)
-			eq(floor, StoreConfig.BaseGems, "reference-supply item must price to BaseGems")
-			assert(StoreConfig.BaseGems <= 10, "base must be cheap")
-			-- depletion ramp: fresh < half sold < last copy
-			local fresh = StoreService.priceFor(100, 100)
-			local half = StoreService.priceFor(100, 50)
-			local last = StoreService.priceFor(100, 1)
-			assert(fresh < half and half < last, "depletion must raise price")
-			-- lower total supply = pricier at same fill fraction
-			assert(StoreService.priceFor(25, 25) > StoreService.priceFor(150, 150), "scarcer must be pricier")
+			-- every catalog entry's fixed price is returned verbatim by itemId
+			for _, entry in StoreConfig.Catalog do
+				local id = "store_" .. entry.sku
+				eq(StoreService.priceFor(id), entry.price, "fixed price for " .. id)
+			end
+			-- unknown item -> 0
+			eq(StoreService.priceFor("store_nope"), 0)
 		end,
 
 		["store buy limit: default is 1"] = function()

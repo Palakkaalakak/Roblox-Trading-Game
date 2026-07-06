@@ -34,6 +34,17 @@ local function itemIdFor(sku: string): string
 	return "store_" .. sku
 end
 
+-- Fixed price table, built once from config (Init-independent, testable).
+local catalogPrice: { [string]: number } = {}
+for _, entry in StoreConfig.Catalog do
+	catalogPrice[itemIdFor(entry.sku)] = entry.price
+end
+
+-- Fixed gem price of a store item (set in StoreConfig, never formula-derived).
+function StoreService.priceFor(itemId: string): number
+	return catalogPrice[itemId] or 0
+end
+
 -- How many of this item ONE player may buy from the store (lifetime).
 -- Purchases only — trading in more is always allowed. Single extension point:
 --   * per-item override via Catalog `maxPerPlayer`
@@ -54,15 +65,6 @@ local function purchasedCount(profile: any, itemId: string): number
 	return profile.StorePurchases[itemId] or 0
 end
 
--- Live price for a store item. Pure given (totalSupply, remaining).
--- Supply-driven so scarcer items cost more; climbs as stock depletes.
-function StoreService.priceFor(totalSupply: number, remaining: number): number
-	local supplyFactor = (StoreConfig.SupplyReference / math.max(totalSupply, 1)) ^ StoreConfig.SupplyExponent
-	local sold = math.clamp(1 - remaining / math.max(totalSupply, 1), 0, 1)
-	local ramp = 1 + StoreConfig.DepletionRamp * sold
-	return math.max(1, math.floor(StoreConfig.BaseGems * supplyFactor * ramp + 0.5))
-end
-
 local function listing(player: Player): { any }
 	local profile = DataService.getProfile(player)
 	local out = {}
@@ -78,7 +80,7 @@ local function listing(player: Player): { any }
 				imageId = item.imageId,
 				totalSupply = item.totalSupply,
 				remaining = remaining,
-				price = StoreService.priceFor(item.totalSupply, remaining),
+				price = StoreService.priceFor(itemId),
 				limit = StoreService.buyLimitFor(player, itemId),
 				purchased = profile and purchasedCount(profile, itemId) or 0,
 			})
@@ -115,7 +117,7 @@ local function handleBuy(player: Player, itemId: any)
 		return { ok = false, err = "out_of_stock" }
 	end
 
-	local price = StoreService.priceFor(item.totalSupply, remaining)
+	local price = StoreService.priceFor(itemId)
 
 	-- charge first (validates funds atomically in-memory)...
 	local charged, chargeErr = InventoryService.applyDelta(player, { gems = -price }, Enums.GrantSource.Store)
@@ -155,7 +157,7 @@ function StoreService.Init()
 			totalSupply = entry.totalSupply,
 			assignmentWeight = 0, -- never part of starter draws
 			imageId = entry.imageId,
-			storeCost = StoreService.priceFor(entry.totalSupply, entry.totalSupply),
+			storeCost = entry.price, -- displayed Store Cost = the fixed store price
 		})
 	end
 	EconomyService.registerItems(defs)
