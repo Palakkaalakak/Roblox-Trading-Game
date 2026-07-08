@@ -29,6 +29,8 @@ local Enums = {
 		Refund = "refund",
 		Mailbox = "mailbox",
 		Store = "store",
+		Craft = "craft",
+		Purchase = "purchase", -- Robux gamepass/devproduct token grants
 	},
 
 	-- Remote names, single registry. Functions = request/response, Events = server pushes.
@@ -40,6 +42,8 @@ local Enums = {
 		"DebugGiveGems", -- () -> {ok} — debug only, removed for release
 		"GetStore", -- () -> {ok, items = {storeItem}} — NPC limited store listing
 		"BuyItem", -- (itemId) -> {ok, price?, err?}
+		"GetEvents", -- () -> {ok, events = {...}} — active crafting/sacrifice events
+		"CraftItem", -- (eventId, rid) -> {ok, output?, err?}
 		"RequestTrade", -- (targetUserId) -> {ok, tradeId?}
 		"RespondToRequest", -- (tradeId, accept) -> {ok}
 		"SetOffer", -- (tradeId, offer) -> {ok}

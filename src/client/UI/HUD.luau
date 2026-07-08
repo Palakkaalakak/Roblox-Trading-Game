@@ -24,6 +24,8 @@ function HUD.wire(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> 
 	invButton.Activated:Connect(toggles.inventory)
 	local tradeButton = gui:WaitForChild("TradeButton") :: ImageButton
 	tradeButton.Activated:Connect(toggles.picker)
+	local eventsButton = gui:WaitForChild("EventsButton") :: ImageButton
+	eventsButton.Activated:Connect(toggles.events)
 
 	local debugBtn = gui:WaitForChild("DebugGemsButton") :: ImageButton
 	if DebugConfig.GiveGemsEnabled then

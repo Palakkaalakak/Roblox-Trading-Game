@@ -148,7 +148,18 @@ local function notifyLocal(record: any)
 end
 
 local function publishPing(tradeId: string)
-	StoreAdapters.publish(EconomyConfig.TradeBroadcastTopic, { tradeId = tradeId })
+	-- `from` lets us ignore our own MessagingService echo (live mode delivers
+	-- publishes back to the sender, which double-drove settlement)
+	StoreAdapters.publish(EconomyConfig.TradeBroadcastTopic, { tradeId = tradeId, from = ownerId })
+end
+
+-- Trade-path saves are fire-and-forget: profile mutations are already applied
+-- in-memory (autosave + release cover durability). Synchronous DataStore
+-- writes here were what made accepts feel seconds-slow.
+local function saveAsync(player: Player)
+	task.spawn(function()
+		DataService.saveNow(player)
+	end)
 end
 
 --------------------------------------------------------------------------------
@@ -180,7 +191,7 @@ local function refundSide(record: any, key: string)
 			claimId
 		)
 		if ok then
-			DataService.saveNow(player)
+			saveAsync(player)
 			delivered = true
 		end
 	end
@@ -298,7 +309,7 @@ local function creditSide(record: any, key: string): boolean
 			claimId
 		)
 		if ok then
-			DataService.saveNow(player)
+			saveAsync(player)
 			Net.fireClient("TradeSettled", player, record.tradeId, goods.items, goods.gems)
 			delivered = true
 		end
@@ -335,7 +346,7 @@ local function attemptDeposit(record: any, key: string)
 		abortTrade(record.tradeId, "deposit_failed")
 		return
 	end
-	DataService.saveNow(player)
+	saveAsync(player)
 
 	local committed, mErr = mutate(record.tradeId, function(r)
 		if (r.round or 1) ~= round then
@@ -344,7 +355,6 @@ local function attemptDeposit(record: any, key: string)
 		return TradeCore.markDeposited(r, side.userId, os.time())
 	end)
 	if committed then
-		TradeService.progress(committed)
 		notifyLocal(committed)
 		publishPing(record.tradeId)
 	elseif mErr == "bad_state" or mErr == "round_changed" then
@@ -359,21 +369,24 @@ local function attemptDeposit(record: any, key: string)
 				Enums.GrantSource.Refund,
 				claimIdFor("refund", record, side.userId, round)
 			)
-			DataService.saveNow(player)
+			saveAsync(player)
 		end
 	end
 end
 
--- Drive a record forward from wherever it is. Safe to call repeatedly, from
--- any server, at any time (everything downstream is idempotent).
-function TradeService.progress(record: any)
+-- One driver at a time per trade on this server. Settlement used to run
+-- concurrently (confirm handler + grace timer + our own ping echo), which
+-- felt slow and double-fired notifications.
+local driving: { [string]: boolean } = {}
+
+local function progressInner(record: any)
 	if record.state == "Confirmed" then
 		-- PS99-style grace window: both accepted, but deposits wait a few
 		-- seconds so either player can still cancel. Server-enforced.
 		local graceEndsAt = (record.confirmedAt or 0) + TradeConfig.ConfirmGraceSeconds
 		local remaining = graceEndsAt - os.time()
 		if remaining > 0 then
-			task.delay(remaining + 0.1, function()
+			task.delay(remaining + 0.05, function()
 				local fresh = fetch(record.tradeId)
 				if fresh and fresh.state == "Confirmed" then
 					TradeService.progress(fresh)
@@ -383,7 +396,11 @@ function TradeService.progress(record: any)
 		end
 		attemptDeposit(record, "a")
 		attemptDeposit(record, "b")
-	elseif record.state == "Settling" then
+		-- fall through to settlement in the SAME drive (no re-entry hop)
+		record = fetch(record.tradeId) or record
+	end
+
+	if record.state == "Settling" then
 		for _, key in { "a", "b" } do
 			if not record[key].credited and creditSide(record, key) then
 				local committed = mutate(record.tradeId, function(r)
@@ -407,6 +424,20 @@ function TradeService.progress(record: any)
 		handleAborted(record)
 	elseif record.state == "Settled" then
 		untrack(record)
+	end
+end
+
+-- Drive a record forward from wherever it is. Idempotent + re-entrancy-safe.
+function TradeService.progress(record: any)
+	local id = record.tradeId
+	if driving[id] then
+		return
+	end
+	driving[id] = true
+	local ok, err = pcall(progressInner, record)
+	driving[id] = nil
+	if not ok then
+		warn("[Trade] progress failed for " .. id .. ": " .. tostring(err))
 	end
 end
 
@@ -634,6 +665,9 @@ function TradeService.Start()
 	StoreAdapters.subscribe(EconomyConfig.TradeBroadcastTopic, function(payload)
 		if type(payload) ~= "table" or type(payload.tradeId) ~= "string" then
 			return
+		end
+		if payload.from == ownerId then
+			return -- our own echo; we already handled this transition locally
 		end
 		local record = fetch(payload.tradeId)
 		if record == nil then

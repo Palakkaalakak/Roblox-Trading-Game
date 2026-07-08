@@ -123,12 +123,43 @@ end
 function TradeController.Init() end
 
 function TradeController.Start()
+	-- Once a trade ends, late/stale views for it are dropped (this is what
+	-- stopped the closed panel flashing back open) and each toast fires at
+	-- most once (they used to double up when settlement ran twice).
+	local seen: { [string]: boolean } = {}
+	local seenCount = 0
+	local function once(key: string): boolean
+		if seen[key] then
+			return false
+		end
+		if seenCount > 300 then
+			table.clear(seen)
+			seenCount = 0
+		end
+		seen[key] = true
+		seenCount += 1
+		return true
+	end
+	local function isTerminal(tradeId: string): boolean
+		return seen["end_" .. tradeId] == true
+	end
+	local function closeTrade(tradeId: string)
+		once("end_" .. tradeId)
+		local current = TradeController.trade:get()
+		if current and current.tradeId == tradeId then
+			TradeController.trade:set(nil)
+		end
+	end
+
 	Net.on("TradeInvite", function(tradeId, fromUserId, fromName)
+		if isTerminal(tradeId) then
+			return
+		end
 		TradeController.invite:set({ tradeId = tradeId, fromUserId = fromUserId, fromName = fromName })
 	end)
 
 	Net.on("TradeStateChanged", function(view)
-		if type(view) ~= "table" then
+		if type(view) ~= "table" or isTerminal(view.tradeId) then
 			return
 		end
 		local current = TradeController.trade:get()
@@ -136,30 +167,28 @@ function TradeController.Start()
 			return -- stale
 		end
 		if view.state == "Settled" or view.state == "Aborted" then
-			TradeController.trade:set(nil)
+			closeTrade(view.tradeId)
 		else
 			TradeController.trade:set(view, true)
 		end
 	end)
 
 	Net.on("TradeSettled", function(tradeId, items, gems)
-		local current = TradeController.trade:get()
-		if current and current.tradeId == tradeId then
-			TradeController.trade:set(nil)
+		closeTrade(tradeId)
+		if once("settled_" .. tradeId) then
+			TradeController.settled:Fire(tradeId, items, gems)
 		end
-		TradeController.settled:Fire(tradeId, items, gems)
 	end)
 
 	Net.on("TradeAborted", function(tradeId, reason)
-		local current = TradeController.trade:get()
-		if current and current.tradeId == tradeId then
-			TradeController.trade:set(nil)
-		end
+		closeTrade(tradeId)
 		local invite = TradeController.invite:get()
 		if invite and invite.tradeId == tradeId then
 			TradeController.invite:set(nil)
 		end
-		TradeController.aborted:Fire(tradeId, reason)
+		if once("aborted_" .. tradeId) then
+			TradeController.aborted:Fire(tradeId, reason)
+		end
 	end)
 end
 

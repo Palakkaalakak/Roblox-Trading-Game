@@ -116,6 +116,34 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local yourSide = wireSide("YourSide", true)
 	local theirSide = wireSide("TheirSide", false)
 
+	-- per-side overall stats (labels may be missing in an unrebuilt GUI)
+	local yourTotal = panel:FindFirstChild("YourTotal") :: TextLabel?
+	local theirTotal = panel:FindFirstChild("TheirTotal") :: TextLabel?
+
+	-- Sum of estimated item values + offered gems. Items whose value is still
+	-- N/A are counted at 0 and flagged with a '+?'.
+	local function offerTotalText(offer: any, stats: { [string]: any }): string
+		local total = offer.gems
+		local unknown = false
+		local copies = 0
+		for itemId, count in offer.items do
+			copies += count
+			local snap = stats[itemId]
+			if snap and snap.value and snap.value.state == "Known" and snap.value.value then
+				total += snap.value.value * count
+			else
+				unknown = true
+			end
+		end
+		return ("Total: ~%d 💎%s  (%d item%s + %d gems)"):format(
+			total,
+			unknown and " +?" or "",
+			copies,
+			copies == 1 and "" or "s",
+			offer.gems
+		)
+	end
+
 	local function renderSide(side: any, offer: any, confirmed: boolean, stats: { [string]: any })
 		local copies = offerToCopies(offer)
 		for i, entry in side.slots do
@@ -272,6 +300,13 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 		renderSide(yourSide, view.you.offer, view.you.confirmed, stats)
 		renderSide(theirSide, view.them.offer, view.them.confirmed, stats)
+
+		if yourTotal then
+			yourTotal.Text = offerTotalText(view.you.offer, stats)
+		end
+		if theirTotal then
+			theirTotal.Text = offerTotalText(view.them.offer, stats)
+		end
 
 		if TradeController.pendingConfirm:get() then
 			acceptBtn.Text = "…"

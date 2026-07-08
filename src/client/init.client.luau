@@ -24,14 +24,23 @@ local HUD = require(UI.HUD)
 local InventoryScreen = require(UI.InventoryScreen)
 local TradeScreen = require(UI.TradeScreen)
 local StoreScreen = require(UI.StoreScreen)
+local EventsScreen = require(UI.EventsScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
 local modalGui = playerGui:WaitForChild("TradingModals") :: ScreenGui
 
 local tooltip = Components.wireTooltip(modalGui)
+local function toast(text: string, color: Color3)
+	if HUD.toast then
+		HUD.toast(text, color)
+	end
+end
+
 InventoryScreen.wire(modalGui, tooltip)
 TradeScreen.wire(modalGui, tooltip)
+StoreScreen.wire(modalGui, tooltip, toast)
+EventsScreen.wire(modalGui, tooltip, toast)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
@@ -39,12 +48,10 @@ HUD.wire(hudGui, {
 	picker = function()
 		TradeScreen.togglePicker()
 	end,
+	events = function()
+		EventsScreen.toggle()
+	end,
 })
-StoreScreen.wire(modalGui, tooltip, function(text, color)
-	if HUD.toast then
-		HUD.toast(text, color)
-	end
-end)
 
 -- store NPC: walking up + triggering its prompt opens the shop
 local ProximityPromptService = game:GetService("ProximityPromptService")

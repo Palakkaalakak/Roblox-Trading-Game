@@ -172,7 +172,8 @@ local function buildHud(parent: Instance)
 
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.57))
-	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.37))
+	iconButton("EventsButton", "rbxassetid://17368068524", "EVENTS", UDim2.fromScale(0.955, 0.37))
+	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.17))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
 	local toastArea = new("Frame", {
@@ -453,6 +454,25 @@ local function buildTradePanel(parent: Instance)
 
 	buildSide("YourSide", true, UDim2.fromOffset(14, 64), tradePanel)
 	buildSide("TheirSide", false, UDim2.new(1, -(SIDE_W + 14), 0, 64), tradePanel)
+
+	-- per-side overall trade stats (total estimated value of items + gems)
+	local sideBottom = 64 + GRID * SLOT + (GRID - 1) * SLOT_PAD + 96
+	label("YourTotal", {
+		Position = UDim2.fromOffset(14, sideBottom + 4),
+		Size = UDim2.fromOffset(SIDE_W, 18),
+		Text = "Total: —",
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gem,
+	}, tradePanel)
+	label("TheirTotal", {
+		Position = UDim2.new(1, -(SIDE_W + 14), 0, sideBottom + 4),
+		Size = UDim2.fromOffset(SIDE_W, 18),
+		Text = "Total: —",
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gem,
+	}, tradePanel)
 
 	-- countdown banner (grace window)
 	local countdown = panel("CountdownBar", {
@@ -742,6 +762,210 @@ local function buildStorePanel(parent: Instance)
 	return store
 end
 
+--------------------------------------------------------------------------------
+-- Events panel (crafting / sacrifices / rotating recipes)
+--------------------------------------------------------------------------------
+
+local function buildEventsPanel(parent: Instance)
+	local events = panel("EventsPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(700, 560),
+		Visible = false,
+	}, parent)
+
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -60, 0, 24),
+		Text = "🎉 Events",
+		TextSize = 18,
+	}, events)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, events)
+
+	local list = new("ScrollingFrame", {
+		Name = "EventList",
+		Position = UDim2.fromOffset(12, 44),
+		Size = UDim2.new(1, -24, 1, -56),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, events)
+	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+
+	-- section header template (one per event)
+	local header = new("Frame", {
+		Name = "HeaderRow",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, -8, 0, 30),
+		Visible = false,
+	}, list)
+	label("EventName", {
+		Position = UDim2.fromOffset(4, 4),
+		Size = UDim2.new(0.6, 0, 0, 22),
+		Text = "Event",
+		TextSize = 16,
+	}, header)
+	label("TimeLabel", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -4, 0, 8),
+		Size = UDim2.new(0.4, 0, 0, 16),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = C.Warn,
+	}, header)
+
+	-- recipe row template
+	local row = new("Frame", {
+		Name = "RecipeRow",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -8, 0, 92),
+		Visible = false,
+	}, list)
+	corner(row, 6)
+	stroke(row, C.Stroke, 1)
+
+	local inputsHolder = new("Frame", {
+		Name = "InputsHolder",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(10, 10),
+		Size = UDim2.fromOffset(220, 72),
+	}, row)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, inputsHolder)
+
+	-- input chip template (one per distinct input item)
+	local chip = new("Frame", {
+		Name = "InputChip",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(52, 72),
+		Visible = false,
+	}, inputsHolder)
+	corner(chip, 6)
+	local chipIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, -18, 0, 6),
+		Size = UDim2.fromOffset(36, 36),
+		ScaleType = Enum.ScaleType.Fit,
+	}, chip)
+	corner(chipIcon, 6)
+	label("CountLabel", {
+		Position = UDim2.fromOffset(2, 46),
+		Size = UDim2.new(1, -4, 0, 14),
+		Text = "0/1",
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, chip)
+	label("GemChip", { -- shown when the recipe also costs gems
+		Name = "GemChip",
+		Position = UDim2.fromOffset(2, 60),
+		Size = UDim2.new(1, -4, 0, 12),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gem,
+	}, chip)
+
+	label("ArrowLabel", {
+		Position = UDim2.fromOffset(238, 30),
+		Size = UDim2.fromOffset(28, 30),
+		Text = "→",
+		TextSize = 22,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, row)
+
+	local outIcon = new("ImageLabel", {
+		Name = "OutputIcon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(274, 18),
+		Size = UDim2.fromOffset(56, 56),
+		ScaleType = Enum.ScaleType.Fit,
+	}, row)
+	corner(outIcon, 6)
+	label("OutputName", {
+		Position = UDim2.fromOffset(340, 16),
+		Size = UDim2.fromOffset(180, 20),
+		Text = "Output",
+		TextSize = 15,
+	}, row)
+	label("OutputStock", {
+		Position = UDim2.fromOffset(340, 38),
+		Size = UDim2.fromOffset(180, 14),
+		Text = "?/? left",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, row)
+	label("CostLabel", {
+		Position = UDim2.fromOffset(340, 54),
+		Size = UDim2.fromOffset(180, 16),
+		Text = "",
+		TextSize = 13,
+		TextColor3 = C.Gem,
+	}, row)
+	button("ActionButton", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(120, 40),
+		Text = "CRAFT",
+		TextSize = 14,
+		BackgroundColor3 = C.Good,
+	}, row)
+
+	local done = new("Frame", {
+		Name = "DoneOverlay",
+		BackgroundColor3 = C.Bg,
+		BackgroundTransparency = 0.2,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 1, 0),
+		Visible = false,
+		ZIndex = 5,
+	}, row)
+	corner(done, 6)
+	label("Text", {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = "Fully crafted!",
+		TextSize = 16,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Warn,
+		ZIndex = 6,
+	}, done)
+
+	return events
+end
+
+-- Non-destructive: add just the events panel to an existing TradingModals.
+function GuiBuilder.addEventsPanel()
+	local modals = game:GetService("StarterGui"):FindFirstChild("TradingModals")
+	if modals == nil then
+		return "TradingModals missing — run GuiBuilder.build() first"
+	end
+	if modals:FindFirstChild("EventsPanel") then
+		return "EventsPanel already present"
+	end
+	buildEventsPanel(modals)
+	return "EventsPanel added"
+end
+
 -- Non-destructive: add just the store panel to an existing TradingModals
 -- (preserves manual edits elsewhere). No-op if it already exists.
 function GuiBuilder.addStorePanel()
@@ -807,6 +1031,7 @@ local function buildModals(parent: Instance)
 
 	buildTradePanel(gui)
 	buildStorePanel(gui)
+	buildEventsPanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {

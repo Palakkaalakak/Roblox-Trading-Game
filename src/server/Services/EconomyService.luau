@@ -103,8 +103,12 @@ function EconomyService.registerItems(defs: { any })
 					assignmentWeight = def.assignmentWeight,
 					rarity = rarity,
 					imageId = def.imageId,
-					-- gems price in the future rotating store; nil = event-only
-					storeCost = def.storeCost or Items.StoreCostByRarity[rarity],
+					-- event items have NO store cost (UI: "N/A (Event Item)")
+					storeCost = if def.eventItem then nil else (def.storeCost or Items.StoreCostByRarity[rarity]),
+					eventItem = def.eventItem,
+					-- Robux product tokens (tradeable stand-ins for passes/products)
+					productType = def.productType,
+					productId = def.productId,
 					createdAt = now,
 				}
 			else
@@ -112,7 +116,10 @@ function EconomyService.registerItems(defs: { any })
 				if old[def.itemId].imageId == nil and def.imageId ~= nil then
 					old[def.itemId].imageId = def.imageId
 				end
-				if old[def.itemId].storeCost == nil then
+				if def.eventItem then
+					old[def.itemId].eventItem = true
+					old[def.itemId].storeCost = nil
+				elseif old[def.itemId].storeCost == nil then
 					old[def.itemId].storeCost = Items.StoreCostByRarity[rarity]
 				end
 			end
@@ -255,6 +262,21 @@ function EconomyService.bumpDemand(itemId: string, amount: number, countAsSample
 	end)
 end
 
+-- Retire copies from circulation (crafting/sacrifice sink: the consumed
+-- items are destroyed). totalSupply is untouched — "X/Y in existence" shows
+-- X dropping while Y stays the historical cap. Atomic cross-server.
+function EconomyService.retireCopies(itemId: string, count: number)
+	if count <= 0 then
+		return
+	end
+	mutateRecord(itemId, function(old)
+		old.circulating = math.max(0, (old.circulating or 0) - count)
+		old.updatedAt = os.time()
+		return old
+	end)
+	EconomyService.broadcastStats({ itemId })
+end
+
 -- Record a closed-trade imputed price into RAP (+ demand sample).
 function EconomyService.recordTradePrice(itemId: string, imputedPrice: number)
 	mutateRecord(itemId, function(old)
@@ -375,7 +397,7 @@ function EconomyService.Init()
 	-- one-time backfill: storeCost on entries written before the field existed
 	local needsBackfill = false
 	for _, item in registry do
-		if item.storeCost == nil then
+		if item.storeCost == nil and not item.eventItem then
 			needsBackfill = true
 			break
 		end
@@ -385,7 +407,7 @@ function EconomyService.Init()
 			registryStore:UpdateAsync("all", function(old)
 				old = old or {}
 				for _, item in old do
-					if item.storeCost == nil and item.rarity then
+					if item.storeCost == nil and item.rarity and not item.eventItem then
 						item.storeCost = Items.StoreCostByRarity[item.rarity]
 					end
 				end

@@ -24,6 +24,16 @@ local StoreConfig = {
 	-- world hookup: ProximityPrompt with this name opens the store
 	PromptName = "StorePrompt",
 
+	-- Rotating shelf: only ActiveCount catalog items are on sale per time
+	-- window; the set changes every RotationIntervalSeconds (deterministic —
+	-- all servers agree). Off-shelf items can't be bought until they rotate
+	-- back in. Set enabled = false for a static always-on catalog.
+	Rotation = {
+		enabled = true,
+		RotationIntervalSeconds = 6 * 3600, -- 6h shelves
+		ActiveCount = 6,
+	},
+
 	-- Each item: fixed `price` (gems), `totalSupply` (stock), `imageId`.
 	Catalog = {
 		{ sku = "golden_rocket", name = "Golden Rocket", price = 20, totalSupply = 40, imageId = "rbxassetid://16670799841" },

@@ -29,6 +29,8 @@ local TradeConfig = {
 		DebugGiveGems = { 30, 10 },
 		GetStore = { 30, 10 },
 		BuyItem = { 20, 6 },
+		GetEvents = { 30, 10 },
+		CraftItem = { 12, 6 },
 	},
 }
 

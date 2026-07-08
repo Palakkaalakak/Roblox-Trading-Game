@@ -17,6 +17,8 @@ local ordered = {
 	require(Services.PoolService),
 	require(Services.StarterService),
 	require(Services.StoreService),
+	require(Services.CraftingService),
+	require(Services.ProductService),
 	require(Services.TradeService),
 }
 

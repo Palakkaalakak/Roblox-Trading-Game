@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local StoreConfig = require(ReplicatedStorage.Shared.Config.StoreConfig)
+local Rotation = require(ReplicatedStorage.Shared.Util.Rotation)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 
 local Net = require(script.Parent.Parent.Net)
@@ -45,6 +46,25 @@ function StoreService.priceFor(itemId: string): number
 	return catalogPrice[itemId] or 0
 end
 
+-- Which catalog itemIds are ON THE SHELF right now, plus when the shelf
+-- rotates. Deterministic from the clock — every server agrees.
+function StoreService.activeShelf(now: number): ({ [string]: boolean }, number?)
+	local rot = StoreConfig.Rotation
+	if not (rot and rot.enabled) then
+		local all = {}
+		for _, itemId in catalogIds do
+			all[itemId] = true
+		end
+		return all, nil
+	end
+	local windowIdx = Rotation.windowIndex(now, rot.RotationIntervalSeconds)
+	local active = {}
+	for _, catalogIndex in Rotation.pick(windowIdx, #catalogIds, rot.ActiveCount) do
+		active[catalogIds[catalogIndex]] = true
+	end
+	return active, Rotation.windowEndsAt(now, rot.RotationIntervalSeconds)
+end
+
 -- How many of this item ONE player may buy from the store (lifetime).
 -- Purchases only — trading in more is always allowed. Single extension point:
 --   * per-item override via Catalog `maxPerPlayer`
@@ -65,28 +85,31 @@ local function purchasedCount(profile: any, itemId: string): number
 	return profile.StorePurchases[itemId] or 0
 end
 
-local function listing(player: Player): { any }
+local function listing(player: Player): ({ any }, number?)
 	local profile = DataService.getProfile(player)
+	local shelf, rotatesAt = StoreService.activeShelf(os.time())
 	local out = {}
 	for _, itemId in catalogIds do
-		local item = EconomyService.getItem(itemId)
-		local snap = EconomyService.snapshot(itemId)
-		if item and snap then
-			local remaining = snap.reserveRemaining or 0
-			table.insert(out, {
-				itemId = itemId,
-				name = item.name,
-				rarity = item.rarity,
-				imageId = item.imageId,
-				totalSupply = item.totalSupply,
-				remaining = remaining,
-				price = StoreService.priceFor(itemId),
-				limit = StoreService.buyLimitFor(player, itemId),
-				purchased = profile and purchasedCount(profile, itemId) or 0,
-			})
+		if shelf[itemId] then
+			local item = EconomyService.getItem(itemId)
+			local snap = EconomyService.snapshot(itemId)
+			if item and snap then
+				local remaining = snap.reserveRemaining or 0
+				table.insert(out, {
+					itemId = itemId,
+					name = item.name,
+					rarity = item.rarity,
+					imageId = item.imageId,
+					totalSupply = item.totalSupply,
+					remaining = remaining,
+					price = StoreService.priceFor(itemId),
+					limit = StoreService.buyLimitFor(player, itemId),
+					purchased = profile and purchasedCount(profile, itemId) or 0,
+				})
+			end
 		end
 	end
-	return out
+	return out, rotatesAt
 end
 
 local function handleBuy(player: Player, itemId: any)
@@ -98,6 +121,10 @@ local function handleBuy(player: Player, itemId: any)
 	end
 	if not Guard.isString(itemId, 64) or not catalogSet[itemId] then
 		return { ok = false, err = "not_store_item" }
+	end
+	local shelf = StoreService.activeShelf(os.time())
+	if not shelf[itemId] then
+		return { ok = false, err = "not_on_shelf" } -- rotated out right now
 	end
 	local item = EconomyService.getItem(itemId)
 	local snap = EconomyService.snapshot(itemId)
@@ -168,9 +195,18 @@ function StoreService.Start()
 		if not RateLimitService.check(player, "GetStore") then
 			return { ok = false, err = "rate_limited" }
 		end
-		return { ok = true, items = listing(player) }
+		local items, rotatesAt = listing(player)
+		return { ok = true, items = items, rotatesAt = rotatesAt }
 	end)
 	Net.bindFunction("BuyItem", handleBuy)
+
+	-- prewarm the per-item economy records at boot: first store open used to
+	-- do ~10 cold sequential MemoryStore reads and sit blank for seconds
+	task.spawn(function()
+		for _, itemId in catalogIds do
+			EconomyService.snapshot(itemId)
+		end
+	end)
 end
 
 return StoreService
