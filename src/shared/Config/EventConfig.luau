@@ -1,10 +1,15 @@
 --!strict
 -- EventConfig: limited events — crafting, sacrifices, rotating recipes.
 --
--- EVERYTHING here is a RECIPE: consume inputs (items and/or gems), receive a
--- LIMITED output item. `kind` only changes the UI flavor:
---   * kind = "crafting"  -> button says CRAFT
---   * kind = "sacrifice" -> button says SACRIFICE
+-- EVERYTHING here is a RECIPE: consume inputs, receive a LIMITED output item.
+--   * kind = "crafting"  -> multi-item recipes (any inputs + optional gems)
+--   * kind = "sacrifice" -> deleting EXACTLY ONE item (one input, count 1,
+--     no gems). Enforced at boot — violations warn and the recipe is skipped.
+--
+-- Each event may carry `npc = { position = {x, y, z} }`: the server spawns an
+-- event NPC there at boot (shopkeeper-style, event-named sign); triggering
+-- its prompt opens the Events panel filtered to that event. No `npc` field =
+-- no NPC. There is NO HUD button for events — NPCs are the way in.
 -- Consumed input items are DESTROYED (retired from circulation — the
 -- existence counter drops). Output items are limited: `outputSupply` copies
 -- total, reserved atomically cross-server; when the last one is crafted the
@@ -28,7 +33,7 @@ local EventConfig = {
 			id = "evt_forge",
 			name = "The Forge",
 			kind = "crafting",
-			enabled = true,
+			enabled = false, -- sample only; flip on (or add a new entry) to run an event
 			-- startsAt = nil, endsAt = nil  -> always on while enabled
 			recipes = {
 				{
@@ -48,7 +53,7 @@ local EventConfig = {
 			id = "evt_void_altar",
 			name = "Void Altar",
 			kind = "sacrifice",
-			enabled = true,
+			enabled = false, -- sample only
 			recipes = {
 				{
 					rid = "void_sigil",
@@ -68,7 +73,7 @@ local EventConfig = {
 	-- Rotating recipes ("recipe store"): ActiveCount recipes from Pool are
 	-- craftable per window; the set changes every RotationIntervalSeconds.
 	RotatingRecipes = {
-		enabled = true,
+		enabled = false, -- sample only
 		RotationIntervalSeconds = 3600, -- 1h windows (tune freely)
 		ActiveCount = 1,
 		Pool = {

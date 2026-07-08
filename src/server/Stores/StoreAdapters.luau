@@ -97,6 +97,19 @@ local function mockSortedMap(name: string)
 	function api.RemoveAsync(_, key: string)
 		map[key] = nil
 	end
+	-- first `count` entries by key order: { {key=k, value=v}, ... }
+	function api.GetRangeAsync(_, _direction: any, count: number): { any }
+		local keys = {}
+		for k in map do
+			table.insert(keys, k)
+		end
+		table.sort(keys)
+		local out = {}
+		for i = 1, math.min(count, #keys) do
+			table.insert(out, { key = keys[i], value = deepCopy(map[keys[i]]) })
+		end
+		return out
+	end
 	return api
 end
 
@@ -186,6 +199,15 @@ local function liveSortedMap(name: string)
 		withRetry("Map RemoveAsync " .. name .. "/" .. key, 2, function()
 			return map:RemoveAsync(key)
 		end)
+	end
+	function api.GetRangeAsync(_, direction: any, count: number): { any }
+		local ok, page = withRetry("Map GetRangeAsync " .. name, 3, function()
+			return map:GetRangeAsync(direction or Enum.SortDirection.Ascending, math.min(count, 200))
+		end)
+		if not ok or page == nil then
+			return {}
+		end
+		return page
 	end
 	return api
 end

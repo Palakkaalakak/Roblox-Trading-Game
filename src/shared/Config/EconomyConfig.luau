@@ -28,12 +28,21 @@ local EconomyConfig = {
 		ValueCirculating = 1, -- circulating >= 1
 	},
 
+	-- House cut on every player-to-player gem transfer (trades, board
+	-- settlements, bulk payouts). The cut is burned — a real gem sink.
+	GemTaxPercent = 5,
+
+	-- Trade-board listings expire after this long (escrow auto-refunded).
+	BoardListingTTLSeconds = 7 * 24 * 3600,
+
 	-- Cross-server sync cadence.
 	HotFlushIntervalSeconds = 60, -- MemoryStore -> DataStore durable flush
 	StatsBroadcastTopic = "econ_delta",
 	PoolBroadcastTopic = "pool_rotated",
 	TradeBroadcastTopic = "trade_signal",
 	MailboxBroadcastTopic = "mailbox_ping",
+	BoardBroadcastTopic = "board_delta",
+	NotifyBroadcastTopic = "notify_ping",
 }
 
 return EconomyConfig

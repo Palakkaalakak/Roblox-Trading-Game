@@ -154,6 +154,29 @@ return {
 			eq(StoreService.priceFor("store_nope"), 0)
 		end,
 
+		["gem tax: 5% cut, net+cut == gross, zero-safe"] = function()
+			local Tax = require(ReplicatedStorage.Shared.Util.Tax)
+			local net, cut = Tax.split(100)
+			eq(net, 95)
+			eq(cut, 5)
+			local n2, c2 = Tax.split(7)
+			eq(n2 + c2, 7, "conservation")
+			assert(n2 >= 0 and c2 >= 0)
+			local n0, c0 = Tax.split(0)
+			eq(n0, 0)
+			eq(c0, 0)
+		end,
+
+		["bulk quote: per-copy floor + exact escrow"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local perCopy, escrow = TradeBoardService.bulkQuote(30, 100)
+			eq(perCopy, 3, "floor(100/30)")
+			eq(escrow, 90, "escrow = perCopy * count")
+			local p2, e2 = TradeBoardService.bulkQuote(10, 100)
+			eq(p2, 10)
+			eq(e2, 100)
+		end,
+
 		["store buy limit: default is 1"] = function()
 			local StoreConfig = require(ReplicatedStorage.Shared.Config.StoreConfig)
 			eq(StoreConfig.DefaultMaxPerPlayer, 1, "default per-player buy limit must be 1")

@@ -142,7 +142,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		if #events == 0 then
 			local none = headerTemplate:Clone()
 			none.Visible = true
-			;(none:WaitForChild("EventName") :: TextLabel).Text = "No active events right now"
+			;(none:WaitForChild("EventName") :: TextLabel).Text = "No events right now, come back later!"
 			;(none:WaitForChild("TimeLabel") :: TextLabel).Text = ""
 			none.Parent = list
 			table.insert(spawned, none)

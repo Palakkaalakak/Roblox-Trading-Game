@@ -170,10 +170,11 @@ local function buildHud(parent: Instance)
 		return btn
 	end
 
+	-- events + trade board have NO HUD buttons: their world NPCs/pillar are
+	-- the way in (EventPrompt / BoardPrompt proximity prompts)
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.57))
-	iconButton("EventsButton", "rbxassetid://17368068524", "EVENTS", UDim2.fromScale(0.955, 0.37))
-	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.17))
+	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.37))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
 	local toastArea = new("Frame", {
@@ -763,6 +764,436 @@ local function buildStorePanel(parent: Instance)
 end
 
 --------------------------------------------------------------------------------
+-- Trade board panel (the pillar)
+--------------------------------------------------------------------------------
+
+local function buildBoardPanel(parent: Instance)
+	local boardPanel = panel("BoardPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(760, 560),
+		Visible = false,
+	}, parent)
+
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.fromOffset(300, 24),
+		Text = "📌 Trade Board",
+		TextSize = 18,
+	}, boardPanel)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, boardPanel)
+	button("PostButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -44, 0, 8),
+		Size = UDim2.fromOffset(130, 26),
+		Text = "+ Post trade",
+		TextSize = 13,
+		BackgroundColor3 = C.Good,
+	}, boardPanel)
+
+	local list = new("ScrollingFrame", {
+		Name = "ListingList",
+		Position = UDim2.fromOffset(12, 44),
+		Size = UDim2.new(1, -24, 1, -56),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, boardPanel)
+	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+
+	label("EmptyLabel", {
+		Position = UDim2.fromOffset(0, 60),
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = "Nothing posted yet — be the first!",
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+		Visible = false,
+	}, boardPanel)
+
+	-- listing row template
+	local row = new("Frame", {
+		Name = "ListingRow",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -8, 0, 96),
+		Visible = false,
+	}, list)
+	corner(row, 6)
+	stroke(row, C.Stroke, 1)
+
+	label("PosterLabel", {
+		Position = UDim2.fromOffset(10, 4),
+		Size = UDim2.fromOffset(240, 16),
+		Text = "PosterName",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, row)
+	label("Badge", {
+		Position = UDim2.fromOffset(250, 4),
+		Size = UDim2.fromOffset(120, 16),
+		Text = "AUTO",
+		TextSize = 11,
+		TextColor3 = C.Warn,
+	}, row)
+
+	local giveHolder = new("Frame", {
+		Name = "GiveHolder",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(10, 24),
+		Size = UDim2.fromOffset(200, 64),
+	}, row)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, giveHolder)
+
+	-- chip template (shared look for items + gems)
+	local chip = new("Frame", {
+		Name = "Chip",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(46, 62),
+		Visible = false,
+	}, giveHolder)
+	corner(chip, 6)
+	local chipIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, -16, 0, 6),
+		Size = UDim2.fromOffset(32, 32),
+		ScaleType = Enum.ScaleType.Fit,
+	}, chip)
+	corner(chipIcon, 6)
+	label("CountLabel", {
+		Position = UDim2.fromOffset(2, 42),
+		Size = UDim2.new(1, -4, 0, 16),
+		Text = "x1",
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, chip)
+
+	label("ArrowLabel", {
+		Position = UDim2.fromOffset(216, 40),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "⇄",
+		TextSize = 20,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, row)
+
+	local wantHolder = new("Frame", {
+		Name = "WantHolder",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(248, 24),
+		Size = UDim2.fromOffset(200, 64),
+	}, row)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, wantHolder)
+
+	label("InfoLabel", {
+		Position = UDim2.fromOffset(456, 24),
+		Size = UDim2.fromOffset(160, 64),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, row)
+
+	local countBox = new("TextBox", {
+		Name = "CountBox",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -136, 0.5, 0),
+		Size = UDim2.fromOffset(52, 30),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT,
+		TextColor3 = C.Text,
+		TextSize = 13,
+		Text = "1",
+		Visible = false, -- bulk rows only
+		ClearTextOnFocus = false,
+	}, row)
+	corner(countBox, 6)
+
+	button("ActionButton", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(118, 36),
+		Text = "Accept",
+		TextSize = 13,
+		BackgroundColor3 = C.Good,
+	}, row)
+
+	--------------------------------------------------------------------------
+	-- Post modal
+	--------------------------------------------------------------------------
+	local post = panel("PostPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(500, 420),
+		Visible = false,
+		ZIndex = 10,
+		BackgroundColor3 = C.Panel,
+	}, boardPanel)
+	label("Title", {
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.fromOffset(200, 22),
+		Text = "Post a trade",
+		TextSize = 16,
+		ZIndex = 11,
+	}, post)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+		ZIndex = 11,
+	}, post)
+	button("ModeButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -44, 0, 8),
+		Size = UDim2.fromOffset(130, 26),
+		Text = "Mode: Swap",
+		TextSize = 12,
+		BackgroundColor3 = C.Accent,
+		ZIndex = 11,
+	}, post)
+
+	-- one row builder: [pick item button][count box]  + gems box
+	local function offerRow(name: string, y: number, headerText: string)
+		local holder = new("Frame", {
+			Name = name,
+			BackgroundColor3 = C.Bg,
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(12, y),
+			Size = UDim2.new(1, -24, 0, 110),
+			ZIndex = 11,
+		}, post)
+		corner(holder, 6)
+		label("Header", {
+			Position = UDim2.fromOffset(8, 4),
+			Size = UDim2.new(1, -16, 0, 16),
+			Text = headerText,
+			TextSize = 12,
+			TextColor3 = C.TextDim,
+			ZIndex = 12,
+		}, holder)
+		local itemBtn = new("ImageButton", {
+			Name = "ItemButton",
+			Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+			BackgroundColor3 = C.BgLight,
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(8, 26),
+			Size = UDim2.fromOffset(56, 56),
+			ScaleType = Enum.ScaleType.Fit,
+			ZIndex = 12,
+		}, holder)
+		corner(itemBtn, 6)
+		label("ItemName", {
+			Position = UDim2.fromOffset(72, 26),
+			Size = UDim2.fromOffset(150, 16),
+			Text = "click icon to pick",
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextColor3 = C.TextDim,
+			ZIndex = 12,
+		}, holder)
+		label("CountHeader", {
+			Position = UDim2.fromOffset(72, 48),
+			Size = UDim2.fromOffset(60, 14),
+			Text = "count",
+			Font = FONT_LIGHT,
+			TextSize = 10,
+			TextColor3 = C.TextDim,
+			ZIndex = 12,
+		}, holder)
+		local cbox = new("TextBox", {
+			Name = "CountBox",
+			Position = UDim2.fromOffset(72, 64),
+			Size = UDim2.fromOffset(60, 26),
+			BackgroundColor3 = C.BgLight,
+			BorderSizePixel = 0,
+			Font = FONT,
+			TextColor3 = C.Text,
+			TextSize = 13,
+			Text = "1",
+			ClearTextOnFocus = false,
+			ZIndex = 12,
+		}, holder)
+		corner(cbox, 6)
+		label("GemsHeader", {
+			Position = UDim2.fromOffset(150, 48),
+			Size = UDim2.fromOffset(80, 14),
+			Text = "+ gems",
+			Font = FONT_LIGHT,
+			TextSize = 10,
+			TextColor3 = C.TextDim,
+			ZIndex = 12,
+		}, holder)
+		local gbox = new("TextBox", {
+			Name = "GemsBox",
+			Position = UDim2.fromOffset(150, 64),
+			Size = UDim2.fromOffset(80, 26),
+			BackgroundColor3 = C.BgLight,
+			BorderSizePixel = 0,
+			Font = FONT,
+			TextColor3 = C.Gem,
+			TextSize = 13,
+			Text = "0",
+			ClearTextOnFocus = false,
+			ZIndex = 12,
+		}, holder)
+		corner(gbox, 6)
+		return holder
+	end
+
+	offerRow("GiveRow", 44, "YOU GIVE (escrowed when you post)")
+	offerRow("WantRow", 162, "YOU WANT")
+
+	button("AutoButton", {
+		Position = UDim2.fromOffset(12, 284),
+		Size = UDim2.fromOffset(230, 30),
+		Text = "Auto-trade: ON",
+		TextSize = 12,
+		BackgroundColor3 = C.Good,
+		ZIndex = 11,
+	}, post)
+	label("AutoHint", {
+		Position = UDim2.fromOffset(12, 318),
+		Size = UDim2.new(1, -24, 0, 30),
+		Text = "ON: anyone can accept instantly, even while you're offline. OFF: you get notified and trade them yourself.",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		ZIndex = 11,
+	}, post)
+	button("SubmitButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -12),
+		Size = UDim2.fromOffset(200, 38),
+		Text = "POST",
+		TextSize = 15,
+		BackgroundColor3 = C.Good,
+		ZIndex = 11,
+	}, post)
+
+	-- item picker popup (shared by give/want rows)
+	local picker = panel("BoardItemPicker", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(380, 300),
+		Visible = false,
+		ZIndex = 20,
+		BackgroundColor3 = C.Panel,
+	}, boardPanel)
+	label("Title", {
+		Position = UDim2.fromOffset(12, 8),
+		Size = UDim2.new(1, -50, 0, 20),
+		Text = "Pick an item",
+		TextSize = 14,
+		ZIndex = 21,
+	}, picker)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+		ZIndex = 21,
+	}, picker)
+	local pickGrid = new("ScrollingFrame", {
+		Name = "PickGrid",
+		Position = UDim2.fromOffset(12, 38),
+		Size = UDim2.new(1, -24, 1, -50),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		ZIndex = 21,
+	}, picker)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(76, 92),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.Name,
+	}, pickGrid)
+	local pickTile = new("ImageButton", {
+		Name = "PickTile",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		AutoButtonColor = true,
+		Image = "",
+		Visible = false,
+		ZIndex = 21,
+	}, pickGrid)
+	corner(pickTile, 6)
+	local ptIcon2 = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, -20, 0, 6),
+		Size = UDim2.fromOffset(40, 40),
+		ScaleType = Enum.ScaleType.Fit,
+		ZIndex = 22,
+	}, pickTile)
+	corner(ptIcon2, 6)
+	label("ItemName", {
+		Position = UDim2.fromOffset(4, 50),
+		Size = UDim2.new(1, -8, 0, 26),
+		Text = "Item",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+		ZIndex = 22,
+	}, pickTile)
+	label("CountLabel", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -4, 0, 2),
+		Size = UDim2.fromOffset(30, 12),
+		Text = "",
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = C.Warn,
+		ZIndex = 22,
+	}, pickTile)
+
+	return boardPanel
+end
+
+-- Non-destructive: add just the board panel to an existing TradingModals.
+function GuiBuilder.addBoardPanel()
+	local modals = game:GetService("StarterGui"):FindFirstChild("TradingModals")
+	if modals == nil then
+		return "TradingModals missing — run GuiBuilder.build() first"
+	end
+	if modals:FindFirstChild("BoardPanel") then
+		return "BoardPanel already present"
+	end
+	buildBoardPanel(modals)
+	return "BoardPanel added"
+end
+
+--------------------------------------------------------------------------------
 -- Events panel (crafting / sacrifices / rotating recipes)
 --------------------------------------------------------------------------------
 
@@ -1032,6 +1463,7 @@ local function buildModals(parent: Instance)
 	buildTradePanel(gui)
 	buildStorePanel(gui)
 	buildEventsPanel(gui)
+	buildBoardPanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {

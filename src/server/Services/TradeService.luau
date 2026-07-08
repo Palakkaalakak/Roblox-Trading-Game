@@ -23,6 +23,7 @@ local Enums = require(ReplicatedStorage.Shared.Enums)
 local TradeConfig = require(ReplicatedStorage.Shared.Config.TradeConfig)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
+local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 
 local Net = require(script.Parent.Parent.Net)
 local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
@@ -297,6 +298,7 @@ local function creditSide(record: any, key: string): boolean
 		return true
 	end
 	local goods = record[TradeCore.otherKey(key)].offer
+	local netGems, taxCut = Tax.split(goods.gems) -- house cut on gem transfers
 	local claimId = claimIdFor("settle", record, side.userId)
 	local player = Players:GetPlayerByUserId(side.userId)
 	local delivered = false
@@ -304,13 +306,13 @@ local function creditSide(record: any, key: string): boolean
 	if player and DataService.isLoaded(player) then
 		local ok = InventoryService.applyDelta(
 			player,
-			{ items = goods.items, gems = goods.gems },
+			{ items = goods.items, gems = netGems },
 			Enums.GrantSource.Trade,
 			claimId
 		)
 		if ok then
 			saveAsync(player)
-			Net.fireClient("TradeSettled", player, record.tradeId, goods.items, goods.gems)
+			Net.fireClient("TradeSettled", player, record.tradeId, goods.items, netGems)
 			delivered = true
 		end
 	end
@@ -318,11 +320,14 @@ local function creditSide(record: any, key: string): boolean
 		delivered = DataService.mailboxAppend(side.userId, {
 			claimId = claimId,
 			items = goods.items,
-			gems = goods.gems,
+			gems = netGems,
 			source = Enums.GrantSource.Trade,
 			fromTradeId = record.tradeId,
 			createdAt = os.time(),
 		})
+	end
+	if delivered and taxCut > 0 then
+		AnalyticsService.log("gem_tax", { source = "trade", tradeId = record.tradeId, cut = taxCut })
 	end
 	return delivered
 end

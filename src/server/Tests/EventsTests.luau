@@ -52,32 +52,41 @@ return {
 			eq(#Rotation.pick(3, 4, 99), 4)
 		end,
 
-		["crafting: active events resolve without a player"] = function()
-			local CraftingService = require(script.Parent.Parent.Services.CraftingService)
-			local events = CraftingService.activeEvents(os.time())
-			assert(#events >= 1, "expected at least one active event from config")
-			-- rotating recipes present when configured
-			if EventConfig.RotatingRecipes and EventConfig.RotatingRecipes.enabled then
-				local hasRotating = false
-				for _, e in events do
-					if e.id == "evt_rotating" then
-						hasRotating = true
-						assert(#e.recipes == EventConfig.RotatingRecipes.ActiveCount, "rotating ActiveCount")
-					end
-				end
-				assert(hasRotating, "rotating event should be active")
-			end
-		end,
-
-		["crafting: findActiveRecipe matches only active recipes"] = function()
+		["crafting: active events respect enabled flags + windows"] = function()
 			local CraftingService = require(script.Parent.Parent.Services.CraftingService)
 			local now = os.time()
-			-- a configured always-on event recipe resolves
-			local forge = CraftingService.findActiveRecipe("evt_forge", "molten_idol", now)
-			assert(forge ~= nil, "forge recipe should be active")
-			-- nonsense ids do not
-			eq(CraftingService.findActiveRecipe("evt_forge", "nope", now), nil)
-			eq(CraftingService.findActiveRecipe("evt_nope", "molten_idol", now), nil)
+			local events = CraftingService.activeEvents(now)
+			local activeIds = {}
+			for _, e in events do
+				activeIds[e.id] = true
+			end
+			-- config truth: disabled events must NOT be active, enabled ones must
+			for _, event in EventConfig.Events do
+				local shouldBeActive = event.enabled
+					and (event.startsAt == nil or now >= event.startsAt)
+					and (event.endsAt == nil or now < event.endsAt)
+				eq(activeIds[event.id] == true, shouldBeActive, "active state of " .. event.id)
+			end
+			-- rotating section present exactly when enabled
+			local rot = EventConfig.RotatingRecipes
+			eq(activeIds["evt_rotating"] == true, rot ~= nil and rot.enabled == true, "rotating section")
+		end,
+
+		["crafting: findActiveRecipe honors enabled flags"] = function()
+			local CraftingService = require(script.Parent.Parent.Services.CraftingService)
+			local now = os.time()
+			for _, event in EventConfig.Events do
+				for _, recipe in event.recipes do
+					local found = CraftingService.findActiveRecipe(event.id, recipe.rid, now)
+					if event.enabled then
+						assert(found ~= nil, event.id .. "/" .. recipe.rid .. " should resolve")
+					else
+						eq(found, nil, event.id .. "/" .. recipe.rid .. " must NOT resolve when disabled")
+					end
+				end
+			end
+			-- nonsense ids never resolve
+			eq(CraftingService.findActiveRecipe("evt_nope", "nope", now), nil)
 		end,
 
 		["store: rotating shelf picks ActiveCount items deterministically"] = function()

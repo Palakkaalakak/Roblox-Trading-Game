@@ -31,6 +31,8 @@ local Enums = {
 		Store = "store",
 		Craft = "craft",
 		Purchase = "purchase", -- Robux gamepass/devproduct token grants
+		Board = "board", -- trade-board settlements
+		Bulk = "bulk", -- bulk-order contributions/payouts
 	},
 
 	-- Remote names, single registry. Functions = request/response, Events = server pushes.
@@ -44,6 +46,13 @@ local Enums = {
 		"BuyItem", -- (itemId) -> {ok, price?, err?}
 		"GetEvents", -- () -> {ok, events = {...}} — active crafting/sacrifice events
 		"CraftItem", -- (eventId, rid) -> {ok, output?, err?}
+		"GetCatalog", -- () -> {ok, items = {{itemId, name, imageId}}} — every registered item
+		"GetBoard", -- () -> {ok, listings}
+		"PostListing", -- (payload) -> {ok, id?, err?} — swap or bulk
+		"CancelListing", -- (id) -> {ok, err?}
+		"AcceptListing", -- (id) -> {ok, err?} — auto-trade swaps
+		"RegisterInterest", -- (id) -> {ok, err?} — ask-first swaps
+		"ContributeBulk", -- (id, count) -> {ok, payout?, err?}
 		"RequestTrade", -- (targetUserId) -> {ok, tradeId?}
 		"RespondToRequest", -- (tradeId, accept) -> {ok}
 		"SetOffer", -- (tradeId, offer) -> {ok}
@@ -57,6 +66,7 @@ local Enums = {
 		"TradeStateChanged", -- (sanitized trade view)
 		"TradeSettled", -- (tradeId, receivedItems, receivedGems)
 		"TradeAborted", -- (tradeId, reason)
+		"Notify", -- (text) — generic notification toast
 	},
 }
 

@@ -31,6 +31,13 @@ local TradeConfig = {
 		BuyItem = { 20, 6 },
 		GetEvents = { 30, 10 },
 		CraftItem = { 12, 6 },
+		GetCatalog = { 10, 4 },
+		GetBoard = { 30, 10 },
+		PostListing = { 6, 3 },
+		CancelListing = { 10, 5 },
+		AcceptListing = { 12, 6 },
+		RegisterInterest = { 12, 6 },
+		ContributeBulk = { 20, 8 },
 	},
 }
 
