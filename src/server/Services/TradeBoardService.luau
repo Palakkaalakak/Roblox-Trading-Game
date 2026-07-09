@@ -17,6 +17,15 @@
 --     house gem tax; the poster's copies arrive via mailbox/direct
 --   * order completes when filled; cancel refunds the remaining escrow
 --
+-- SELL listings — gems-only SHOP: sell Z copies of ONE item at Y gems each:
+--   * posting escrows the Z copies
+--   * any buyer purchases N (N<=remaining): pays N x Y gems, gets the copies;
+--     the seller receives N x Y minus house tax
+--   * this is a CLEAN gem-denominated price per item (the Robux-resale
+--     analogue) and is recorded straight into RAP — the most precise price
+--     signal in the economy, since no barter imputation is needed
+--   * completes when sold out; cancel refunds remaining copies
+--
 -- All records live in a MemoryStore map (cross-server); every state change is
 -- a CAS transform, so double-accepts / double-fills are impossible.
 
@@ -163,7 +172,12 @@ local function cancelListing(listing: any, reason: string): boolean
 	end
 	if committed.kind == "swap" then
 		deliver(committed.posterId, committed.give.items, committed.give.gems, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
-	else
+	elseif committed.kind == "sell" then
+		-- return the unsold copies
+		if committed.remainingCount > 0 then
+			deliver(committed.posterId, { [committed.itemId] = committed.remainingCount }, 0, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
+		end
+	else -- bulk
 		local refund = committed.remainingCount * committed.gemsPerCopy
 		if refund > 0 then
 			deliver(committed.posterId, {}, refund, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
@@ -211,6 +225,7 @@ local function describe(listing: any, viewerId: number): any
 		end
 		out.interested = interested
 	else
+		-- bulk + sell share the same shape (item, counts, gemsPerCopy)
 		local name, imageId = itemInfo(listing.itemId)
 		out.itemId = listing.itemId
 		out.itemName = name
@@ -349,6 +364,41 @@ local function handlePost(player: Player, payload: any)
 			expiresAt = now + EconomyConfig.BoardListingTTLSeconds,
 			v = 1,
 		}
+	elseif payload.kind == "sell" then
+		if not Guard.isString(payload.itemId, 64) or EconomyService.getItem(payload.itemId) == nil then
+			return { ok = false, err = "unknown_item" }
+		end
+		if not Guard.isPositiveInt(payload.count) or payload.count > MAX_BULK_COUNT then
+			return { ok = false, err = "bad_count" }
+		end
+		if not Guard.isPositiveInt(payload.gemsPerCopy) then
+			return { ok = false, err = "bad_price" }
+		end
+
+		-- escrow the copies being sold
+		local escrowed, escrowErr = InventoryService.applyDelta(
+			player,
+			{ items = { [payload.itemId] = -payload.count } },
+			Enums.GrantSource.Board
+		)
+		if not escrowed then
+			return { ok = false, err = escrowErr }
+		end
+
+		listing = {
+			id = id,
+			kind = "sell",
+			posterId = player.UserId,
+			posterName = player.Name,
+			itemId = payload.itemId,
+			wantedCount = payload.count, -- copies listed
+			remainingCount = payload.count, -- copies still for sale
+			gemsPerCopy = payload.gemsPerCopy,
+			status = "open",
+			createdAt = now,
+			expiresAt = now + EconomyConfig.BoardListingTTLSeconds,
+			v = 1,
+		}
 	else
 		return { ok = false, err = "bad_kind" }
 	end
@@ -360,7 +410,9 @@ local function handlePost(player: Player, payload: any)
 		-- give the escrow back; posting failed
 		if listing.kind == "swap" then
 			InventoryService.applyDelta(player, { items = listing.give.items, gems = listing.give.gems }, Enums.GrantSource.Refund)
-		else
+		elseif listing.kind == "sell" then
+			InventoryService.applyDelta(player, { items = { [listing.itemId] = listing.remainingCount } }, Enums.GrantSource.Refund)
+		else -- bulk
 			InventoryService.applyDelta(player, { gems = listing.remainingCount * listing.gemsPerCopy }, Enums.GrantSource.Refund)
 		end
 		return { ok = false, err = "store_error" }
@@ -644,6 +696,83 @@ local function handleContribute(player: Player, id: any, count: any)
 end
 
 --------------------------------------------------------------------------------
+-- Gem-only shop: buy from a sell listing
+--------------------------------------------------------------------------------
+
+local function handleBuyFromListing(player: Player, id: any, count: any)
+	if not RateLimitService.check(player, "BuyFromListing") then
+		return { ok = false, err = "rate_limited" }
+	end
+	if not DataService.isLoaded(player) or not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
+		return { ok = false, err = "bad_args" }
+	end
+
+	-- reserve part of the listing (CAS; clamps to what's left)
+	local taken = 0
+	local committed, err = mutate(id, function(l)
+		if l.kind ~= "sell" or l.status ~= "open" then
+			return nil, "gone"
+		end
+		if l.posterId == player.UserId then
+			return nil, "own_listing"
+		end
+		taken = math.min(count, l.remainingCount)
+		if taken <= 0 then
+			return nil, "sold_out"
+		end
+		l.remainingCount -= taken
+		if l.remainingCount <= 0 then
+			l.status = "done"
+		end
+		l.v += 1
+		return l
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+
+	-- charge the buyer gems for the copies
+	local spent = taken * committed.gemsPerCopy
+	local paid, payErr = InventoryService.applyDelta(player, { gems = -spent }, Enums.GrantSource.Board)
+	if not paid then
+		-- put the copies back on sale
+		mutate(id, function(l)
+			l.remainingCount += taken
+			if l.status == "done" then
+				l.status = "open"
+			end
+			l.v += 1
+			return l
+		end)
+		return { ok = false, err = payErr }
+	end
+
+	-- deliver copies to the buyer, pay the seller (taxed)
+	InventoryService.applyDelta(player, { items = { [committed.itemId] = taken } }, Enums.GrantSource.Board)
+	task.spawn(function()
+		DataService.saveNow(player)
+	end)
+	local net = Tax.split(spent)
+	deliver(
+		committed.posterId,
+		{},
+		net,
+		Enums.GrantSource.Board,
+		("sell_pay_%s_%d_%d"):format(id, player.UserId, committed.remainingCount)
+	)
+
+	-- CLEAN gem price signal: a direct gems-for-item sale needs no barter
+	-- imputation, so feed the exact per-copy price straight into RAP/Value.
+	EconomyService.recordSale(committed.itemId, committed.gemsPerCopy, taken)
+
+	if committed.status == "done" then
+		NotificationService.notify(committed.posterId, ("📌 Your sale of %dx %s sold out!"):format(committed.wantedCount, committed.itemId))
+	end
+	AnalyticsService.log("sell_bought", { id = id, by = player.UserId, count = taken, spent = spent })
+	return { ok = true, spent = spent, count = taken }
+end
+
+--------------------------------------------------------------------------------
 -- Cancel + lifecycle
 --------------------------------------------------------------------------------
 
@@ -679,6 +808,7 @@ function TradeBoardService.Start()
 	Net.bindFunction("AcceptListing", handleAccept)
 	Net.bindFunction("RegisterInterest", handleInterest)
 	Net.bindFunction("ContributeBulk", handleContribute)
+	Net.bindFunction("BuyFromListing", handleBuyFromListing)
 end
 
 return TradeBoardService

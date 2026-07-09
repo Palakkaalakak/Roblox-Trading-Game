@@ -816,27 +816,46 @@ local function buildBoardPanel(parent: Instance)
 		Text = "✕",
 		BackgroundColor3 = C.Bad,
 	}, boardPanel)
+	-- context-aware post: label + action depend on the active tab
 	button("PostButton", {
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -44, 0, 8),
-		Size = UDim2.fromOffset(120, 26),
+		Size = UDim2.fromOffset(150, 26),
 		Text = "+ Post trade",
 		TextSize = 13,
 		BackgroundColor3 = C.Good,
 	}, boardPanel)
-	button("BulkButton", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -170, 0, 8),
-		Size = UDim2.fromOffset(120, 26),
-		Text = "+ Bulk order",
-		TextSize = 13,
-		BackgroundColor3 = C.Accent,
+
+	-- three tabs: Normal (swaps) · Bulk (buy orders) · Gem-Only (item shop)
+	local tabRow = new("Frame", {
+		Name = "TabRow",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 40),
+		Size = UDim2.new(1, -24, 0, 30),
 	}, boardPanel)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, tabRow)
+	local function tab(name: string, text: string, order: number)
+		local b = button(name, {
+			Size = UDim2.fromOffset(150, 30),
+			Text = text,
+			TextSize = 13,
+			BackgroundColor3 = C.BgLight,
+			LayoutOrder = order,
+		}, tabRow)
+		return b
+	end
+	tab("TabNormal", "🔁 Normal", 1)
+	tab("TabBulk", "📦 Bulk buy", 2)
+	tab("TabGem", "💎 Gem shop", 3)
 
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
-		Position = UDim2.fromOffset(12, 44),
-		Size = UDim2.new(1, -24, 1, -56),
+		Position = UDim2.fromOffset(12, 78),
+		Size = UDim2.new(1, -24, 1, -90),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
@@ -846,9 +865,9 @@ local function buildBoardPanel(parent: Instance)
 	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
 	label("EmptyLabel", {
-		Position = UDim2.fromOffset(0, 60),
+		Position = UDim2.fromOffset(0, 90),
 		Size = UDim2.new(1, 0, 0, 24),
-		Text = "Nothing posted yet — be the first!",
+		Text = "Nothing here yet — be the first!",
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.TextDim,
@@ -1578,13 +1597,54 @@ local function buildModals(parent: Instance)
 		CanvasSize = UDim2.new(),
 	}, search)
 	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, results)
-	button("ResultTemplate", {
-		Size = UDim2.new(1, 0, 0, 32),
-		Text = "PlayerName (123)",
-		TextSize = 12,
+	-- player result row: avatar headshot left, display name + @username right
+	local resultRow = new("TextButton", {
+		Name = "ResultTemplate",
+		Size = UDim2.new(1, 0, 0, 52),
+		Text = "",
+		AutoButtonColor = true,
 		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
 		Visible = false, -- template
 	}, results)
+	corner(resultRow, 6)
+	local avatar = new("ImageLabel", {
+		Name = "Avatar",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(40, 40),
+		ScaleType = Enum.ScaleType.Fit,
+		Image = "",
+	}, resultRow)
+	corner(avatar, 20)
+	label("DisplayName", {
+		Position = UDim2.fromOffset(56, 8),
+		Size = UDim2.new(1, -100, 0, 18),
+		Text = "Display Name",
+		TextSize = 14,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, resultRow)
+	label("Username", {
+		Position = UDim2.fromOffset(56, 27),
+		Size = UDim2.new(1, -100, 0, 15),
+		Text = "@username",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, resultRow)
+	label("OnlineTag", {
+		Name = "OnlineTag",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(80, 16),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = C.Good,
+	}, resultRow)
 	label("NoticeTemplate", {
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = "No matches",

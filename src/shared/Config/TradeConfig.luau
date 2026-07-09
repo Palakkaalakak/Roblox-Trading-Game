@@ -38,6 +38,7 @@ local TradeConfig = {
 		AcceptListing = { 12, 6 },
 		RegisterInterest = { 12, 6 },
 		ContributeBulk = { 20, 8 },
+		BuyFromListing = { 20, 8 },
 	},
 }
 

@@ -53,6 +53,7 @@ local Enums = {
 		"AcceptListing", -- (id) -> {ok, err?} — auto-trade swaps
 		"RegisterInterest", -- (id) -> {ok, err?} — ask-first swaps
 		"ContributeBulk", -- (id, count) -> {ok, payout?, err?}
+		"BuyFromListing", -- (id, count) -> {ok, spent?, err?} — gem-only sell listings
 		"RequestTrade", -- (targetUserId) -> {ok, tradeId?}
 		"RespondToRequest", -- (tradeId, accept) -> {ok}
 		"SetOffer", -- (tradeId, offer) -> {ok}

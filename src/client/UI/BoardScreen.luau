@@ -36,6 +36,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local lastListings: { any }? = nil
 	local busy = false
 	local refresh
+	local activeTab: "swap" | "bulk" | "sell" = "swap"
 
 	local function clearRendered()
 		for _, inst in spawned do
@@ -169,7 +170,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 					end
 				end)
 			end
-		else -- bulk
+		elseif listing.kind == "bulk" then
 			badge.Text = "BULK BUY"
 			badge.TextColor3 = Theme.Gem
 			addChip(giveHolder, Theme.Icons.Gem, "Gems", tostring(listing.gemsPerCopy) .. "/copy", 1)
@@ -248,15 +249,97 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 					refresh()
 				end)
 			end
+		else -- sell (gem-only shop)
+			badge.Text = "FOR SALE"
+			badge.TextColor3 = Theme.Good
+			addChip(giveHolder, listing.imageId, listing.itemName, "x" .. listing.remainingCount, 1)
+			addChip(wantHolder, Theme.Icons.Gem, "Gems", tostring(listing.gemsPerCopy) .. "/ea", 1)
+
+			EconomyController.ensure({ listing.itemId })
+			local function updateInfo()
+				local snap = EconomyController.get(listing.itemId)
+				local remaining = listing.remainingCount
+				local lines = {
+					("Value: %s ea · %s total"):format(
+						Components.statText(snap and snap.value),
+						snap and snap.value and snap.value.state == "Known"
+								and tostring(snap.value.value * remaining)
+							or "N/A"
+					),
+					("RAP: %s ea · Store Cost: %s ea"):format(
+						Components.statText(snap and snap.rap),
+						Components.storeCostText(snap)
+					),
+				}
+				if not listing.mine and countBox.Visible then
+					local n = math.clamp(tonumber(countBox.Text) or 0, 0, remaining)
+					table.insert(lines, ("Buy %d → costs %d 💎"):format(n, n * listing.gemsPerCopy))
+				end
+				info.Text = table.concat(lines, "\n")
+			end
+			local statsConn = State.Observe(EconomyController.stats, updateInfo)
+			row.Destroying:Connect(function()
+				statsConn:Disconnect()
+			end)
+
+			if listing.mine then
+				action.Text = "Cancel"
+				action.BackgroundColor3 = Theme.Bad
+				action.Activated:Connect(function()
+					local result = invokeAction(function()
+						return Net.invoke("CancelListing", listing.id)
+					end)
+					if result and result.ok then
+						toast("Sale cancelled — items returned.", Theme.Warn)
+					end
+					refresh()
+				end)
+			else
+				countBox.Visible = true
+				countBox.Text = "1"
+				countBox:GetPropertyChangedSignal("Text"):Connect(updateInfo)
+				updateInfo()
+				action.Text = "Buy"
+				action.BackgroundColor3 = Theme.Good
+				action.Activated:Connect(function()
+					local n = tonumber(countBox.Text)
+					if n == nil or n < 1 then
+						toast("Enter how many to buy.", Theme.Bad)
+						return
+					end
+					local result = invokeAction(function()
+						return Net.invoke("BuyFromListing", listing.id, math.floor(n))
+					end)
+					if result then
+						if result.ok then
+							toast(("Bought %d for %d 💎!"):format(result.count, result.spent), Theme.Good)
+						elseif result.err == "insufficient_gems" then
+							toast("Not enough gems!", Theme.Bad)
+						else
+							toast("Couldn't buy: " .. tostring(result.err), Theme.Bad)
+						end
+					end
+					refresh()
+				end)
+			end
 		end
 	end
 
 	local function renderBoard(listings: { any })
 		clearRendered()
-		emptyLabel.Visible = #listings == 0
-		for order, listing in listings do
-			renderListing(listing, order)
+		local shown = 0
+		for _, listing in listings do
+			if listing.kind == activeTab then
+				shown += 1
+				renderListing(listing, shown)
+			end
 		end
+		emptyLabel.Visible = shown == 0
+		emptyLabel.Text = ({
+			swap = "No swap trades posted — hit + to post one!",
+			bulk = "No bulk buy orders — hit + to post one!",
+			sell = "Nothing for sale — hit + to list items for gems!",
+		})[activeTab]
 	end
 
 	refresh = function()
@@ -311,11 +394,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		picker.Visible = false
 	end)
 
-	local mode: "swap" | "bulk" = "bulk" -- modal is bulk-only now (swap = trade UI)
-	local autoTrade = true
-	modeBtn.Visible = false -- swap posting moved to the real trade window
-	;(post:WaitForChild("Title") :: TextLabel).Text = "Bulk buy order"
-	local giveItemId: string? = nil
+	-- modal handles the gem-only kinds (bulk buy order / sell listing); swap
+	-- posting is the real trade window (compose mode)
+	local modalKind: "bulk" | "sell" = "bulk"
+	modeBtn.Visible = false
 	local wantItemId: string? = nil
 	local catalog: { any }? = nil
 	local pickSpawned: { Instance } = {}
@@ -370,123 +452,120 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		picker.Visible = true
 	end
 
-	local giveItemBtn = giveRow:WaitForChild("ItemButton") :: ImageButton
-	giveItemBtn.Activated:Connect(function()
-		openPicker("inventory", function(itemId, name, imageId)
-			giveItemId = itemId
-			rowSet(giveRow, itemId, name, imageId)
-		end)
-	end)
+	autoBtn.Visible = false
+	giveRow.Visible = false -- gem-only modals use only the want row (item + fields)
+
+	-- gem-only modal: item picker (catalog) always on the want row; the two
+	-- number fields mean different things per kind (bulk vs sell)
+	local postTitle = post:WaitForChild("Title") :: TextLabel
+	local function applyModalKind()
+		local wantHeader = wantRow:WaitForChild("Header") :: TextLabel
+		if modalKind == "bulk" then
+			postTitle.Text = "Bulk buy order"
+			wantHeader.Text = "BUY (count) FOR (total gems, escrowed)"
+		else
+			postTitle.Text = "Sell for gems"
+			wantHeader.Text = "SELL (count) AT (gems each) — items escrowed"
+		end
+	end
+
 	local wantItemBtn = wantRow:WaitForChild("ItemButton") :: ImageButton
 	wantItemBtn.Activated:Connect(function()
-		openPicker("catalog", function(itemId, name, imageId)
+		-- sell can only list items you own; bulk can target any catalog item
+		openPicker(modalKind == "sell" and "inventory" or "catalog", function(itemId, name, imageId)
 			wantItemId = itemId
 			rowSet(wantRow, itemId, name, imageId)
 		end)
 	end)
 
-	local function applyMode()
-		modeBtn.Text = mode == "swap" and "Mode: Swap" or "Mode: Bulk buy"
-		autoBtn.Visible = mode == "swap"
-		local giveHeader = giveRow:WaitForChild("Header") :: TextLabel
-		local wantHeader = wantRow:WaitForChild("Header") :: TextLabel
-		if mode == "swap" then
-			giveHeader.Text = "YOU GIVE (escrowed when you post)"
-			wantHeader.Text = "YOU WANT"
-			giveRow.Visible = true
-		else
-			-- bulk: only the want row matters (item + count) + gems box on want row
-			giveHeader.Text = ""
-			wantHeader.Text = "YOU BUY (count) FOR (total gems, escrowed)"
-			giveRow.Visible = false
-		end
-	end
-	modeBtn.Activated:Connect(function()
-		mode = mode == "swap" and "bulk" or "swap"
-		applyMode()
-	end)
-	autoBtn.Activated:Connect(function()
-		autoTrade = not autoTrade
-		autoBtn.Text = autoTrade and "Auto-trade: ON" or "Auto-trade: OFF"
-		autoBtn.BackgroundColor3 = autoTrade and Theme.Good or Theme.Warn
-	end)
-
-	-- "+ Post trade": the STANDARD trade window in compose mode — build both
-	-- sides like a normal trade, then POST TO BOARD.
-	local postBtn = panel:WaitForChild("PostButton") :: TextButton
-	postBtn.Activated:Connect(function()
-		panel.Visible = false
-		TradeScreen.openCompose(function(give, want, auto)
+	local function openModal(kind: "bulk" | "sell")
+		modalKind = kind
+		wantItemId = nil
+		rowSet(wantRow, nil, nil, nil)
+		applyModalKind()
+		post.Visible = true
+		if catalog == nil then
 			task.spawn(function()
-				local result = Net.invoke("PostListing", {
-					kind = "swap",
-					give = give,
-					want = want,
-					autoTrade = auto,
-				})
+				local result = Net.invoke("GetCatalog")
 				if result.ok then
-					toast("Posted to the board!", Theme.Good)
-				else
-					toast("Couldn't post: " .. tostring(result.err), Theme.Bad)
+					catalog = result.items
 				end
-				BoardScreen.open()
 			end)
-		end)
-	end)
-
-	-- "+ Bulk order": the small modal (item + count + total gems)
-	local bulkBtn = panel:FindFirstChild("BulkButton") :: TextButton?
-	if bulkBtn then
-		bulkBtn.Activated:Connect(function()
-			mode = "bulk"
-			giveItemId, wantItemId = nil, nil
-			rowSet(giveRow, nil, nil, nil)
-			rowSet(wantRow, nil, nil, nil)
-			applyMode()
-			post.Visible = true
-			if catalog == nil then
-				task.spawn(function()
-					local result = Net.invoke("GetCatalog")
-					if result.ok then
-						catalog = result.items
-					end
-				end)
-			end
-		end)
+		end
 	end
 
-	local function readOffer(row: Frame, itemId: string?): any
-		local count = tonumber((row:WaitForChild("CountBox") :: TextBox).Text) or 0
-		local gems = tonumber((row:WaitForChild("GemsBox") :: TextBox).Text) or 0
-		local items = {}
-		if itemId and count >= 1 then
-			items[itemId] = math.floor(count)
+	-- context-aware post button: acts on the active tab
+	local postBtn = panel:WaitForChild("PostButton") :: TextButton
+	local function updatePostBtn()
+		postBtn.Text = ({
+			swap = "+ Post swap",
+			bulk = "+ Bulk order",
+			sell = "+ Sell items",
+		})[activeTab]
+	end
+	postBtn.Activated:Connect(function()
+		if activeTab == "swap" then
+			-- the STANDARD trade window in compose mode -> POST TO BOARD
+			panel.Visible = false
+			TradeScreen.openCompose(function(give, want, auto)
+				task.spawn(function()
+					local result = Net.invoke("PostListing", {
+						kind = "swap",
+						give = give,
+						want = want,
+						autoTrade = auto,
+					})
+					toast(result.ok and "Posted to the board!" or ("Couldn't post: " .. tostring(result.err)), result.ok and Theme.Good or Theme.Bad)
+					BoardScreen.open()
+				end)
+			end)
+		else
+			openModal(activeTab :: any)
 		end
-		return { items = items, gems = math.max(0, math.floor(gems)) }
+	end)
+
+	-- tab buttons
+	local tabRow = panel:WaitForChild("TabRow") :: Frame
+	local tabButtons = {
+		swap = tabRow:WaitForChild("TabNormal") :: TextButton,
+		bulk = tabRow:WaitForChild("TabBulk") :: TextButton,
+		sell = tabRow:WaitForChild("TabGem") :: TextButton,
+	}
+	local function selectTab(tab: "swap" | "bulk" | "sell")
+		activeTab = tab
+		for key, btn in tabButtons do
+			btn.BackgroundColor3 = (key == tab) and Theme.Accent or Theme.BgLight
+		end
+		updatePostBtn()
+		if lastListings then
+			renderBoard(lastListings)
+		end
+	end
+	for tab, btn in tabButtons do
+		btn.Activated:Connect(function()
+			selectTab(tab :: any)
+		end)
+	end
+	selectTab("swap")
+
+	-- public: open the board straight to a given tab (pillar deep-link / tests)
+	function BoardScreen.openTab(tab: "swap" | "bulk" | "sell")
+		BoardScreen.open()
+		selectTab(tab)
 	end
 
 	submitBtn.Activated:Connect(function()
+		if wantItemId == nil then
+			toast("Pick an item first.", Theme.Bad)
+			return
+		end
+		local count = math.floor(tonumber((wantRow:WaitForChild("CountBox") :: TextBox).Text) or 0)
+		local gems = math.floor(tonumber((wantRow:WaitForChild("GemsBox") :: TextBox).Text) or 0)
 		local payload: any
-		if mode == "swap" then
-			payload = {
-				kind = "swap",
-				give = readOffer(giveRow, giveItemId),
-				want = readOffer(wantRow, wantItemId),
-				autoTrade = autoTrade,
-			}
+		if modalKind == "bulk" then
+			payload = { kind = "bulk", itemId = wantItemId, count = count, gems = gems }
 		else
-			local count = tonumber((wantRow:WaitForChild("CountBox") :: TextBox).Text) or 0
-			local gems = tonumber((wantRow:WaitForChild("GemsBox") :: TextBox).Text) or 0
-			payload = {
-				kind = "bulk",
-				itemId = wantItemId,
-				count = math.floor(count),
-				gems = math.floor(gems),
-			}
-			if payload.itemId == nil then
-				toast("Pick the item you want to buy.", Theme.Bad)
-				return
-			end
+			payload = { kind = "sell", itemId = wantItemId, count = count, gemsPerCopy = gems }
 		end
 		local result = invokeAction(function()
 			return Net.invoke("PostListing", payload)

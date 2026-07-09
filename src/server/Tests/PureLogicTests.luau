@@ -126,14 +126,21 @@ return {
 			assert(not Guard.checkOfferShape({ items = { itm_a = 10 }, gems = 0 }), "copy cap not enforced")
 		end,
 
-		["value: seed until blend threshold, then drifts toward RAP"] = function()
+		["value: seed early, converges to RAP as samples grow (smoothed)"] = function()
 			local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+			local blendAt = EconomyConfig.MinSamples.ValueRapBlend
 			-- below threshold: pure seed (sticker price)
-			eq(EconomyService.computeValue(100, 999, EconomyConfig.MinSamples.ValueRapBlend - 1), 100)
-			-- at threshold: blends toward the market price
-			local blended = EconomyService.computeValue(100, 1000, EconomyConfig.MinSamples.ValueRapBlend)
-			assert(blended > 100, "market above seed must pull value up: " .. blended)
-			assert(blended < 1000, "seed anchor must hold: " .. blended)
+			eq(EconomyService.computeValue(100, 999, blendAt - 1), 100)
+			-- at threshold: between seed and market, anchor still strong
+			local early = EconomyService.computeValue(100, 1000, blendAt)
+			assert(early > 100 and early < 1000, "early blend off: " .. early)
+			-- MANY samples: anchor decays, Value converges toward RAP (precise)
+			local late = EconomyService.computeValue(100, 1000, blendAt + 500)
+			assert(late > early, "value must climb toward RAP with more samples")
+			assert(late > 950, "well-traded item's value ~ its RAP: " .. late)
+			-- smoothing: a single early sample barely moves value off nothing
+			-- (early is much closer to seed than a huge RAP would suggest)
+			assert((early - 100) < (1000 - 100) * 0.8, "early value must be anchored/smoothed")
 			-- never below 1
 			eq(EconomyService.computeValue(0, 0, 0), 1)
 		end,

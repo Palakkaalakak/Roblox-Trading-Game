@@ -46,11 +46,15 @@ local function decayedDemand(record: any, now: number): number
 end
 
 -- Est. Value is GEM-DENOMINATED and ALWAYS DEFINED (never N/A) — every player
--- sees the same number for the same item, everywhere.
+-- sees the same number for the same item, everywhere. It is a SMOOTHED,
+-- market-anchored version of RAP:
 --   * seed: the item's fixed store cost; event items (no store cost) seed
 --     from supply scarcity instead
---   * market drift: once an item has real trade history (RAP samples), value
---     blends toward RAP — the market takes over from the sticker price
+--   * as real sales accumulate, the seed anchor DECAYS and Value converges
+--     onto RAP — so Value is smooth/stable early (sticker-anchored, immune to
+--     one lucky trade) and grows precise as genuine gem-priced sales build
+--     up. Gem-only shop sales feed RAP directly (exact prices), so this
+--     converges fast and true once the shop is used.
 -- Deterministic from (registry, economy record): no per-client divergence.
 
 -- seed price in gems for an item with no store cost (event items)
@@ -60,11 +64,18 @@ function EconomyService.scarcitySeed(totalSupply: number): number
 end
 
 function EconomyService.computeValue(seedGems: number, rapValue: number, rapCount: number): number
-	if rapCount >= EconomyConfig.MinSamples.ValueRapBlend then
-		local w = EconomyConfig.ValueSeedWeight
-		return math.max(1, math.floor(w * seedGems + (1 - w) * rapValue + 0.5))
+	local blendAt = EconomyConfig.MinSamples.ValueRapBlend
+	if rapCount < blendAt then
+		return math.max(1, math.floor(seedGems + 0.5)) -- not enough data: sticker price
 	end
-	return math.max(1, math.floor(seedGems + 0.5))
+	-- seed weight decays with sample count: w = w0 * H/(H + extraSamples),
+	-- floored so Value never fully abandons the anchor. Early trades barely
+	-- move Value (smooth); a well-traded item's Value ≈ its RAP (precise).
+	local extra = rapCount - blendAt
+	local w = EconomyConfig.ValueSeedWeight * EconomyConfig.ValueSeedHalfLife
+		/ (EconomyConfig.ValueSeedHalfLife + extra)
+	w = math.max(w, EconomyConfig.ValueSeedFloor)
+	return math.max(1, math.floor(w * seedGems + (1 - w) * rapValue + 0.5))
 end
 
 -- Live rarity->gems lookup against the CURRENT config — never frozen into
@@ -338,6 +349,29 @@ function EconomyService.recordTradePrice(itemId: string, imputedPrice: number)
 		return old
 	end)
 	AnalyticsService.log("rap_update", { itemId = itemId, price = imputedPrice })
+end
+
+-- Record a gem-only SALE: an exact per-copy gem price, `count` copies. This
+-- is the cleanest possible signal (no barter imputation), so each copy is a
+-- full RAP sample. One CAS pushes them all (RollingAverage.push is pure, so
+-- looping inside the transform is safe). Sample count capped to bound work.
+function EconomyService.recordSale(itemId: string, pricePerCopy: number, count: number)
+	local samples = math.clamp(count, 1, 50)
+	mutateRecord(itemId, function(old)
+		local now = os.time()
+		local avg, n = old.rapValue or 0, old.rapCount or 0
+		for _ = 1, samples do
+			avg, n = RollingAverage.push(avg, n, pricePerCopy)
+		end
+		old.rapValue, old.rapCount = avg, n
+		old.demandEMA = decayedDemand(old, now) + EconomyConfig.DemandBumpOnTrade
+		old.demandT = now
+		old.demandSamples = (old.demandSamples or 0) + 1
+		old.updatedAt = now
+		return old
+	end)
+	EconomyService.broadcastStats({ itemId })
+	AnalyticsService.log("sale_price", { itemId = itemId, price = pricePerCopy, copies = count })
 end
 
 --------------------------------------------------------------------------------

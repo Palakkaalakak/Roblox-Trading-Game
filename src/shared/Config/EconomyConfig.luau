@@ -21,7 +21,9 @@ local EconomyConfig = {
 	ReferenceSupply = 500,
 	SupplyExponent = 0.6,
 	DemandCoefficient = 0.5,
-	ValueSeedWeight = 0.35, -- anchor so one whale trade can't 10x an item's value
+	ValueSeedWeight = 0.35, -- initial anchor weight (one whale trade can't 10x value)
+	ValueSeedHalfLife = 12, -- samples over which the anchor's pull roughly halves
+	ValueSeedFloor = 0.04, -- anchor never fully disappears (residual stability)
 
 	-- Minimum-data thresholds. Below these a stat is StatState.NA and the UI
 	-- must render "N/A" (never 0/blank/null).

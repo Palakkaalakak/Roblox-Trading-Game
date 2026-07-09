@@ -154,12 +154,13 @@ end
 
 local function recordSeen(player: Player)
 	local key = tostring(player.UserId)
-	seenCache[key] = { name = player.Name, lastSeen = os.time() }
+	local entry = { name = player.Name, displayName = player.DisplayName, lastSeen = os.time() }
+	seenCache[key] = entry
 	task.spawn(function()
 		pcall(function()
 			seenStore:UpdateAsync("all", function(old)
 				old = old or {}
-				old[key] = { name = player.Name, lastSeen = os.time() }
+				old[key] = { name = player.Name, displayName = player.DisplayName, lastSeen = os.time() }
 				return old
 			end)
 		end)
@@ -199,7 +200,12 @@ function DataService.searchPlayers(query: string, limit: number): { any }
 			match = true
 		end
 		if match then
-			table.insert(results, { userId = tonumber(key), name = info.name, lastSeen = info.lastSeen })
+			table.insert(results, {
+				userId = tonumber(key),
+				name = info.name,
+				displayName = info.displayName or info.name,
+				lastSeen = info.lastSeen,
+			})
 			if #results >= limit then
 				break
 			end

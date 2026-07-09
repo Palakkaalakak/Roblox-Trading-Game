@@ -587,22 +587,50 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 	end
 
+	-- avatar headshots are fetched async + cached (thumbnails can yield)
+	local avatarCache: { [number]: string } = {}
+	local function loadAvatar(userId: number, into: ImageLabel)
+		local cached = avatarCache[userId]
+		if cached then
+			into.Image = cached
+			return
+		end
+		task.spawn(function()
+			local ok, content = pcall(function()
+				return Players:GetUserThumbnailAsync(
+					userId,
+					Enum.ThumbnailType.HeadShot,
+					Enum.ThumbnailSize.Size48x48
+				)
+			end)
+			if ok and content then
+				avatarCache[userId] = content
+				if into and into.Parent then
+					into.Image = content
+				end
+			end
+		end)
+	end
+
 	-- never lists yourself: you can't trade with yourself
-	local function addResult(userId: number, name: string, order: number): boolean
+	local function addResult(userId: number, displayName: string, username: string, order: number): boolean
 		if userId == localPlayer.UserId then
 			return false
 		end
 		local online = Players:GetPlayerByUserId(userId) ~= nil
-		local btn = resultTemplate:Clone()
-		btn.Visible = true
-		btn.Name = "Result_" .. userId
-		btn.LayoutOrder = order
-		btn.Text = ("%s  (%d)%s"):format(name, userId, online and "  •in server" or "")
-		btn.Activated:Connect(function()
+		local row = resultTemplate:Clone()
+		row.Visible = true
+		row.Name = "Result_" .. userId
+		row.LayoutOrder = order
+		;(row:WaitForChild("DisplayName") :: TextLabel).Text = displayName
+		;(row:WaitForChild("Username") :: TextLabel).Text = "@" .. username
+		;(row:WaitForChild("OnlineTag") :: TextLabel).Text = online and "• in server" or ""
+		loadAvatar(userId, row:WaitForChild("Avatar") :: ImageLabel)
+		;(row :: TextButton).Activated:Connect(function()
 			search.Visible = false
 			TradeController.requestTrade(userId)
 		end)
-		btn.Parent = resultsList
+		row.Parent = resultsList
 		return true
 	end
 
@@ -623,7 +651,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		if query:gsub("%s", "") == "" then
 			local added = 0
 			for _, player in Players:GetPlayers() do
-				if addResult(player.UserId, player.Name, added + 1) then
+				if addResult(player.UserId, player.DisplayName, player.Name, added + 1) then
 					added += 1
 				end
 			end
@@ -644,7 +672,8 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			end
 			local added = 0
 			for _, entry in result.results do
-				if addResult(entry.userId, entry.name or ("User " .. entry.userId), added + 1) then
+				local username = entry.name or ("User " .. entry.userId)
+				if addResult(entry.userId, entry.displayName or username, username, added + 1) then
 					added += 1
 				end
 			end
