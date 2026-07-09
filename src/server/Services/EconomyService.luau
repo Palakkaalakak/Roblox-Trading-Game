@@ -67,8 +67,25 @@ function EconomyService.computeValue(seedGems: number, rapValue: number, rapCoun
 	return math.max(1, math.floor(seedGems + 0.5))
 end
 
+-- Live rarity->gems lookup against the CURRENT config — never frozen into
+-- storage, so a balance change in Items.StoreCostByRarity takes effect for
+-- every already-registered item immediately, no data migration required.
+local function rarityFallbackCost(rarity: string?): number?
+	return rarity and Items.StoreCostByRarity[rarity] or nil
+end
+
+-- The gem number shown as "Store Cost" and used to seed Est. Value: explicit
+-- price if the item has one (NPC store / product token), else the live
+-- rarity price, else nil for event items (displayed "N/A (Event Item)").
+function EconomyService.displayStoreCost(item: any): number?
+	if item.eventItem then
+		return nil
+	end
+	return item.storeCost or rarityFallbackCost(item.rarity)
+end
+
 local function seedFor(item: any): number
-	return item.storeCost or EconomyService.scarcitySeed(item.totalSupply)
+	return EconomyService.displayStoreCost(item) or EconomyService.scarcitySeed(item.totalSupply)
 end
 
 local function freshRecord(itemId: string, totalSupply: number, now: number)
@@ -107,7 +124,11 @@ end
 function EconomyService.registerItems(defs: { any })
 	local now = os.time()
 
-	-- diff against the in-memory registry first
+	-- diff against the in-memory registry first. storeCost is only ever
+	-- diffed/written when a def carries an EXPLICIT price (NPC store /
+	-- product tokens) — rarity-derived cost is never frozen into storage
+	-- (see rarityFallbackCost), so a nil storeCost on a non-event item is
+	-- the correct steady state, not something to "fix".
 	local dirtyDefs = {}
 	local reasons = {}
 	for _, def in defs do
@@ -119,9 +140,9 @@ function EconomyService.registerItems(defs: { any })
 			end
 		elseif (existing.imageId == nil and def.imageId ~= nil)
 			or (def.eventItem and (not existing.eventItem or existing.storeCost ~= nil))
-			or (not def.eventItem and existing.storeCost == nil)
+			or (def.storeCost ~= nil and existing.storeCost ~= def.storeCost)
 		then
-			table.insert(dirtyDefs, def) -- needs a backfill
+			table.insert(dirtyDefs, def) -- needs a backfill / explicit-price resync
 			if #reasons < 3 then
 				table.insert(reasons, def.itemId .. ":backfill")
 			end
@@ -144,8 +165,10 @@ function EconomyService.registerItems(defs: { any })
 					assignmentWeight = def.assignmentWeight,
 					rarity = rarity,
 					imageId = def.imageId,
-					-- event items have NO store cost (UI: "N/A (Event Item)")
-					storeCost = if def.eventItem then nil else (def.storeCost or Items.StoreCostByRarity[rarity]),
+					-- ONLY explicit fixed prices are stored. Event items: no
+					-- store cost (UI: "N/A (Event Item)"). Everything else:
+					-- nil, resolved live from current config every read.
+					storeCost = if def.eventItem then nil else def.storeCost,
 					eventItem = def.eventItem,
 					-- Robux product tokens (tradeable stand-ins for passes/products)
 					productType = def.productType,
@@ -160,8 +183,8 @@ function EconomyService.registerItems(defs: { any })
 				if def.eventItem then
 					old[def.itemId].eventItem = true
 					old[def.itemId].storeCost = nil
-				elseif old[def.itemId].storeCost == nil then
-					old[def.itemId].storeCost = Items.StoreCostByRarity[Rarity.tierFor(def.totalSupply)]
+				elseif def.storeCost ~= nil then
+					old[def.itemId].storeCost = def.storeCost -- explicit price changed in config
 				end
 			end
 		end
@@ -345,7 +368,7 @@ function EconomyService.snapshot(itemId: string): any?
 		rarity = item.rarity,
 		imageId = item.imageId,
 		totalSupply = item.totalSupply, -- fixed cap (the Y in "X/Y in existence")
-		storeCost = item.storeCost, -- gems; nil = event-only item (no store)
+		storeCost = EconomyService.displayStoreCost(item), -- gems; nil = event item (same number that seeds Value)
 		-- supply is always known (authoritative count; 0 is a real value)
 		supply = stat(true, circulating),
 		demand = stat((rec.demandSamples or 0) >= EconomyConfig.MinSamples.Demand, math.floor(demand * 100 + 0.5) / 100),
@@ -418,29 +441,13 @@ function EconomyService.Init()
 	econStore = StoreAdapters.dataStore("EconomyStore_v1")
 	hotMap = StoreAdapters.sortedMap("EconomyHot_v1")
 	EconomyService.loadRegistry()
-
-	-- one-time backfill: storeCost on entries written before the field existed
-	local needsBackfill = false
-	for _, item in registry do
-		if item.storeCost == nil and not item.eventItem then
-			needsBackfill = true
-			break
-		end
-	end
-	if needsBackfill then
-		pcall(function()
-			registryStore:UpdateAsync("all", function(old)
-				old = old or {}
-				for _, item in old do
-					if item.storeCost == nil and item.rarity and not item.eventItem then
-						item.storeCost = Items.StoreCostByRarity[item.rarity]
-					end
-				end
-				registry = old
-				return old
-			end)
-		end)
-	end
+	-- NOTE: registry.storeCost is only ever persisted for items with an
+	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything
+	-- else derives its cost live from item.rarity + the current
+	-- Items.StoreCostByRarity table (see seedFor/rarityFallbackCost below) —
+	-- do not add a backfill here that freezes a rarity price into storage;
+	-- that is exactly the bug that let a stale pre-rebalance Common price
+	-- (100) outlive the "cheap prices" config change silently.
 end
 
 function EconomyService.Start()

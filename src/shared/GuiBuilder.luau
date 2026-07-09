@@ -855,12 +855,12 @@ local function buildBoardPanel(parent: Instance)
 		Visible = false,
 	}, boardPanel)
 
-	-- listing row template
+	-- listing row template (tall enough for chips + a multi-line stats/payout block)
 	local row = new("Frame", {
 		Name = "ListingRow",
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, -8, 0, 96),
+		Size = UDim2.new(1, -8, 0, 156),
 		Visible = false,
 	}, list)
 	corner(row, 6)
@@ -941,9 +941,12 @@ local function buildBoardPanel(parent: Instance)
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, wantHolder)
 
+	-- stats/payout block: per-unit + total Value/RAP/Store Cost for bulk rows,
+	-- "Interested: ..." for ask-first swap rows the poster owns. Sits below
+	-- the chips, full width minus the bottom-right controls' reserved column.
 	label("InfoLabel", {
-		Position = UDim2.fromOffset(456, 24),
-		Size = UDim2.fromOffset(160, 64),
+		Position = UDim2.fromOffset(10, 92),
+		Size = UDim2.new(1, -178, 0, 56),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 11,
@@ -952,10 +955,12 @@ local function buildBoardPanel(parent: Instance)
 		TextYAlignment = Enum.TextYAlignment.Top,
 	}, row)
 
+	-- bottom-right controls, pinned to the row's bottom edge regardless of
+	-- how tall the row grows (stats block above can vary in line count)
 	local countBox = new("TextBox", {
 		Name = "CountBox",
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -136, 0.5, 0),
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -136, 1, -8),
 		Size = UDim2.fromOffset(52, 30),
 		BackgroundColor3 = C.BgLight,
 		BorderSizePixel = 0,
@@ -969,8 +974,8 @@ local function buildBoardPanel(parent: Instance)
 	corner(countBox, 6)
 
 	button("ActionButton", {
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 0),
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -10, 1, -8),
 		Size = UDim2.fromOffset(118, 36),
 		Text = "Accept",
 		TextSize = 13,

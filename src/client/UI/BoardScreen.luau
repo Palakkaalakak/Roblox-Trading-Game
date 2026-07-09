@@ -10,6 +10,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
+local State = require(ReplicatedStorage.Shared.Util.State)
+local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
@@ -172,11 +174,41 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			badge.TextColor3 = Theme.Gem
 			addChip(giveHolder, Theme.Icons.Gem, "Gems", tostring(listing.gemsPerCopy) .. "/copy", 1)
 			addChip(wantHolder, listing.imageId, listing.itemName, "x" .. listing.remainingCount, 1)
-			info.Text = ("wants %d more of %d · pays %d💎 per copy (before tax)"):format(
-				listing.remainingCount,
-				listing.wantedCount,
-				listing.gemsPerCopy
-			)
+
+			-- stats block: per-unit AND total (× what's still wanted) Est.
+			-- Value / RAP / Store Cost, plus (for contributors) a live payout
+			-- preview that updates as they type how many they're giving.
+			EconomyController.ensure({ listing.itemId })
+			local function updateInfo()
+				local snap = EconomyController.get(listing.itemId)
+				local remaining = listing.remainingCount
+				local lines = {
+					("Value: %s ea · %s total"):format(
+						Components.statText(snap and snap.value),
+						snap and snap.value and snap.value.state == "Known"
+								and tostring(snap.value.value * remaining)
+							or "N/A"
+					),
+					("RAP: %s ea · Store Cost: %s ea"):format(
+						Components.statText(snap and snap.rap),
+						Components.storeCostText(snap)
+					),
+				}
+				if not listing.mine and countBox.Visible then
+					local n = math.clamp(tonumber(countBox.Text) or 0, 0, remaining)
+					local net = Tax.split(n * listing.gemsPerCopy)
+					table.insert(lines, ("Give %d → you get %d 💎 (after tax)"):format(n, net))
+				end
+				info.Text = table.concat(lines, "\n")
+			end
+			-- Observe fires immediately + on every stat change; disconnect
+			-- when this row is torn down (refresh() rebuilds all rows) so
+			-- repeated board refreshes don't leak one connection per row.
+			local statsConn = State.Observe(EconomyController.stats, updateInfo)
+			row.Destroying:Connect(function()
+				statsConn:Disconnect()
+			end)
+
 			if listing.mine then
 				action.Text = "Cancel"
 				action.BackgroundColor3 = Theme.Bad
@@ -193,6 +225,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				countBox.Visible = true
 				local owned = InventoryController.inventory:get()[listing.itemId] or 0
 				countBox.Text = tostring(math.min(owned, listing.remainingCount))
+				countBox:GetPropertyChangedSignal("Text"):Connect(updateInfo)
+				updateInfo()
 				action.Text = "Contribute"
 				action.BackgroundColor3 = Theme.Good
 				action.Activated:Connect(function()
