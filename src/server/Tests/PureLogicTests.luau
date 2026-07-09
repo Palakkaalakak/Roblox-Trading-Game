@@ -126,20 +126,23 @@ return {
 			assert(not Guard.checkOfferShape({ items = { itm_a = 10 }, gems = 0 }), "copy cap not enforced")
 		end,
 
-		["value formula: N/A below circulating threshold, else >= 1"] = function()
-			eq(EconomyService.computeValue(1000, 0, 0), nil, "circ 0 must be N/A")
-			local v1 = EconomyService.computeValue(1000, 1, 0)
-			assert(v1 ~= nil and v1 >= 1, "circ 1 must be a real value")
+		["value: seed until blend threshold, then drifts toward RAP"] = function()
+			local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+			-- below threshold: pure seed (sticker price)
+			eq(EconomyService.computeValue(100, 999, EconomyConfig.MinSamples.ValueRapBlend - 1), 100)
+			-- at threshold: blends toward the market price
+			local blended = EconomyService.computeValue(100, 1000, EconomyConfig.MinSamples.ValueRapBlend)
+			assert(blended > 100, "market above seed must pull value up: " .. blended)
+			assert(blended < 1000, "seed anchor must hold: " .. blended)
+			-- never below 1
+			eq(EconomyService.computeValue(0, 0, 0), 1)
 		end,
 
-		["value formula: scarcer cap is worth more, demand raises value"] = function()
-			local scarce = EconomyService.computeValue(50, 1, 0) :: number
-			local common = EconomyService.computeValue(20000, 1, 0) :: number
+		["value: event-item scarcity seed — scarcer cap worth more"] = function()
+			local scarce = EconomyService.scarcitySeed(50)
+			local common = EconomyService.scarcitySeed(20000)
 			assert(scarce > common, "scarcity inversion")
-			assert(common <= 2, "huge-pool items must be cheap: " .. common)
-			local hot = EconomyService.computeValue(1000, 1, 50) :: number
-			local cold = EconomyService.computeValue(1000, 1, 0) :: number
-			assert(hot > cold, "demand should raise value")
+			assert(common >= 1, "floor at 1")
 		end,
 
 		["store pricing: fixed per-item price from config"] = function()

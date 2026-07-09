@@ -130,14 +130,30 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 
 	local lastRotatesAt: number? = nil
 
+	-- one GetStore in flight at a time; bursts collapse into one trailing call
+	-- (buying fast used to trip the rate limit and blank the shelf)
+	local fetching = false
+	local fetchQueued = false
 	refresh = function()
+		if fetching then
+			fetchQueued = true
+			return
+		end
+		fetching = true
 		task.spawn(function()
-			local result = Net.invoke("GetStore")
-			if result.ok then
-				lastItems = result.items
-				lastRotatesAt = result.rotatesAt
-				renderList(result.items, result.rotatesAt)
-			end
+			repeat
+				fetchQueued = false
+				local result = Net.invoke("GetStore")
+				if result.ok then
+					lastItems = result.items
+					lastRotatesAt = result.rotatesAt
+					renderList(result.items, result.rotatesAt)
+				end
+				if fetchQueued then
+					task.wait(0.4)
+				end
+			until not fetchQueued
+			fetching = false
 		end)
 	end
 

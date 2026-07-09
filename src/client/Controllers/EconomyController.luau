@@ -100,6 +100,21 @@ function EconomyController.Start()
 		end
 		EconomyController.refresh(known)
 	end)
+
+	-- periodic re-sync: guarantees every client converges on identical stats
+	-- even if a push was missed (nobody sees Value 1 while another sees N/A)
+	task.spawn(function()
+		while true do
+			task.wait(45)
+			local known = {}
+			for itemId in EconomyController.stats:get() do
+				table.insert(known, itemId)
+			end
+			if #known > 0 then
+				EconomyController.refresh(known)
+			end
+		end
+	end)
 end
 
 return EconomyController

@@ -45,18 +45,30 @@ local function decayedDemand(record: any, now: number): number
 	return (record.demandEMA or 0) * demandDecayPerSecond ^ dt
 end
 
--- value = max(1, round(Base * scarcity * demandFactor)); nil when N/A.
--- Scarcity is based on the item's TOTAL supply cap, so huge starter pools
--- stay cheap from copy one (a 20k-supply mythical is not a jackpot), while
--- genuinely scarce items (limited store, future events) are worth more.
--- Still N/A until at least one copy exists.
-function EconomyService.computeValue(totalSupply: number, circulating: number, demandEMA: number): number?
-	if circulating < EconomyConfig.MinSamples.ValueCirculating then
-		return nil
-	end
+-- Est. Value is GEM-DENOMINATED and ALWAYS DEFINED (never N/A) — every player
+-- sees the same number for the same item, everywhere.
+--   * seed: the item's fixed store cost; event items (no store cost) seed
+--     from supply scarcity instead
+--   * market drift: once an item has real trade history (RAP samples), value
+--     blends toward RAP — the market takes over from the sticker price
+-- Deterministic from (registry, economy record): no per-client divergence.
+
+-- seed price in gems for an item with no store cost (event items)
+function EconomyService.scarcitySeed(totalSupply: number): number
 	local scarcity = (EconomyConfig.ReferenceSupply / math.max(totalSupply, 1)) ^ EconomyConfig.SupplyExponent
-	local demandFactor = 1 + EconomyConfig.DemandCoefficient * math.log10(1 + math.max(demandEMA, 0))
-	return math.max(1, math.floor(EconomyConfig.ValueBase * scarcity * demandFactor + 0.5))
+	return math.max(1, math.floor(EconomyConfig.ValueBase * scarcity + 0.5))
+end
+
+function EconomyService.computeValue(seedGems: number, rapValue: number, rapCount: number): number
+	if rapCount >= EconomyConfig.MinSamples.ValueRapBlend then
+		local w = EconomyConfig.ValueSeedWeight
+		return math.max(1, math.floor(w * seedGems + (1 - w) * rapValue + 0.5))
+	end
+	return math.max(1, math.floor(seedGems + 0.5))
+end
+
+local function seedFor(item: any): number
+	return item.storeCost or EconomyService.scarcitySeed(item.totalSupply)
 end
 
 local function freshRecord(itemId: string, totalSupply: number, now: number)
@@ -85,14 +97,43 @@ function EconomyService.loadRegistry()
 	registry = stored or {}
 end
 
--- Register new items (rotation / seed). Appends to the durable registry and
--- initializes economy records. Item defs: {itemId, poolId, name, totalSupply,
--- assignmentWeight}. Rarity derived here — never passed in.
+-- Register new items (rotation / seed). Item defs: {itemId, poolId, name,
+-- totalSupply, assignmentWeight}. Rarity derived here — never passed in.
+--
+-- FAST on reboot: when every def is already registered and needs no backfill,
+-- this is zero store calls (boot used to burn ~1s per item re-seeding records
+-- that already existed). Economy records are NOT written here — getRecord
+-- lazy-seeds them from the registry on first touch.
 function EconomyService.registerItems(defs: { any })
 	local now = os.time()
+
+	-- diff against the in-memory registry first
+	local dirtyDefs = {}
+	local reasons = {}
+	for _, def in defs do
+		local existing = registry[def.itemId]
+		if existing == nil then
+			table.insert(dirtyDefs, def)
+			if #reasons < 3 then
+				table.insert(reasons, def.itemId .. ":missing")
+			end
+		elseif (existing.imageId == nil and def.imageId ~= nil)
+			or (def.eventItem and (not existing.eventItem or existing.storeCost ~= nil))
+			or (not def.eventItem and existing.storeCost == nil)
+		then
+			table.insert(dirtyDefs, def) -- needs a backfill
+			if #reasons < 3 then
+				table.insert(reasons, def.itemId .. ":backfill")
+			end
+		end
+	end
+	if #dirtyDefs == 0 then
+		return -- everything already registered; boot stays instant
+	end
+
 	registryStore:UpdateAsync("all", function(old)
 		old = old or {}
-		for _, def in defs do
+		for _, def in dirtyDefs do
 			local rarity = Rarity.tierFor(def.totalSupply)
 			if old[def.itemId] == nil then
 				old[def.itemId] = {
@@ -120,29 +161,14 @@ function EconomyService.registerItems(defs: { any })
 					old[def.itemId].eventItem = true
 					old[def.itemId].storeCost = nil
 				elseif old[def.itemId].storeCost == nil then
-					old[def.itemId].storeCost = Items.StoreCostByRarity[rarity]
+					old[def.itemId].storeCost = Items.StoreCostByRarity[Rarity.tierFor(def.totalSupply)]
 				end
 			end
 		end
 		registry = old
 		return old
 	end)
-
-	for _, def in defs do
-		-- durable first, then hot (hot rehydrates from durable on miss)
-		pcall(function()
-			econStore:UpdateAsync(def.itemId, function(old)
-				return old or freshRecord(def.itemId, def.totalSupply, now)
-			end)
-		end)
-		pcall(function()
-			hotMap:UpdateAsync(def.itemId, function(old)
-				return old or freshRecord(def.itemId, def.totalSupply, now)
-			end)
-		end)
-		hotCache[def.itemId] = nil -- force refetch
-	end
-	AnalyticsService.log("items_registered", { count = #defs })
+	AnalyticsService.log("items_registered", { count = #dirtyDefs, why = table.concat(reasons, ",") })
 end
 
 function EconomyService.getItem(itemId: string): any?
@@ -311,7 +337,7 @@ function EconomyService.snapshot(itemId: string): any?
 	local now = os.time()
 	local demand = decayedDemand(rec, now)
 	local circulating = rec.circulating or 0
-	local value = EconomyService.computeValue(item.totalSupply, circulating, demand)
+	local value = EconomyService.computeValue(seedFor(item), rec.rapValue or 0, rec.rapCount or 0)
 
 	return {
 		itemId = itemId,
@@ -323,21 +349,20 @@ function EconomyService.snapshot(itemId: string): any?
 		-- supply is always known (authoritative count; 0 is a real value)
 		supply = stat(true, circulating),
 		demand = stat((rec.demandSamples or 0) >= EconomyConfig.MinSamples.Demand, math.floor(demand * 100 + 0.5) / 100),
-		value = stat(value ~= nil, value),
+		value = stat(true, value), -- always defined: same number for every player
 		rap = stat((rec.rapCount or 0) >= EconomyConfig.MinSamples.RAP, math.floor((rec.rapValue or 0) + 0.5)),
 		reserveRemaining = rec.reserveRemaining or 0,
 	}
 end
 
--- Value used inside price imputation (server-side, nil-safe fallback 1).
+-- Gem value used inside RAP imputation + trade totals (always defined).
 function EconomyService.valueOf(itemId: string): number
 	local item = EconomyService.getItem(itemId)
 	local rec = getRecord(itemId)
-	if item == nil or rec == nil then
+	if item == nil then
 		return 1
 	end
-	local v = EconomyService.computeValue(item.totalSupply, rec.circulating or 0, decayedDemand(rec, os.time()))
-	return v or 1
+	return EconomyService.computeValue(seedFor(item), rec and rec.rapValue or 0, rec and rec.rapCount or 0)
 end
 
 --------------------------------------------------------------------------------

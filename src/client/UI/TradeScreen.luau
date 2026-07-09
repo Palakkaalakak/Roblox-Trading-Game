@@ -46,6 +46,13 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local cancelBtn = panel:WaitForChild("CancelButton") :: TextButton
 	local countdownBar = panel:WaitForChild("CountdownBar") :: Frame
 	local countdownText = countdownBar:WaitForChild("Text") :: TextLabel
+	local autoToggle = panel:FindFirstChild("AutoToggle") :: TextButton?
+
+	-- Board-compose mode: the same trade window, but BOTH sides are yours to
+	-- edit (give = escrowed on post, want = what you're asking). Local state
+	-- only — nothing touches the server until POST.
+	local compose: any = nil -- { give = offer, want = offer, autoTrade, onPost }
+	local renderCompose -- fwd decl
 
 	--------------------------------------------------------------------------
 	-- Sides
@@ -68,15 +75,28 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			}
 			slots[i] = entry
 
-			if mine then
-				(slot :: any).Activated:Connect(function()
+			local slotButton = slot :: any
+			slotButton.Activated:Connect(function()
+				if compose then
+					-- compose mode: both grids editable, all local
+					local offer = mine and compose.give or compose.want
+					if entry.itemId then
+						offer.items[entry.itemId] -= 1
+						if offer.items[entry.itemId] <= 0 then
+							offer.items[entry.itemId] = nil
+						end
+						renderCompose()
+					else
+						TradeScreen.openPicker(mine and "inventory" or "catalog")
+					end
+				elseif mine then
 					if entry.itemId then
 						TradeController.removeItem(entry.itemId)
 					else
-						TradeScreen.openPicker()
+						TradeScreen.openPicker("inventory")
 					end
-				end)
-			end
+				end
+			end)
 			tooltip.attach(slot, function()
 				return entry.itemId and EconomyController.get(entry.itemId) or nil, 1
 			end)
@@ -96,8 +116,15 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			api.gemsBox = box
 			local function submit()
 				local n = tonumber(box.Text)
-				if n then
-					TradeController.setGems(math.max(0, math.floor(n)))
+				if n == nil then
+					return
+				end
+				n = math.max(0, math.floor(n))
+				if compose then
+					compose.give.gems = n
+					renderCompose()
+				else
+					TradeController.setGems(n)
 				end
 			end
 			ok.Activated:Connect(submit)
@@ -108,6 +135,20 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			end)
 		else
 			api.gemsLabel = gemsRow:WaitForChild("Amount") :: TextLabel
+			-- compose-only editor for the WANT side's gems
+			local wantBox = gemsRow:FindFirstChild("WantBox") :: TextBox?
+			api.wantBox = wantBox
+			if wantBox then
+				wantBox.FocusLost:Connect(function()
+					if compose then
+						local n = tonumber(wantBox.Text)
+						if n then
+							compose.want.gems = math.max(0, math.floor(n))
+						end
+						renderCompose()
+					end
+				end)
+			end
 		end
 
 		return api
@@ -191,48 +232,95 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	end)
 
 	local pickerTiles: { [string]: ImageButton } = {}
+	local catalogCache: { any }? = nil
 
-	local function refreshPicker()
-		local inventory = InventoryController.inventory:get()
-		local stats = EconomyController.stats:get()
-		local view = TradeController.trade:get()
-		local offered = view and view.you.offer.items or {}
-
-		for itemId, tile in pickerTiles do
-			if inventory[itemId] == nil then
-				tile:Destroy()
-				pickerTiles[itemId] = nil
-			end
-		end
-		for itemId, count in inventory do
-			local available = count - (offered[itemId] or 0)
-			local tile = pickerTiles[itemId]
-			if tile == nil then
-				tile = pickerTemplate:Clone()
-				tile.Name = itemId
-				tile.Visible = true
-				tile.Parent = pickerGrid
-				pickerTiles[itemId] = tile
-				tile.Activated:Connect(function()
-					TradeController.addItem(itemId)
-					picker.Visible = false
-				end)
-				tooltip.attach(tile, function()
-					return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
-				end)
-			end
-			local snap = stats[itemId]
-			local nameLabel = tile:WaitForChild("ItemName") :: TextLabel
-			nameLabel.Text = snap and snap.name or itemId
-			local countLabel = tile:WaitForChild("CountLabel") :: TextLabel
-			countLabel.Text = "x" .. available
-			Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, snap)
-			tile.Visible = available > 0
+	-- what happens when a picker tile is clicked, by (compose, source)
+	local function onPicked(itemId: string, source: string)
+		if compose then
+			local offer = source == "inventory" and compose.give or compose.want
+			offer.items[itemId] = (offer.items[itemId] or 0) + 1
+			picker.Visible = false
+			renderCompose()
+		else
+			TradeController.addItem(itemId)
+			picker.Visible = false
 		end
 	end
 
-	function TradeScreen.openPicker()
-		refreshPicker()
+	local function clearPicker()
+		for itemId, tile in pickerTiles do
+			tile:Destroy()
+			pickerTiles[itemId] = nil
+		end
+	end
+
+	-- source "inventory": your items with available counts (give side / live trades)
+	-- source "catalog": every registered item (compose WANT side)
+	local function refreshPicker(source: string)
+		clearPicker()
+		local stats = EconomyController.stats:get()
+
+		local entries: { { itemId: string, name: string?, imageId: string?, count: number? } } = {}
+		if source == "inventory" then
+			local inventory = InventoryController.inventory:get()
+			local offered = compose and compose.give.items
+				or (function()
+					local view = TradeController.trade:get()
+					return view and view.you.offer.items or {}
+				end)()
+			for itemId, count in inventory do
+				local available = count - (offered[itemId] or 0)
+				if available > 0 then
+					local snap = stats[itemId]
+					table.insert(entries, {
+						itemId = itemId,
+						name = snap and snap.name or nil,
+						imageId = snap and snap.imageId or nil,
+						count = available,
+					})
+				end
+			end
+		elseif catalogCache then
+			for _, entry in catalogCache do
+				table.insert(entries, { itemId = entry.itemId, name = entry.name, imageId = entry.imageId })
+			end
+		end
+
+		for _, entry in entries do
+			local itemId = entry.itemId
+			local tile = pickerTemplate:Clone()
+			tile.Name = itemId
+			tile.Visible = true
+			tile.Parent = pickerGrid
+			pickerTiles[itemId] = tile
+			tile.Activated:Connect(function()
+				onPicked(itemId, source)
+			end)
+			tooltip.attach(tile, function()
+				return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
+			end)
+			local nameLabel = tile:WaitForChild("ItemName") :: TextLabel
+			nameLabel.Text = entry.name or itemId
+			local countLabel = tile:WaitForChild("CountLabel") :: TextLabel
+			countLabel.Text = entry.count and ("x" .. entry.count) or ""
+			Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, entry)
+		end
+	end
+
+	function TradeScreen.openPicker(source: string?)
+		source = source or "inventory"
+		if source == "catalog" and catalogCache == nil then
+			task.spawn(function()
+				local result = Net.invoke("GetCatalog")
+				if result.ok then
+					catalogCache = result.items
+					if picker.Visible then
+						refreshPicker("catalog")
+					end
+				end
+			end)
+		end
+		refreshPicker(source)
 		picker.Visible = true
 	end
 
@@ -241,14 +329,42 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	--------------------------------------------------------------------------
 
 	acceptBtn.Activated:Connect(function()
+		if compose then
+			local c = compose
+			compose = nil
+			panel.Visible = false
+			picker.Visible = false
+			if autoToggle then
+				autoToggle.Visible = false
+			end
+			c.onPost(c.give, c.want, c.autoTrade)
+			return
+		end
 		local view = TradeController.trade:get()
 		if view then
 			TradeController.setConfirm(not view.you.confirmed)
 		end
 	end)
 	cancelBtn.Activated:Connect(function()
+		if compose then
+			compose = nil
+			panel.Visible = false
+			picker.Visible = false
+			if autoToggle then
+				autoToggle.Visible = false
+			end
+			return
+		end
 		TradeController.cancel()
 	end)
+	if autoToggle then
+		autoToggle.Activated:Connect(function()
+			if compose then
+				compose.autoTrade = not compose.autoTrade
+				renderCompose()
+			end
+		end)
+	end
 
 	local countdownThread: thread? = nil
 	local function stopCountdown()
@@ -274,7 +390,74 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end)
 	end
 
+	-- Compose mode render: same panel, both sides local + editable.
+	renderCompose = function()
+		if compose == nil then
+			return
+		end
+		local stats = EconomyController.stats:get()
+		local wanted = {}
+		for itemId in compose.give.items do
+			table.insert(wanted, itemId)
+		end
+		for itemId in compose.want.items do
+			table.insert(wanted, itemId)
+		end
+		EconomyController.ensure(wanted)
+
+		panel.Visible = true
+		title.Text = "📌 Post a board trade"
+		yourSide.header.Text = "You give (escrowed on post)"
+		theirSide.header.Text = "You want — click slots to add"
+		renderSide(yourSide, compose.give, false, stats)
+		renderSide(theirSide, compose.want, false, stats)
+		-- want side is editable in compose: show + hints + gems box
+		for _, entry in theirSide.slots do
+			if entry.itemId == nil then
+				entry.plus.Text = "+"
+			end
+		end
+		yourSide.readyPill.Text = ""
+		theirSide.readyPill.Text = ""
+		if theirSide.wantBox then
+			theirSide.wantBox.Visible = true
+			theirSide.gemsLabel.Visible = false
+			if not theirSide.wantBox:IsFocused() then
+				theirSide.wantBox.Text = tostring(compose.want.gems)
+			end
+		end
+		if yourTotal then
+			yourTotal.Text = offerTotalText(compose.give, stats)
+		end
+		if theirTotal then
+			theirTotal.Text = offerTotalText(compose.want, stats)
+		end
+		acceptBtn.Text = "POST TO BOARD"
+		acceptBtn.BackgroundColor3 = Theme.Good
+		statusLabel.Text = ""
+		if autoToggle then
+			autoToggle.Visible = true
+			autoToggle.Text = compose.autoTrade and "Auto-trade: ON" or "Auto-trade: OFF"
+			autoToggle.BackgroundColor3 = compose.autoTrade and Theme.Good or Theme.Warn
+		end
+	end
+
+	-- Open the trade window in board-compose mode.
+	function TradeScreen.openCompose(onPost: (give: any, want: any, autoTrade: boolean) -> ())
+		compose = {
+			give = { items = {}, gems = 0 },
+			want = { items = {}, gems = 0 },
+			autoTrade = true,
+			onPost = onPost,
+		}
+		stopCountdown()
+		renderCompose()
+	end
+
 	local function render(view: any)
+		if compose then
+			return -- board compose owns the panel right now
+		end
 		if view == nil then
 			panel.Visible = false
 			picker.Visible = false
@@ -283,6 +466,13 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			return
 		end
 		panel.Visible = true
+		if theirSide.wantBox then
+			theirSide.wantBox.Visible = false
+			theirSide.gemsLabel.Visible = true
+		end
+		if autoToggle then
+			autoToggle.Visible = false
+		end
 		local stats = EconomyController.stats:get()
 
 		local wanted = {}

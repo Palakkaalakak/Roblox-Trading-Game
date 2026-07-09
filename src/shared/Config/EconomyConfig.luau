@@ -13,19 +13,22 @@ local EconomyConfig = {
 	DemandBumpOnOfferInclude = 0.2, -- when an item is placed into a live offer
 
 	-- Value formula: value = max(1, round(Base * scarcity * demandFactor))
-	--   scarcity     = (ReferenceSupply / max(circulating, 1)) ^ SupplyExponent
-	--   demandFactor = 1 + DemandCoefficient * log10(1 + demandEMA)
+	-- Est. Value (gems, always defined):
+	--   seed  = storeCost, or for event items: ValueBase * (ReferenceSupply/totalSupply)^SupplyExponent
+	--   final = seed until RAP has ValueRapBlend samples, then
+	--           ValueSeedWeight*seed + (1-ValueSeedWeight)*RAP (market takes over)
 	ValueBase = 10,
 	ReferenceSupply = 500,
 	SupplyExponent = 0.6,
 	DemandCoefficient = 0.5,
+	ValueSeedWeight = 0.35, -- anchor so one whale trade can't 10x an item's value
 
 	-- Minimum-data thresholds. Below these a stat is StatState.NA and the UI
 	-- must render "N/A" (never 0/blank/null).
 	MinSamples = {
 		Demand = 1, -- demandSamples >= 1
 		RAP = 1, -- rapCount >= 1 (at least one closed trade)
-		ValueCirculating = 1, -- circulating >= 1
+		ValueRapBlend = 3, -- trades before market price starts moving Est. Value
 	},
 
 	-- House cut on every player-to-player gem transfer (trades, board

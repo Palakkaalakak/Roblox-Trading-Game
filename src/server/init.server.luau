@@ -8,32 +8,41 @@ Net.init()
 
 local Services = script.Services
 
+local t0 = os.clock()
+
 local ordered = {
-	require(Services.AnalyticsService),
-	require(Services.RateLimitService),
-	require(Services.DataService),
-	require(Services.InventoryService),
-	require(Services.EconomyService),
-	require(Services.PoolService),
-	require(Services.StarterService),
-	require(Services.NotificationService),
-	require(Services.StoreService),
-	require(Services.CraftingService),
-	require(Services.ProductService),
-	require(Services.TradeBoardService),
-	require(Services.TradeService),
+	{ "Analytics", require(Services.AnalyticsService) },
+	{ "RateLimit", require(Services.RateLimitService) },
+	{ "Data", require(Services.DataService) },
+	{ "Inventory", require(Services.InventoryService) },
+	{ "Economy", require(Services.EconomyService) },
+	{ "Pool", require(Services.PoolService) },
+	{ "Starter", require(Services.StarterService) },
+	{ "Notification", require(Services.NotificationService) },
+	{ "Store", require(Services.StoreService) },
+	{ "Crafting", require(Services.CraftingService) },
+	{ "Product", require(Services.ProductService) },
+	{ "TradeBoard", require(Services.TradeBoardService) },
+	{ "Trade", require(Services.TradeService) },
 }
 
-for _, service in ordered do
-	if type((service :: any).Init) == "function" then
-		(service :: any).Init()
+for _, entry in ordered do
+	local name, service = entry[1], entry[2] :: any
+	if type(service.Init) == "function" then
+		local s = os.clock()
+		service.Init()
+		local dt = os.clock() - s
+		if dt > 1 then
+			warn(("[Boot] %s.Init took %.1fs"):format(name, dt))
+		end
 	end
 end
 
-for _, service in ordered do
-	if type((service :: any).Start) == "function" then
-		(service :: any).Start()
+for _, entry in ordered do
+	local service = entry[2] :: any
+	if type(service.Start) == "function" then
+		service.Start()
 	end
 end
 
-print("[Server] trading core booted")
+print(("[Server] trading core booted in %.1fs"):format(os.clock() - t0))

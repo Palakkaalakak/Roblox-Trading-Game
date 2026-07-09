@@ -109,6 +109,34 @@ function TradeBoardService.bulkQuote(count: number, totalGems: number): (number,
 	return perCopy, perCopy * count
 end
 
+-- exact offer equality (same item counts + same gems)
+function TradeBoardService.offersEqual(a: any, b: any): boolean
+	if a.gems ~= b.gems then
+		return false
+	end
+	for itemId, count in a.items do
+		if b.items[itemId] ~= count then
+			return false
+		end
+	end
+	for itemId, count in b.items do
+		if a.items[itemId] ~= count then
+			return false
+		end
+	end
+	return true
+end
+
+-- two swap listings mirror each other when what one GIVES is exactly what
+-- the other WANTS, both ways
+function TradeBoardService.isCounterListing(mine: any, theirs: any): boolean
+	return theirs.kind == "swap"
+		and theirs.status == "open"
+		and theirs.posterId ~= mine.posterId
+		and TradeBoardService.offersEqual(mine.give, theirs.want)
+		and TradeBoardService.offersEqual(mine.want, theirs.give)
+end
+
 local function activeListingCount(userId: number): number
 	local n = 0
 	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
@@ -341,7 +369,88 @@ local function handlePost(player: Player, payload: any)
 		DataService.saveNow(player)
 	end)
 	AnalyticsService.log("board_posted", { id = id, kind = listing.kind, userId = player.UserId })
+
+	-- counter-listing check: someone already posted the mirror of this trade
+	if listing.kind == "swap" then
+		task.spawn(TradeBoardService.tryMatch, listing)
+	end
 	return { ok = true, id = id }
+end
+
+-- Find a mirror listing for a fresh swap post. Both auto-trade -> execute the
+-- deal instantly (both escrows already exist, so this is pure delivery);
+-- otherwise notify both posters that their match is on the board.
+function TradeBoardService.tryMatch(listing: any)
+	local match
+	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
+		local other = entry.value
+		if other and TradeBoardService.isCounterListing(listing, other) then
+			match = other
+			break
+		end
+	end
+	if match == nil then
+		return
+	end
+
+	if not (listing.autoTrade and match.autoTrade) then
+		NotificationService.notify(
+			listing.posterId,
+			("📌 %s posted the exact opposite of your board trade — invite them!"):format(match.posterName)
+		)
+		NotificationService.notify(
+			match.posterId,
+			("📌 %s posted the exact opposite of your board trade — invite them!"):format(listing.posterName)
+		)
+		return
+	end
+
+	-- both auto: claim BOTH listings (CAS; revert mine if theirs is gone)
+	local mine = mutate(listing.id, function(l)
+		if l.status ~= "open" then
+			return nil, "gone"
+		end
+		l.status = "claimed"
+		l.v += 1
+		return l
+	end)
+	if mine == nil then
+		return
+	end
+	local theirs = mutate(match.id, function(l)
+		if l.status ~= "open" then
+			return nil, "gone"
+		end
+		l.status = "claimed"
+		l.v += 1
+		return l
+	end)
+	if theirs == nil then
+		mutate(listing.id, function(l)
+			l.status = "open"
+			l.v += 1
+			return l
+		end)
+		return
+	end
+
+	-- swap the escrows (gem tax on each receiving side)
+	local aNet = Tax.split(theirs.give.gems)
+	deliver(mine.posterId, theirs.give.items, aNet, Enums.GrantSource.Board, "board_match_" .. mine.id)
+	local bNet = Tax.split(mine.give.gems)
+	deliver(theirs.posterId, mine.give.items, bNet, Enums.GrantSource.Board, "board_match_" .. theirs.id)
+
+	for _, l in { mine, theirs } do
+		mutate(l.id, function(rec)
+			rec.status = "done"
+			rec.v += 1
+			return rec
+		end)
+	end
+
+	NotificationService.notify(mine.posterId, "📌 Matched! Your board trade auto-completed with " .. theirs.posterName .. "!")
+	NotificationService.notify(theirs.posterId, "📌 Matched! Your board trade auto-completed with " .. mine.posterName .. "!")
+	AnalyticsService.log("board_matched", { a = mine.id, b = theirs.id })
 end
 
 --------------------------------------------------------------------------------

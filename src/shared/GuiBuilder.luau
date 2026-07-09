@@ -341,15 +341,17 @@ local function buildSide(name: string, mine: boolean, x: UDim2, parent: Instance
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, grid)
 
-	-- 9 real, editable slots (one item COPY each)
+	-- 9 real, editable slots (one item COPY each). Both sides are buttons:
+	-- the partner side is inert in live trades but clickable in board-compose
+	-- mode (building the WANT offer).
 	for i = 1, GRID * GRID do
-		local slot = new(mine and "ImageButton" or "ImageLabel", {
+		local slot = new("ImageButton", {
 			Name = "Slot" .. i,
 			BackgroundColor3 = C.BgLight,
 			BorderSizePixel = 0,
 			LayoutOrder = i,
 			Image = "",
-			AutoButtonColor = mine or nil,
+			AutoButtonColor = mine,
 		}, grid)
 		corner(slot, 6)
 		stroke(slot, C.Stroke, 1)
@@ -423,6 +425,22 @@ local function buildSide(name: string, mine: boolean, x: UDim2, parent: Instance
 			TextSize = 16,
 			TextColor3 = C.Gem,
 		}, gemsRow)
+		-- hidden edit controls for board-compose mode (building the WANT side)
+		local wbox = new("TextBox", {
+			Name = "WantBox",
+			Position = UDim2.fromOffset(40, 7),
+			Size = UDim2.new(1, -100, 0, 26),
+			BackgroundColor3 = C.Bg,
+			BorderSizePixel = 0,
+			Font = FONT,
+			TextColor3 = C.Text,
+			TextSize = 14,
+			Text = "0",
+			PlaceholderText = "gems",
+			ClearTextOnFocus = false,
+			Visible = false,
+		}, gemsRow)
+		corner(wbox, 6)
 	end
 	return side
 end
@@ -517,6 +535,16 @@ local function buildTradePanel(parent: Instance)
 		Text = "Cancel",
 		TextSize = 14,
 		BackgroundColor3 = C.Bad,
+	}, tradePanel)
+	-- board-compose only: auto-trade toggle (hidden during live trades)
+	button("AutoToggle", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 144, 1, -12),
+		Size = UDim2.fromOffset(170, 42),
+		Text = "Auto-trade: ON",
+		TextSize = 13,
+		BackgroundColor3 = C.Good,
+		Visible = false,
 	}, tradePanel)
 
 	-- item picker: opens when an empty slot is clicked; PickerTile cloned per item
@@ -791,10 +819,18 @@ local function buildBoardPanel(parent: Instance)
 	button("PostButton", {
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -44, 0, 8),
-		Size = UDim2.fromOffset(130, 26),
+		Size = UDim2.fromOffset(120, 26),
 		Text = "+ Post trade",
 		TextSize = 13,
 		BackgroundColor3 = C.Good,
+	}, boardPanel)
+	button("BulkButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -170, 0, 8),
+		Size = UDim2.fromOffset(120, 26),
+		Text = "+ Bulk order",
+		TextSize = 13,
+		BackgroundColor3 = C.Accent,
 	}, boardPanel)
 
 	local list = new("ScrollingFrame", {

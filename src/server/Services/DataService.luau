@@ -30,6 +30,7 @@ local seenStore: any -- directory of every player who ever joined (for search)
 local sessions: { [number]: any } = {} -- userId -> Session
 local loadedPlayers: { [number]: boolean } = {}
 local seenCache: { [string]: any } = {} -- userId(string) -> {name, lastSeen}
+local saveState: { [number]: { lastAt: number, pending: boolean } } = {} -- saveNow coalescing
 
 local function template()
 	return {
@@ -248,6 +249,7 @@ local function onPlayerRemoving(player: Player)
 	if session then
 		sessions[player.UserId] = nil
 		loadedPlayers[player.UserId] = nil
+		saveState[player.UserId] = nil
 		DataService.ProfileReleased:Fire(player)
 		session:release()
 		AnalyticsService.log("profile_released", { userId = player.UserId })
@@ -337,12 +339,40 @@ function DataService.isLoaded(player: Player): boolean
 	return loadedPlayers[player.UserId] == true
 end
 
+-- Coalesced save: same-key DataStore writes throttle at ~6s, so hammering
+-- session:save() after every mutation just fills the request queue ("request
+-- was added to queue" warnings). Rapid calls collapse into one trailing save.
+local SAVE_MIN_INTERVAL = 6
+
 function DataService.saveNow(player: Player): boolean
 	local session = sessions[player.UserId]
-	if session then
+	if session == nil then
+		return false
+	end
+	local state = saveState[player.UserId]
+	if state == nil then
+		state = { lastAt = 0, pending = false }
+		saveState[player.UserId] = state
+	end
+
+	local now = os.clock()
+	if now - state.lastAt >= SAVE_MIN_INTERVAL then
+		state.lastAt = now
 		return session:save()
 	end
-	return false
+	if state.pending then
+		return true -- trailing save already scheduled; it will pick up this change
+	end
+	state.pending = true
+	task.delay(SAVE_MIN_INTERVAL - (now - state.lastAt), function()
+		state.pending = false
+		state.lastAt = os.clock()
+		local live = sessions[player.UserId]
+		if live then
+			live:save()
+		end
+	end)
+	return true
 end
 
 function DataService.newId(): string

@@ -14,6 +14,7 @@ local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
+local TradeScreen = require(script.Parent.TradeScreen)
 
 local BoardScreen = {}
 
@@ -276,8 +277,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		picker.Visible = false
 	end)
 
-	local mode: "swap" | "bulk" = "swap"
+	local mode: "swap" | "bulk" = "bulk" -- modal is bulk-only now (swap = trade UI)
 	local autoTrade = true
+	modeBtn.Visible = false -- swap posting moved to the real trade window
+	;(post:WaitForChild("Title") :: TextLabel).Text = "Bulk buy order"
 	local giveItemId: string? = nil
 	local wantItemId: string? = nil
 	local catalog: { any }? = nil
@@ -374,22 +377,49 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		autoBtn.BackgroundColor3 = autoTrade and Theme.Good or Theme.Warn
 	end)
 
+	-- "+ Post trade": the STANDARD trade window in compose mode — build both
+	-- sides like a normal trade, then POST TO BOARD.
 	local postBtn = panel:WaitForChild("PostButton") :: TextButton
 	postBtn.Activated:Connect(function()
-		giveItemId, wantItemId = nil, nil
-		rowSet(giveRow, nil, nil, nil)
-		rowSet(wantRow, nil, nil, nil)
-		applyMode()
-		post.Visible = true
-		if catalog == nil then
+		panel.Visible = false
+		TradeScreen.openCompose(function(give, want, auto)
 			task.spawn(function()
-				local result = Net.invoke("GetCatalog")
+				local result = Net.invoke("PostListing", {
+					kind = "swap",
+					give = give,
+					want = want,
+					autoTrade = auto,
+				})
 				if result.ok then
-					catalog = result.items
+					toast("Posted to the board!", Theme.Good)
+				else
+					toast("Couldn't post: " .. tostring(result.err), Theme.Bad)
 				end
+				BoardScreen.open()
 			end)
-		end
+		end)
 	end)
+
+	-- "+ Bulk order": the small modal (item + count + total gems)
+	local bulkBtn = panel:FindFirstChild("BulkButton") :: TextButton?
+	if bulkBtn then
+		bulkBtn.Activated:Connect(function()
+			mode = "bulk"
+			giveItemId, wantItemId = nil, nil
+			rowSet(giveRow, nil, nil, nil)
+			rowSet(wantRow, nil, nil, nil)
+			applyMode()
+			post.Visible = true
+			if catalog == nil then
+				task.spawn(function()
+					local result = Net.invoke("GetCatalog")
+					if result.ok then
+						catalog = result.items
+					end
+				end)
+			end
+		end)
+	end
 
 	local function readOffer(row: Frame, itemId: string?): any
 		local count = tonumber((row:WaitForChild("CountBox") :: TextBox).Text) or 0
