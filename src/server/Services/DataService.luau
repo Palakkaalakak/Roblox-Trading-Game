@@ -221,13 +221,44 @@ end
 -- Lifecycle
 --------------------------------------------------------------------------------
 
+-- userId -> still waiting on a load; cleared on success or on leave so the
+-- retry loop below stops promptly instead of spinning for a gone player.
+local pendingLoads: { [number]: boolean } = {}
+local LOAD_RETRY_INTERVAL = 5
+
+-- Kicking on a failed/contended load is unnecessary — every remote already
+-- gates on DataService.isLoaded(player), so an unloaded player simply can't
+-- touch the economy yet. Retrying in place (instead of disconnecting) also
+-- sidesteps a confirmed, currently open Roblox Studio bug where Kick()
+-- disconnects the player server-side but the client never shows the kick
+-- screen and just freezes (hit this via Team Test: a contended lock ->
+-- Kick -> frozen teammate). A stuck lock nearly always resolves within its
+-- TTL, so we just wait it out; if the whole DataStore is down, the player
+-- stays connected-but-unloaded until it recovers rather than being booted.
 local function onPlayerAdded(player: Player)
 	recordSeen(player)
-	local session, reason = profileStore:load(profileKey(player.UserId))
+	pendingLoads[player.UserId] = true
+
+	local session, reason
+	local attempt = 0
+	while pendingLoads[player.UserId] and player.Parent do
+		attempt += 1
+		session, reason = profileStore:load(profileKey(player.UserId))
+		if session then
+			break
+		end
+		if reason == "shutting_down" then
+			break
+		end
+		if attempt == 1 or attempt % 6 == 0 then -- log first try + every ~30s after
+			AnalyticsService.log("profile_load_retry", { userId = player.UserId, reason = reason, attempt = attempt })
+		end
+		task.wait(LOAD_RETRY_INTERVAL)
+	end
+	pendingLoads[player.UserId] = nil
+
 	if session == nil then
-		AnalyticsService.log("profile_load_failed", { userId = player.UserId, reason = reason })
-		player:Kick("Your data is loading on another server or unavailable. Rejoin in a minute.")
-		return
+		return -- player left while waiting, or server is shutting down
 	end
 
 	session.Data = migrate(session.Data)
@@ -251,6 +282,7 @@ local function onPlayerAdded(player: Player)
 end
 
 local function onPlayerRemoving(player: Player)
+	pendingLoads[player.UserId] = nil -- stop any in-flight load retry loop
 	local session = sessions[player.UserId]
 	if session then
 		sessions[player.UserId] = nil

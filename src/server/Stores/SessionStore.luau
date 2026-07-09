@@ -8,6 +8,19 @@
 -- load (caller kicks the player). Heartbeat refreshes lock + saves Data.
 -- Release saves and clears the lock. Prevents the same profile being active on
 -- two servers -> the classic duplication exploit.
+--
+-- STUDIO: lock contention is skipped entirely (see IN_STUDIO below). Team
+-- Test's server usually tears down without BindToClose completing, so a
+-- Studio-issued lock can outlive its 90s TTL and block the next join with
+-- "session_locked_elsewhere" -> the caller Kicks the player -> Roblox has a
+-- long-standing Studio bug where Kick() disconnects server-side but the
+-- client never shows the kick screen and just freezes (confirmed on the
+-- DevForum, Team Test explicitly called out as a trigger). There is no real
+-- duplication-exploit risk in a local dev test, so we just don't take the
+-- lock there. Production (RunService:IsStudio() == false) is unaffected —
+-- full anti-dupe locking stays exactly as before.
+local RunService = game:GetService("RunService")
+local IN_STUDIO = RunService:IsStudio()
 
 local StoreAdapters = require(script.Parent.StoreAdapters)
 
@@ -67,7 +80,7 @@ function SessionStore.load(self: any, key: string): (Session?, string?)
 		self._store:UpdateAsync(key, function(old)
 			old = old or {}
 			local lock = old.Lock
-			if lock and lock.owner ~= ownerId and lock.expiry > now then
+			if not IN_STUDIO and lock and lock.owner ~= ownerId and lock.expiry > now then
 				locked = true
 				return nil -- abort: someone else holds a live lock
 			end
