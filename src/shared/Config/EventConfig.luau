@@ -30,40 +30,58 @@
 local EventConfig = {
 	Events = {
 		{
-			id = "evt_forge",
-			name = "The Forge",
+			id = "evt_alchemist",
+			name = "Alchemist's Lab",
 			kind = "crafting",
-			enabled = false, -- sample only; flip on (or add a new entry) to run an event
-			-- startsAt = nil, endsAt = nil  -> always on while enabled
+			enabled = true,
 			recipes = {
 				{
-					rid = "molten_idol",
+					rid = "transmutation_stone",
 					inputs = { ["itm_1_1_stone_relic"] = 2, ["itm_1_2_amber_idol"] = 1 },
-					gems = 25,
+					gems = 30,
 					output = {
-						sku = "molten_idol",
-						name = "Molten Idol",
-						totalSupply = 15,
-						imageId = "rbxassetid://133423089599802", -- golden cash
+						sku = "transmutation_stone",
+						name = "Transmutation Stone",
+						totalSupply = 20,
+						imageId = "rbxassetid://15402885986", -- gem pile
 					},
 				},
 			},
 		},
 		{
-			id = "evt_void_altar",
-			name = "Void Altar",
+			id = "evt_shadow_ritual",
+			name = "Shadow Ritual",
 			kind = "sacrifice",
-			enabled = false, -- sample only
+			enabled = true,
 			recipes = {
 				{
-					rid = "void_sigil",
-					inputs = { ["itm_1_3_jade_serpent"] = 1 },
+					rid = "shadow_crown",
+					inputs = { ["itm_1_5_void_shard"] = 1 },
 					gems = 0,
 					output = {
-						sku = "void_sigil",
-						name = "Void Sigil",
-						totalSupply = 10,
+						sku = "shadow_crown",
+						name = "Shadow Crown",
+						totalSupply = 15,
 						imageId = "rbxassetid://100449548915705", -- purple coin
+					},
+				},
+			},
+		},
+		{
+			id = "evt_guardian_blessing",
+			name = "Guardian's Blessing",
+			kind = "crafting",
+			enabled = true,
+			recipes = {
+				{
+					rid = "rune_protection",
+					inputs = { ["itm_1_3_jade_serpent"] = 1, ["itm_1_4_crimson_crown"] = 1 },
+					gems = 40,
+					output = {
+						sku = "rune_protection",
+						name = "Rune of Protection",
+						totalSupply = 18,
+						imageId = "rbxassetid://15403275152", -- blue potion
 					},
 				},
 			},

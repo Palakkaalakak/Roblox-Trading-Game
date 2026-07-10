@@ -25,6 +25,10 @@ local EconomyConfig = {
 	ValueSeedHalfLife = 12, -- samples over which the anchor's pull roughly halves
 	ValueSeedFloor = 0.04, -- anchor never fully disappears (residual stability)
 
+	-- "X/Y in existence" (X = held copies, Y = total ever distributable) vs
+	-- just "X in existence". Toggle without touching UI code.
+	ShowExistenceCap = false,
+
 	-- Minimum-data thresholds. Below these a stat is StatState.NA and the UI
 	-- must render "N/A" (never 0/blank/null).
 	MinSamples = {

@@ -4,7 +4,9 @@
 -- data: icons, stat text, tile contents, tooltip. No layout, no styling
 -- beyond state colors (rarity tints, ready-green etc).
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
+local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 
 local Components = {}
 
@@ -49,14 +51,17 @@ function Components.storeCostText(snapshot: any?): string
 	return "N/A (Event Item)"
 end
 
--- "X/Y in existence": X = copies in players' hands, Y = total that can ever
--- be distributed.
+-- "X/Y in existence" (X = copies in players' hands, Y = total that can ever
+-- be distributed) or just "X in existence" — EconomyConfig.ShowExistenceCap.
 function Components.existenceText(snapshot: any?): string
 	if snapshot == nil then
-		return "?/? in existence"
+		return EconomyConfig.ShowExistenceCap and "?/? in existence" or "? in existence"
 	end
 	local supply = snapshot.supply
 	local x = (supply and supply.state == "Known" and supply.value ~= nil) and tostring(supply.value) or "N/A"
+	if not EconomyConfig.ShowExistenceCap then
+		return x .. " in existence"
+	end
 	local y = snapshot.totalSupply and tostring(snapshot.totalSupply) or "?"
 	return x .. "/" .. y .. " in existence"
 end
