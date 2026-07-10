@@ -17,7 +17,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local SessionStore = require(script.Parent.Parent.Stores.SessionStore)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
-local SCHEMA_VERSION = 1
+local SCHEMA_VERSION = 2
 
 local DataService = {}
 
@@ -42,12 +42,26 @@ local function template()
 		ClaimedIds = {},
 		StorePurchases = {}, -- itemId -> lifetime count bought from the limited store
 		Meta = { firstJoin = os.time(), lastLogin = os.time(), joins = 0 },
+		-- v2: player profile
+		Showcase = {},
+		StatChips = {},
+		Status = "",
+		Privacy = { hideValue = false, hideShowcase = false },
+		Lifetime = { gemsEarned = 0, trades = 0 },
 	}
 end
 
 -- Forward migrations, run on load. [fromVersion] = function(data) -> data
 local migrations: { [number]: (any) -> any } = {
-	-- [1] = function(data) ... data.SchemaVersion = 2; return data end,
+	[1] = function(data)
+		data.Showcase = data.Showcase or {}
+		data.StatChips = data.StatChips or {}
+		data.Status = data.Status or ""
+		data.Privacy = data.Privacy or { hideValue = false, hideShowcase = false }
+		data.Lifetime = data.Lifetime or { gemsEarned = 0, trades = 0 }
+		data.SchemaVersion = 2
+		return data
+	end,
 }
 
 local function migrate(data: any): any
@@ -119,6 +133,17 @@ function DataService.mailboxClaim(player: Player): { any }
 			end
 			data.Gems += entry.gems or 0
 			data.ClaimedIds[entry.claimId] = true
+			-- Lifetime counters for goods received while offline (this path
+			-- bypasses InventoryService.applyDelta, so count them here).
+			if data.Lifetime then
+				local gain = entry.gems or 0
+				if gain > 0 and (entry.source == "trade" or entry.source == "board") then
+					data.Lifetime.gemsEarned += gain
+				end
+				if entry.source == "trade" then
+					data.Lifetime.trades += 1
+				end
+			end
 			table.insert(applied, entry)
 		end
 		claimedNow[entry.claimId] = true

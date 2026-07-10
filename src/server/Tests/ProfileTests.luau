@@ -1,0 +1,130 @@
+--!strict
+-- Unit tests: ProfileProjection pure logic (showcase/value/chips/privacy).
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local PP = require(ReplicatedStorage.Shared.Util.ProfileProjection)
+
+local function eq(a: any, b: any, label: string?)
+	if a ~= b then
+		error(("%s: expected %s, got %s"):format(label or "eq", tostring(b), tostring(a)), 2)
+	end
+end
+
+local function view(id: string, opts: any?)
+	opts = opts or {}
+	return {
+		itemId = id,
+		name = id,
+		rarity = opts.rarity or "Common",
+		imageId = "",
+		estValue = opts.estValue or 1,
+		circulating = opts.circulating or 1,
+	}
+end
+
+return {
+	name = "Profile",
+	tests = {
+		["earned source: trade + board count; debug/refund/starter do not"] = function()
+			eq(PP.isEarnedSource("trade"), true, "trade")
+			eq(PP.isEarnedSource("board"), true, "board")
+			eq(PP.isEarnedSource("debug"), false, "debug")
+			eq(PP.isEarnedSource("refund"), false, "refund")
+			eq(PP.isEarnedSource("starter"), false, "starter")
+		end,
+
+		["defaultShowcase: scarcest (fewest circulating) first, capped"] = function()
+			local circ = { a = 50, b = 10, c = 30, d = 5 }
+			local resolve = function(id)
+				if not circ[id] then
+					return nil
+				end
+				return view(id, { circulating = circ[id] })
+			end
+			local sc = PP.defaultShowcase({ a = 1, b = 2, c = 1, d = 9 }, resolve, 3)
+			eq(#sc, 3, "cap")
+			eq(sc[1], "d", "5 circ scarcest")
+			eq(sc[2], "b", "10 circ next")
+			eq(sc[3], "c", "30 circ third")
+		end,
+
+		["resolveShowcase: drops items no longer owned or unresolvable"] = function()
+			local resolve = function(id)
+				if id == "gone" then
+					return nil
+				end
+				return view(id)
+			end
+			local out = PP.resolveShowcase({ "keep", "sold", "gone" }, { keep = 1, sold = 0 }, resolve)
+			eq(#out, 1, "only keep survives")
+			eq(out[1].itemId, "keep")
+		end,
+
+		["portfolioValue: sum of estValue * count over owned"] = function()
+			local resolve = function(id)
+				return view(id, { estValue = ({ x = 10, y = 3 })[id] or 0 })
+			end
+			eq(PP.portfolioValue({ x = 2, y = 4 }, resolve), 10 * 2 + 3 * 4)
+		end,
+
+		["resolveChip: mythicals counts only mythical-rarity owned"] = function()
+			local resolve = function(id)
+				return view(id, { rarity = (id == "m") and "Mythical" or "Common" })
+			end
+			local ctx = { inventory = { m = 3, c = 1 }, resolve = resolve, gems = 0, lifetime = { gemsEarned = 0, trades = 0 }, firstJoin = 0, now = 0 }
+			local chip = PP.resolveChip("mythicals", ctx)
+			eq(chip and chip.value, 1, "one distinct mythical")
+		end,
+
+		["project: hideValue drops aggregate AND portfolioValue chip"] = function()
+			local resolve = function(id)
+				return view(id, { estValue = 5 })
+			end
+			local pub = PP.project({
+				userId = 1, name = "n", displayName = "d", firstJoin = 0, now = 100,
+				inventory = { a = 1 }, gems = 7,
+				showcase = {}, statChips = { "portfolioValue", "gems" }, status = "hi",
+				privacy = { hideValue = true, hideShowcase = false },
+				lifetime = { gemsEarned = 0, trades = 0 }, resolve = resolve,
+			})
+			eq(pub.portfolioValue, nil, "aggregate hidden")
+			local hasPv = false
+			for _, c in pub.statChips do
+				if c.key == "portfolioValue" then
+					hasPv = true
+				end
+			end
+			eq(hasPv, false, "portfolioValue chip dropped")
+			eq(pub.showcase ~= nil, true, "showcase still present")
+		end,
+
+		["project: hideShowcase omits showcase, keeps value"] = function()
+			local resolve = function(id)
+				return view(id, { estValue = 5 })
+			end
+			local pub = PP.project({
+				userId = 1, name = "n", displayName = "d", firstJoin = 0, now = 100,
+				inventory = { a = 1 }, gems = 0,
+				showcase = {}, statChips = {}, status = "",
+				privacy = { hideValue = false, hideShowcase = true },
+				lifetime = { gemsEarned = 0, trades = 0 }, resolve = resolve,
+			})
+			eq(pub.showcase, nil, "showcase omitted")
+			eq(pub.portfolioValue, 5, "value present")
+		end,
+
+		["project: empty inventory yields empty showcase + zero value"] = function()
+			local resolve = function(_)
+				return nil
+			end
+			local pub = PP.project({
+				userId = 1, name = "n", displayName = "d", firstJoin = 0, now = 0,
+				inventory = {}, gems = 0, showcase = {}, statChips = { "portfolioValue" },
+				status = "", privacy = { hideValue = false, hideShowcase = false },
+				lifetime = { gemsEarned = 0, trades = 0 }, resolve = resolve,
+			})
+			eq(pub.portfolioValue, 0, "zero value")
+			eq(#pub.showcase, 0, "empty showcase")
+		end,
+	},
+}

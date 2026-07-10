@@ -174,6 +174,7 @@ local function buildHud(parent: Instance)
 	-- the way in (EventPrompt / BoardPrompt proximity prompts)
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.57))
+	iconButton("ProfileButton", ICONS.Inventory, "PROFILE", UDim2.fromScale(0.955, 0.47))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.37))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
@@ -1475,6 +1476,435 @@ end
 -- Modals (inventory, invite, search, tooltip)
 --------------------------------------------------------------------------------
 
+--------------------------------------------------------------------------------
+-- Player profile (browser + view + self-edit)
+--------------------------------------------------------------------------------
+
+local function buildProfilePanel(parent: Instance)
+	local root = panel("ProfilePanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(420, 470),
+		Visible = false,
+	}, parent)
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -60, 0, 24),
+		Text = "Profiles",
+		TextSize = 18,
+	}, root)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, root)
+
+	-- ============ BROWSER (Server / Global tabs -> player list) ============
+	local browser = new("Frame", {
+		Name = "Browser",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 44),
+		Size = UDim2.new(1, -24, 1, -56),
+	}, root)
+	button("ServerTab", {
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.fromOffset(120, 30),
+		Text = "Server",
+	}, browser)
+	button("GlobalTab", {
+		Position = UDim2.fromOffset(128, 0),
+		Size = UDim2.fromOffset(120, 30),
+		Text = "Global",
+		BackgroundColor3 = C.BgLight,
+	}, browser)
+	local searchBox = new("TextBox", {
+		Name = "SearchBox",
+		Position = UDim2.fromOffset(0, 38),
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT_LIGHT,
+		TextColor3 = C.Text,
+		TextSize = 13,
+		PlaceholderText = "Search username or UserId…",
+		Text = "",
+		ClearTextOnFocus = false,
+		Visible = false, -- shown on the Global tab
+	}, browser)
+	corner(searchBox, 6)
+	local plist = new("ScrollingFrame", {
+		Name = "PlayerList",
+		Position = UDim2.fromOffset(0, 76),
+		Size = UDim2.new(1, 0, 1, -76),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, browser)
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, plist)
+	local row = new("TextButton", {
+		Name = "RowTemplate",
+		Size = UDim2.new(1, 0, 0, 52),
+		Text = "",
+		AutoButtonColor = true,
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, plist)
+	corner(row, 6)
+	local rowAvatar = new("ImageLabel", {
+		Name = "Avatar",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(40, 40),
+		ScaleType = Enum.ScaleType.Fit,
+		Image = "",
+	}, row)
+	corner(rowAvatar, 20)
+	label("DisplayName", {
+		Position = UDim2.fromOffset(56, 8),
+		Size = UDim2.new(1, -66, 0, 18),
+		Text = "Display Name",
+		TextSize = 14,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, row)
+	label("Username", {
+		Position = UDim2.fromOffset(56, 27),
+		Size = UDim2.new(1, -66, 0, 15),
+		Text = "@username",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, row)
+	label("Notice", {
+		Name = "Notice",
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = "",
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+	}, plist)
+
+	-- ============ VIEW (a single profile) ============
+	local viewF = new("Frame", {
+		Name = "View",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 44),
+		Size = UDim2.new(1, -24, 1, -56),
+		Visible = false,
+	}, root)
+	button("BackButton", {
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.fromOffset(70, 26),
+		Text = "← Back",
+		BackgroundColor3 = C.BgLight,
+	}, viewF)
+	local vAvatar = new("ImageLabel", {
+		Name = "Avatar",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(0, 34),
+		Size = UDim2.fromOffset(64, 64),
+		ScaleType = Enum.ScaleType.Fit,
+		Image = "",
+	}, viewF)
+	corner(vAvatar, 12)
+	label("DisplayName", {
+		Position = UDim2.fromOffset(76, 38),
+		Size = UDim2.new(1, -160, 0, 22),
+		Text = "Display Name",
+		TextSize = 18,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, viewF)
+	label("Username", {
+		Position = UDim2.fromOffset(76, 62),
+		Size = UDim2.new(1, -160, 0, 16),
+		Text = "@username",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, viewF)
+	label("JoinDate", {
+		Position = UDim2.fromOffset(76, 80),
+		Size = UDim2.new(1, -160, 0, 15),
+		Text = "Joined —",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, viewF)
+	button("TradeButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 34),
+		Size = UDim2.fromOffset(84, 30),
+		Text = "Trade",
+		BackgroundColor3 = C.Good,
+		Visible = false,
+	}, viewF)
+	button("EditButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 34),
+		Size = UDim2.fromOffset(84, 30),
+		Text = "Edit",
+		BackgroundColor3 = C.Accent,
+		Visible = false,
+	}, viewF)
+	label("PortfolioValue", {
+		Position = UDim2.fromOffset(0, 106),
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = "Portfolio: —",
+		TextSize = 15,
+		TextColor3 = C.Gold,
+	}, viewF)
+
+	-- showcase grid (up to 6)
+	local showcase = new("Frame", {
+		Name = "Showcase",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 132),
+		Size = UDim2.new(1, 0, 0, 150),
+	}, viewF)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(118, 70),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, showcase)
+	local slot = new("Frame", {
+		Name = "SlotTemplate",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, showcase)
+	corner(slot, 6)
+	new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(58, 58),
+		ScaleType = Enum.ScaleType.Fit,
+	}, slot)
+	label("ItemName", {
+		Position = UDim2.fromOffset(70, 8),
+		Size = UDim2.new(1, -76, 0, 16),
+		Text = "Item",
+		TextSize = 12,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, slot)
+	label("Rarity", {
+		Position = UDim2.fromOffset(70, 26),
+		Size = UDim2.new(1, -76, 0, 14),
+		Text = "Common",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, slot)
+	label("ItemValue", {
+		Position = UDim2.fromOffset(70, 44),
+		Size = UDim2.new(1, -76, 0, 14),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.Gold,
+	}, slot)
+	label("ShowcaseEmpty", {
+		Name = "ShowcaseEmpty",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = "",
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Visible = false,
+	}, viewF)
+
+	-- stat chips row (up to 4)
+	local chips = new("Frame", {
+		Name = "Chips",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 290),
+		Size = UDim2.new(1, 0, 0, 48),
+	}, viewF)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, chips)
+	local chip = new("Frame", {
+		Name = "ChipTemplate",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(94, 46),
+		Visible = false,
+	}, chips)
+	corner(chip, 6)
+	label("ChipValue", {
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.new(1, -12, 0, 18),
+		Text = "0",
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, chip)
+	label("ChipLabel", {
+		Position = UDim2.fromOffset(6, 26),
+		Size = UDim2.new(1, -12, 0, 14),
+		Text = "Stat",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, chip)
+
+	label("Status", {
+		Position = UDim2.fromOffset(0, 346),
+		Size = UDim2.new(1, 0, 0, 40),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 13,
+		TextColor3 = C.Text,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, viewF)
+
+	-- ============ EDIT (self only) ============
+	local edit = new("Frame", {
+		Name = "Edit",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 106),
+		Size = UDim2.new(1, 0, 1, -106),
+		Visible = false,
+	}, viewF)
+	local statusInput = new("TextBox", {
+		Name = "StatusInput",
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT_LIGHT,
+		TextColor3 = C.Text,
+		TextSize = 13,
+		PlaceholderText = "Looking for… (status)",
+		Text = "",
+		ClearTextOnFocus = false,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, edit)
+	corner(statusInput, 6)
+	button("HideValueToggle", {
+		Position = UDim2.fromOffset(0, 38),
+		Size = UDim2.new(0.5, -4, 0, 30),
+		Text = "Value: Shown",
+		BackgroundColor3 = C.BgLight,
+	}, edit)
+	button("HideShowcaseToggle", {
+		Position = UDim2.new(0.5, 4, 0, 38),
+		Size = UDim2.new(0.5, -4, 0, 30),
+		Text = "Showcase: Shown",
+		BackgroundColor3 = C.BgLight,
+	}, edit)
+	label("ChipHint", {
+		Position = UDim2.fromOffset(0, 74),
+		Size = UDim2.new(1, 0, 0, 16),
+		Text = "Pin up to 4 stats:",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, edit)
+	local chipPick = new("Frame", {
+		Name = "ChipPicker",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 92),
+		Size = UDim2.new(1, 0, 0, 62),
+	}, edit)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(92, 26),
+		CellPadding = UDim2.fromOffset(6, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, chipPick)
+	local chipOption = button("ChipOption", {
+		Size = UDim2.fromOffset(92, 26),
+		Text = "Stat",
+		TextSize = 11,
+		BackgroundColor3 = C.BgLight,
+		Visible = false,
+	}, chipPick)
+
+	label("EditHint", {
+		Position = UDim2.fromOffset(0, 160),
+		Size = UDim2.new(1, 0, 0, 16),
+		Text = "Pick up to 6 items to showcase:",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, edit)
+	local pick = new("ScrollingFrame", {
+		Name = "ShowcasePicker",
+		Position = UDim2.fromOffset(0, 180),
+		Size = UDim2.new(1, 0, 1, -222),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, edit)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(70, 70),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, pick)
+	local pickTile = new("TextButton", {
+		Name = "PickTile",
+		Text = "",
+		AutoButtonColor = true,
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Visible = false,
+	}, pick)
+	corner(pickTile, 6)
+	stroke(pickTile) -- client recolors the stroke when selected
+	new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(6, 6),
+		Size = UDim2.fromOffset(58, 44),
+		ScaleType = Enum.ScaleType.Fit,
+	}, pickTile)
+	label("CountBadge", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -4, 0, 4),
+		Size = UDim2.fromOffset(28, 14),
+		Text = "",
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = C.Warn,
+	}, pickTile)
+	label("PickName", {
+		Position = UDim2.fromOffset(4, 52),
+		Size = UDim2.new(1, -8, 0, 14),
+		Text = "Item",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextColor3 = C.TextDim,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, pickTile)
+	button("SaveButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, 0),
+		Size = UDim2.fromOffset(160, 32),
+		Text = "Save",
+		BackgroundColor3 = C.Good,
+	}, edit)
+
+	return root
+end
+
 local function buildModals(parent: Instance)
 	local gui = new("ScreenGui", {
 		Name = "TradingModals",
@@ -1524,6 +1954,7 @@ local function buildModals(parent: Instance)
 	buildStorePanel(gui)
 	buildEventsPanel(gui)
 	buildBoardPanel(gui)
+	buildProfilePanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {

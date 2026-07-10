@@ -9,14 +9,17 @@ local Controllers = script.Controllers
 local InventoryController = require(Controllers.InventoryController)
 local EconomyController = require(Controllers.EconomyController)
 local TradeController = require(Controllers.TradeController)
+local ProfileController = require(Controllers.ProfileController)
 
 InventoryController.Init()
 EconomyController.Init()
 TradeController.Init()
+ProfileController.Init()
 
 InventoryController.Start()
 EconomyController.Start()
 TradeController.Start()
+ProfileController.Start()
 
 local UI = script.UI
 local Components = require(UI.Components)
@@ -26,6 +29,7 @@ local TradeScreen = require(UI.TradeScreen)
 local StoreScreen = require(UI.StoreScreen)
 local EventsScreen = require(UI.EventsScreen)
 local BoardScreen = require(UI.BoardScreen)
+local ProfileScreen = require(UI.ProfileScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
@@ -43,12 +47,16 @@ TradeScreen.wire(modalGui, tooltip)
 StoreScreen.wire(modalGui, tooltip, toast)
 EventsScreen.wire(modalGui, tooltip, toast)
 BoardScreen.wire(modalGui, tooltip, toast)
+ProfileScreen.wire(modalGui, tooltip)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
 	end,
 	picker = function()
 		TradeScreen.togglePicker()
+	end,
+	profile = function()
+		ProfileScreen.open()
 	end,
 })
 

@@ -59,6 +59,11 @@ local Enums = {
 		"SetOffer", -- (tradeId, offer) -> {ok}
 		"SetConfirm", -- (tradeId, confirmed) -> {ok}
 		"CancelTrade", -- (tradeId) -> {ok}
+		"GetProfile", -- (userId) -> {ok, profile} — public snapshot, online or offline
+		"SetShowcase", -- (itemIds) -> {ok, err} — owner picks <=6 items
+		"SetStatus", -- (text) -> {ok, err} — filtered "looking for" text
+		"SetStatChips", -- (keys) -> {ok, err} — owner pins <=4 stats
+		"SetPrivacy", -- ({hideValue, hideShowcase}) -> {ok, err}
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)

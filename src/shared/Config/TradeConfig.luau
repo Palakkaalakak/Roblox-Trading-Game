@@ -26,7 +26,6 @@ local TradeConfig = {
 		CancelTrade = { 10, 5 },
 		GetStats = { 30, 10 },
 		SearchPlayers = { 30, 10 },
-		DebugGiveGems = { 30, 10 },
 		GetStore = { 60, 20 },
 		BuyItem = { 30, 10 },
 		GetEvents = { 30, 10 },
@@ -39,6 +38,11 @@ local TradeConfig = {
 		RegisterInterest = { 12, 6 },
 		ContributeBulk = { 20, 8 },
 		BuyFromListing = { 20, 8 },
+		GetProfile = { 60, 20 },
+		SetShowcase = { 12, 6 },
+		SetStatus = { 12, 6 },
+		SetStatChips = { 12, 6 },
+		SetPrivacy = { 12, 6 },
 	},
 }
 

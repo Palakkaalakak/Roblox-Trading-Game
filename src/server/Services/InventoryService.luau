@@ -72,6 +72,18 @@ function InventoryService.applyDelta(player: Player, delta: Delta, source: strin
 		profile.ClaimedIds[idempotencyKey] = true
 	end
 
+	-- Lifetime counters (idempotent: the early-return above no-ops a repeated
+	-- claimId, so we only reach here on first application). gemsEarned counts
+	-- real trading inflows (trade/board), not the debug faucet or refunds.
+	if profile.Lifetime then
+		if delta.gems and delta.gems > 0 and (source == "trade" or source == "board") then
+			profile.Lifetime.gemsEarned += delta.gems
+		end
+		if source == "trade" and idempotencyKey ~= nil then
+			profile.Lifetime.trades += 1
+		end
+	end
+
 	AnalyticsService.log("inventory_delta", {
 		userId = player.UserId,
 		source = source,
@@ -105,6 +117,9 @@ function InventoryService.pushState(player: Player)
 	local profile = DataService.getProfile(player)
 	if profile then
 		Net.fireClient("InventoryChanged", player, profile.Inventory, profile.Gems)
+		-- inventory/gems changed -> schedule a debounced public-snapshot rewrite
+		local ProfileService = require(script.Parent.ProfileService) :: any
+		ProfileService.markDirty(player)
 	end
 end
 
@@ -121,13 +136,9 @@ function InventoryService.Start()
 
 	-- DEBUG ONLY: +gems button faucet. Delete with DebugConfig for release.
 	local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
-	local RateLimitService = require(script.Parent.RateLimitService) :: any
 	Net.bindFunction("DebugGiveGems", function(player)
 		if not DebugConfig.GiveGemsEnabled then
 			return { ok = false, err = "disabled" }
-		end
-		if not RateLimitService.check(player, "DebugGiveGems") then
-			return { ok = false, err = "rate_limited" }
 		end
 		local ok, err = InventoryService.applyDelta(player, { gems = DebugConfig.GiveGemsAmount }, "debug")
 		return { ok = ok, err = err }

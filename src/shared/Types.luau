@@ -95,6 +95,36 @@ export type Profile = {
 	StarterGrantId: string,
 	ClaimedIds: { [string]: boolean }, -- settlement/mailbox idempotency log
 	Meta: { firstJoin: number, lastLogin: number, joins: number },
+	-- v2: player profile (public-facing, opt-out privacy)
+	Showcase: { string }, -- <=6 itemIds, player-ordered; {} => default scarcest-6
+	StatChips: { string }, -- <=4 stat keys; {} => default set
+	Status: string, -- filtered "looking for" text
+	Privacy: { hideValue: boolean, hideShowcase: boolean },
+	Lifetime: { gemsEarned: number, trades: number },
+}
+
+-- One showcased/priced item, resolved from live economy state.
+export type ItemView = {
+	itemId: string,
+	name: string,
+	rarity: string,
+	imageId: string,
+	estValue: number,
+	circulating: number,
+}
+
+-- Public snapshot served for any player (online or offline). Hidden sections
+-- are ABSENT (not nulled) — privacy applied at write time.
+export type PublicProfile = {
+	userId: number,
+	name: string,
+	displayName: string,
+	firstJoin: number,
+	portfolioValue: number?, -- absent if hidden
+	showcase: { ItemView }?, -- absent if hidden
+	statChips: { { key: string, label: string, value: number } },
+	status: string,
+	updatedAt: number,
 }
 
 return nil

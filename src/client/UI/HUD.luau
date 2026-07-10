@@ -13,7 +13,7 @@ local TradeController = require(script.Parent.Parent.Controllers.TradeController
 
 local HUD = {}
 
-function HUD.wire(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> () })
+function HUD.wire(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> (), profile: (() -> ())? })
 	local gemPill = gui:WaitForChild("GemPill") :: Frame
 	local gemAmount = gemPill:WaitForChild("Amount") :: TextLabel
 	State.Observe(InventoryController.gems, function(gems)
@@ -24,6 +24,11 @@ function HUD.wire(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> 
 	invButton.Activated:Connect(toggles.inventory)
 	local tradeButton = gui:WaitForChild("TradeButton") :: ImageButton
 	tradeButton.Activated:Connect(toggles.picker)
+
+	local profileButton = gui:WaitForChild("ProfileButton") :: ImageButton
+	if toggles.profile then
+		profileButton.Activated:Connect(toggles.profile)
+	end
 
 	local debugBtn = gui:WaitForChild("DebugGemsButton") :: ImageButton
 	if DebugConfig.GiveGemsEnabled then
