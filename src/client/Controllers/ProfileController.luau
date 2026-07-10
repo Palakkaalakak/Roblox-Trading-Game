@@ -17,7 +17,12 @@ ProfileController.localUserId = localUserId
 local function fetch(userId: number)
 	task.spawn(function()
 		local res = Net.invoke("GetProfile", userId)
+		-- TEMP diagnostic: see docstring in ProfileService.GetProfile; remove together.
+		print(("[ProfileDebug] fetch(%s) -> ok=%s profile.userId=%s profile.name=%s currentViewing=%s"):format(
+			tostring(userId), tostring(res.ok), tostring(res.profile and res.profile.userId),
+			tostring(res.profile and res.profile.name), tostring(ProfileController.viewingUserId:get())))
 		if ProfileController.viewingUserId:get() ~= userId then
+			print("[ProfileDebug] ^ dropped as stale (navigated away)")
 			return -- user navigated away
 		end
 		ProfileController.viewed:set(res.ok and res.profile or false, true)
@@ -25,6 +30,7 @@ local function fetch(userId: number)
 end
 
 function ProfileController.openUser(userId: number)
+	print(("[ProfileDebug] openUser(%s)"):format(tostring(userId)))
 	ProfileController.viewingUserId:set(userId)
 	ProfileController.viewed:set(nil)
 	fetch(userId)

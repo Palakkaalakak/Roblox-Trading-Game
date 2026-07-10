@@ -364,10 +364,44 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 		end
 	end
 
+	-- an online-but-untouched player still gets a real snapshot (all zeros/
+	-- empty) rather than nil — treat that the same as "no snapshot at all".
+	local function isEmptyProfile(profile: any): boolean
+		if profile.portfolioValue and profile.portfolioValue > 0 then
+			return false
+		end
+		if profile.showcase and #profile.showcase > 0 then
+			return false
+		end
+		if profile.status and profile.status ~= "" then
+			return false
+		end
+		for _, c in profile.statChips or {} do
+			if c.value and c.value > 0 then
+				return false
+			end
+		end
+		return true
+	end
+
+	-- Every render starts from a blank slate — previous profile's showcase/
+	-- chips/status must never survive into the next render, no matter which
+	-- branch below returns early.
+	local function resetContent()
+		clearClones(showcase, slotTemplate)
+		showcase.Visible = false
+		showcaseEmpty.Visible = false
+		for _, slotUI in chipSlots do
+			slotUI.Visible = false
+		end
+		vStatus.Text = ""
+	end
+
 	local function render(profile: any)
 		local userId = ProfileController.viewingUserId:get()
 		local isSelf = userId == localUserId
 		loadAvatar(userId, vAvatar)
+		resetContent()
 
 		if profile == nil then
 			vName.Text = "Loading…"
@@ -378,11 +412,14 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 			return
 		end
 		if profile == false then
-			vName.Text = "Unavailable"
-			vUser.Text = "no profile yet"
+			-- joined at some point, never generated any profile data
+			vName.Text = "Player " .. tostring(userId)
+			vUser.Text = ""
 			vJoin.Text = ""
-			tradeBtn.Visible = false
+			tradeBtn.Visible = (not isSelf) and Players:GetPlayerByUserId(userId) ~= nil
 			editBtn.Visible = false
+			showcaseEmpty.Visible = true
+			showcaseEmpty.Text = "NO DATA"
 			return
 		end
 
@@ -394,18 +431,20 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 		editBtn.Visible = isSelf and not edit.Visible
 		tradeBtn.Visible = (not isSelf) and Players:GetPlayerByUserId(userId) ~= nil
 
+		if isEmptyProfile(profile) then
+			showcaseEmpty.Visible = true
+			showcaseEmpty.Text = "NO DATA"
+			return
+		end
+
 		-- showcase
-		clearClones(showcase, slotTemplate)
 		if profile.showcase == nil then
 			showcaseEmpty.Visible = true
 			showcaseEmpty.Text = "Showcase hidden"
-			showcase.Visible = false
 		elseif #profile.showcase == 0 then
 			showcaseEmpty.Visible = true
 			showcaseEmpty.Text = "No items showcased"
-			showcase.Visible = false
 		else
-			showcaseEmpty.Visible = false
 			showcase.Visible = true
 			local order = 0
 			for _, item in profile.showcase do
@@ -434,8 +473,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 				;(slotUI:WaitForChild("Icon") :: ImageLabel).Image = c.icon or ""
 				;(slotUI:WaitForChild("ChipValue") :: TextLabel).Text = tostring(c.value)
 				;(slotUI:WaitForChild("ChipLabel") :: TextLabel).Text = c.label
-			else
-				slotUI.Visible = false
 			end
 		end
 

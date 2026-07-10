@@ -141,7 +141,13 @@ function ProfileService.Start()
 		if type(userId) ~= "number" then
 			return { ok = false, err = "bad_userId" }
 		end
-		return { ok = true, profile = readProfile(userId) }
+		local snap = readProfile(userId)
+		-- TEMP diagnostic: confirms the requested userId matches the userId
+		-- baked into the returned snapshot. Remove once the "shows my stats
+		-- under another player's name" report is root-caused.
+		print(("[ProfileDebug] GetProfile requested=%s by=%s -> snap.userId=%s snap.name=%s"):format(
+			tostring(userId), tostring(player.UserId), tostring(snap and snap.userId), tostring(snap and snap.name)))
+		return { ok = true, profile = snap }
 	end)
 
 	Net.bindFunction("SetShowcase", function(player, itemIds)
