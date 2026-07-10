@@ -56,7 +56,7 @@ HUD.wire(hudGui, {
 		TradeScreen.togglePicker()
 	end,
 	profile = function()
-		ProfileScreen.open()
+		ProfileScreen.openBrowser()
 	end,
 })
 

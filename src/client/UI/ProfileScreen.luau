@@ -467,11 +467,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 		ProfileController.openUser(userId)
 	end
 
-	function ProfileScreen.open()
-		-- own profile (HUD button)
-		ProfileScreen.openUser(localUserId)
-	end
-
 	function ProfileScreen.openBrowser()
 		panel.Visible = true
 		showBrowser()
