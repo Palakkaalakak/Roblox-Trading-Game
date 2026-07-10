@@ -1,11 +1,10 @@
 --!strict
--- Unit tests: Rarity, WeightedDraw, RollingAverage, RateLimiter, Guard, value formula.
+-- Unit tests: Rarity, WeightedDraw, RollingAverage, Guard, value formula.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Rarity = require(ReplicatedStorage.Shared.Util.Rarity)
 local WeightedDraw = require(ReplicatedStorage.Shared.Util.WeightedDraw)
 local RollingAverage = require(ReplicatedStorage.Shared.Util.RollingAverage)
-local RateLimiter = require(ReplicatedStorage.Shared.Util.RateLimiter)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local EconomyService = require(script.Parent.Parent.Services.EconomyService)
 
@@ -77,22 +76,6 @@ return {
 			end
 			eq(count, #samples)
 			assert(math.abs(avg - sum / #samples) < 1e-9, "avg mismatch: " .. avg)
-		end,
-
-		["rate limiter: burst then deny, refill via clock"] = function()
-			local now = 0
-			local limiter = RateLimiter.new(60, 3, function()
-				return now
-			end)
-			assert(limiter:check("u1"))
-			assert(limiter:check("u1"))
-			assert(limiter:check("u1"))
-			assert(not limiter:check("u1"), "burst not exhausted")
-			now = 1 -- 60/min = 1 token per second
-			assert(limiter:check("u1"), "did not refill")
-			assert(not limiter:check("u1"))
-			-- independent keys
-			assert(limiter:check("u2"))
 		end,
 
 		["guard: valid offer accepted"] = function()

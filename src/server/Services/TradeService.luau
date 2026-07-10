@@ -31,7 +31,6 @@ local TradeCore = require(script.Parent.TradeCore)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
-local RateLimitService = require(script.Parent.RateLimitService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local TradeService = {}
@@ -450,12 +449,9 @@ end
 -- Remote handlers
 --------------------------------------------------------------------------------
 
-local function guardCommon(player: Player, op: string): (boolean, string?)
+local function guardCommon(player: Player): (boolean, string?)
 	if not TradeConfig.Enabled then
 		return false, "trading_disabled"
-	end
-	if not RateLimitService.check(player, op) then
-		return false, "rate_limited"
 	end
 	if not DataService.isLoaded(player) then
 		return false, "loading"
@@ -464,7 +460,7 @@ local function guardCommon(player: Player, op: string): (boolean, string?)
 end
 
 local function handleRequestTrade(player: Player, targetUserId: any)
-	local ok, err = guardCommon(player, "RequestTrade")
+	local ok, err = guardCommon(player)
 	if not ok then
 		return { ok = false, err = err }
 	end
@@ -501,7 +497,7 @@ local function handleRequestTrade(player: Player, targetUserId: any)
 end
 
 local function handleRespond(player: Player, tradeId: any, accept: any)
-	local ok, err = guardCommon(player, "RespondToRequest")
+	local ok, err = guardCommon(player)
 	if not ok then
 		return { ok = false, err = err }
 	end
@@ -534,7 +530,7 @@ local function handleRespond(player: Player, tradeId: any, accept: any)
 end
 
 local function handleSetOffer(player: Player, tradeId: any, offer: any)
-	local ok, err = guardCommon(player, "SetOffer")
+	local ok, err = guardCommon(player)
 	if not ok then
 		return { ok = false, err = err }
 	end
@@ -572,7 +568,7 @@ local function handleSetOffer(player: Player, tradeId: any, offer: any)
 end
 
 local function handleSetConfirm(player: Player, tradeId: any, confirmed: any)
-	local ok, err = guardCommon(player, "SetConfirm")
+	local ok, err = guardCommon(player)
 	if not ok then
 		return { ok = false, err = err }
 	end
@@ -623,7 +619,7 @@ local function handleSetConfirm(player: Player, tradeId: any, confirmed: any)
 end
 
 local function handleCancel(player: Player, tradeId: any)
-	local ok, err = guardCommon(player, "CancelTrade")
+	local ok, err = guardCommon(player)
 	if not ok then
 		return { ok = false, err = err }
 	end

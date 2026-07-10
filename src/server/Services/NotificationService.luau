@@ -2,15 +2,17 @@
 -- NotificationService: player notifications that survive being offline.
 --   * notify(userId, text): online on this server -> instant toast;
 --     online elsewhere -> cross-server ping; offline -> durable queue
---     (own DataStore, append-only like the mailbox) replayed at next login.
---   * Out-of-experience push notifications need Open Cloud (external API
---     key) — out of scope here; the client-side opt-in prompt is wired in
---     init.client so the audience is ready when that ships.
+--     (own DataStore, append-only like the mailbox) replayed at next login,
+--     PLUS a real Roblox push (OS/app notification) via Open Cloud so an
+--     opted-in player finds out even without opening the game.
+--   * Push requires one-time setup outside this codebase: see PushConfig.
 
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+local PushConfig = require(ReplicatedStorage.Shared.Config.PushConfig)
 
 local Net = require(script.Parent.Parent.Net)
 local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
@@ -35,12 +37,56 @@ local function pushLocal(userId: number, text: string): boolean
 	return false
 end
 
+-- Real Roblox push (OS/app notification) via Open Cloud. Best-effort: a
+-- player who hasn't opted in via ExperienceNotificationService simply never
+-- sees it (Roblox suppresses delivery on their end — we don't check opt-in
+-- status ourselves). Silent no-op until PushConfig.Enabled + MessageId are set.
+local function sendPush(userId: number, text: string)
+	if not PushConfig.Enabled or PushConfig.MessageId == "" then
+		return
+	end
+	task.spawn(function()
+		local gotSecret, apiKey = pcall(function()
+			return HttpService:GetSecret(PushConfig.SecretName)
+		end)
+		if not gotSecret or apiKey == nil then
+			warn("[Notification] push skipped: secret '" .. PushConfig.SecretName .. "' not configured")
+			return
+		end
+		local universeId = game.GameId
+		local body = HttpService:JSONEncode({
+			source = { universe = "universes/" .. tostring(universeId) },
+			payload = {
+				type = "MOMENT_STARTED",
+				messageId = PushConfig.MessageId,
+				parameters = { message = { stringValue = text:sub(1, 200) } },
+			},
+		})
+		local ok, response = pcall(function()
+			return HttpService:RequestAsync({
+				Url = ("https://apis.roblox.com/cloud/v2/universes/%d/users/%d/notifications"):format(universeId, userId),
+				Method = "POST",
+				Headers = { ["x-api-key"] = apiKey, ["Content-Type"] = "application/json" },
+				Body = body,
+			})
+		end)
+		if not ok then
+			warn("[Notification] push request failed: " .. tostring(response))
+		elseif not response.Success then
+			warn(("[Notification] push rejected (%s): %s"):format(tostring(response.StatusCode), tostring(response.Body)))
+		end
+	end)
+end
+
 function NotificationService.notify(userId: number, text: string)
 	if pushLocal(userId, text) then
 		return
 	end
-	-- try other servers, and queue durably in case they're fully offline
+	-- not on this server: try other servers, queue durably in case they're
+	-- fully offline everywhere, AND fire a real push (harmless if they're
+	-- actually online on another server — just an extra ping they can ignore).
 	StoreAdapters.publish(EconomyConfig.NotifyBroadcastTopic, { userId = userId, text = text })
+	sendPush(userId, text)
 	task.spawn(function()
 		pcall(function()
 			queueStore:UpdateAsync(queueKey(userId), function(old)

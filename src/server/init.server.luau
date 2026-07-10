@@ -12,7 +12,6 @@ local t0 = os.clock()
 
 local ordered = {
 	{ "Analytics", require(Services.AnalyticsService) },
-	{ "RateLimit", require(Services.RateLimitService) },
 	{ "Data", require(Services.DataService) },
 	{ "Inventory", require(Services.InventoryService) },
 	{ "Economy", require(Services.EconomyService) },

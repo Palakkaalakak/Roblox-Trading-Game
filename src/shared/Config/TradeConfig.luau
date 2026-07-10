@@ -1,5 +1,5 @@
 --!strict
--- Trade config: slot limits, timeouts, rate limits, kill switch.
+-- Trade config: slot limits, timeouts, kill switch.
 
 local TradeConfig = {
 	Enabled = true, -- kill switch: false rejects all trade remotes server-side
@@ -16,34 +16,6 @@ local TradeConfig = {
 	TradeIdleTimeoutSeconds = 300, -- open trade with no activity
 	SettleStuckSeconds = 120, -- Settling older than this gets re-driven (idempotent)
 	SweepIntervalSeconds = 15,
-
-	-- Token-bucket rate limits, per player: { perMinute, burst }.
-	RateLimits = {
-		RequestTrade = { 6, 3 },
-		RespondToRequest = { 12, 6 },
-		SetOffer = { 60, 15 },
-		SetConfirm = { 20, 8 },
-		CancelTrade = { 10, 5 },
-		GetStats = { 30, 10 },
-		SearchPlayers = { 30, 10 },
-		GetStore = { 60, 20 },
-		BuyItem = { 30, 10 },
-		GetEvents = { 30, 10 },
-		CraftItem = { 12, 6 },
-		GetCatalog = { 10, 4 },
-		GetBoard = { 30, 10 },
-		PostListing = { 6, 3 },
-		CancelListing = { 10, 5 },
-		AcceptListing = { 12, 6 },
-		RegisterInterest = { 12, 6 },
-		ContributeBulk = { 20, 8 },
-		BuyFromListing = { 20, 8 },
-		GetProfile = { 60, 20 },
-		SetShowcase = { 12, 6 },
-		SetStatus = { 12, 6 },
-		SetStatChips = { 12, 6 },
-		SetPrivacy = { 12, 6 },
-	},
 }
 
 return TradeConfig

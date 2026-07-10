@@ -43,7 +43,6 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
-local RateLimitService = require(script.Parent.RateLimitService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 local NotificationService = require(script.Parent.NotificationService)
 
@@ -238,9 +237,6 @@ local function describe(listing: any, viewerId: number): any
 end
 
 local function handleGetBoard(player: Player)
-	if not RateLimitService.check(player, "GetBoard") then
-		return { ok = false, err = "rate_limited" }
-	end
 	local now = os.time()
 	local listings = {}
 	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
@@ -261,9 +257,6 @@ end
 --------------------------------------------------------------------------------
 
 local function handlePost(player: Player, payload: any)
-	if not RateLimitService.check(player, "PostListing") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) then
 		return { ok = false, err = "loading" }
 	end
@@ -510,9 +503,6 @@ end
 --------------------------------------------------------------------------------
 
 local function handleAccept(player: Player, id: any)
-	if not RateLimitService.check(player, "AcceptListing") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) or not Guard.isString(id, 64) then
 		return { ok = false, err = "bad_args" }
 	end
@@ -584,9 +574,6 @@ local function handleAccept(player: Player, id: any)
 end
 
 local function handleInterest(player: Player, id: any)
-	if not RateLimitService.check(player, "RegisterInterest") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) or not Guard.isString(id, 64) then
 		return { ok = false, err = "bad_args" }
 	end
@@ -624,9 +611,6 @@ end
 --------------------------------------------------------------------------------
 
 local function handleContribute(player: Player, id: any, count: any)
-	if not RateLimitService.check(player, "ContributeBulk") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) or not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
 		return { ok = false, err = "bad_args" }
 	end
@@ -700,9 +684,6 @@ end
 --------------------------------------------------------------------------------
 
 local function handleBuyFromListing(player: Player, id: any, count: any)
-	if not RateLimitService.check(player, "BuyFromListing") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) or not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
 		return { ok = false, err = "bad_args" }
 	end
@@ -777,9 +758,6 @@ end
 --------------------------------------------------------------------------------
 
 local function handleCancel(player: Player, id: any)
-	if not RateLimitService.check(player, "CancelListing") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not Guard.isString(id, 64) then
 		return { ok = false, err = "bad_args" }
 	end

@@ -22,7 +22,6 @@ local Net = require(script.Parent.Parent.Net)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
-local RateLimitService = require(script.Parent.RateLimitService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local StoreService = {}
@@ -113,9 +112,6 @@ local function listing(player: Player): ({ any }, number?)
 end
 
 local function handleBuy(player: Player, itemId: any)
-	if not RateLimitService.check(player, "BuyItem") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) then
 		return { ok = false, err = "loading" }
 	end
@@ -192,9 +188,6 @@ end
 
 function StoreService.Start()
 	Net.bindFunction("GetStore", function(player)
-		if not RateLimitService.check(player, "GetStore") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local items, rotatesAt = listing(player)
 		return { ok = true, items = items, rotatesAt = rotatesAt }
 	end)

@@ -28,7 +28,6 @@ local Net = require(script.Parent.Parent.Net)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
-local RateLimitService = require(script.Parent.RateLimitService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local ROTATING_EVENT_ID = "evt_rotating"
@@ -140,9 +139,6 @@ local function describeRecipe(recipe: any, profile: any): any
 end
 
 local function handleGetEvents(player: Player)
-	if not RateLimitService.check(player, "GetEvents") then
-		return { ok = false, err = "rate_limited" }
-	end
 	local profile = DataService.getProfile(player)
 	local now = os.time()
 	local events = {}
@@ -164,9 +160,6 @@ local function handleGetEvents(player: Player)
 end
 
 local function handleCraft(player: Player, eventId: any, rid: any)
-	if not RateLimitService.check(player, "CraftItem") then
-		return { ok = false, err = "rate_limited" }
-	end
 	if not DataService.isLoaded(player) then
 		return { ok = false, err = "loading" }
 	end

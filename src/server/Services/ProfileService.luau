@@ -12,7 +12,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Net = require(script.Parent.Parent.Net)
 local DataService = require(script.Parent.DataService)
 local EconomyService = require(script.Parent.EconomyService)
-local RateLimitService = require(script.Parent.RateLimitService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local ProfileProjection = require(ReplicatedStorage.Shared.Util.ProfileProjection)
@@ -135,9 +134,6 @@ function ProfileService.Start()
 	end)
 
 	Net.bindFunction("GetProfile", function(player, userId)
-		if not RateLimitService.check(player, "GetProfile") then
-			return { ok = false, err = "rate_limited" }
-		end
 		if type(userId) ~= "number" then
 			return { ok = false, err = "bad_userId" }
 		end
@@ -151,9 +147,6 @@ function ProfileService.Start()
 	end)
 
 	Net.bindFunction("SetShowcase", function(player, itemIds)
-		if not RateLimitService.check(player, "SetShowcase") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local profile = DataService.getProfile(player)
 		if profile == nil then
 			return { ok = false, err = "loading" }
@@ -176,9 +169,6 @@ function ProfileService.Start()
 	end)
 
 	Net.bindFunction("SetStatus", function(player, text)
-		if not RateLimitService.check(player, "SetStatus") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local profile = DataService.getProfile(player)
 		if profile == nil then
 			return { ok = false, err = "loading" }
@@ -197,9 +187,6 @@ function ProfileService.Start()
 	end)
 
 	Net.bindFunction("SetStatChips", function(player, keys)
-		if not RateLimitService.check(player, "SetStatChips") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local profile = DataService.getProfile(player)
 		if profile == nil then
 			return { ok = false, err = "loading" }
@@ -222,9 +209,6 @@ function ProfileService.Start()
 	end)
 
 	Net.bindFunction("SetPrivacy", function(player, toggles)
-		if not RateLimitService.check(player, "SetPrivacy") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local profile = DataService.getProfile(player)
 		if profile == nil then
 			return { ok = false, err = "loading" }

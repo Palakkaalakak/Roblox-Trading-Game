@@ -360,11 +360,7 @@ function DataService.Start()
 
 	-- player directory search (name or userId, anyone who ever joined)
 	local Net = require(script.Parent.Parent.Net) :: any
-	local RateLimitService = require(script.Parent.RateLimitService) :: any
 	Net.bindFunction("SearchPlayers", function(player, query)
-		if not RateLimitService.check(player, "SearchPlayers") then
-			return { ok = false, err = "rate_limited" }
-		end
 		if type(query) ~= "string" or #query > 50 then
 			return { ok = false, err = "bad_query" }
 		end

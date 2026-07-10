@@ -22,7 +22,6 @@ local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local Net = require(script.Parent.Parent.Net)
 local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local AnalyticsService = require(script.Parent.AnalyticsService)
-local RateLimitService = require(script.Parent.RateLimitService)
 
 local EconomyService = {}
 
@@ -487,9 +486,6 @@ end
 function EconomyService.Start()
 	-- remote: full item directory (board want-pickers etc)
 	Net.bindFunction("GetCatalog", function(player)
-		if not RateLimitService.check(player, "GetCatalog") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local items = {}
 		for itemId, item in registry do
 			table.insert(items, { itemId = itemId, name = item.name, imageId = item.imageId })
@@ -502,9 +498,6 @@ function EconomyService.Start()
 
 	-- remote: batch stat fetch
 	Net.bindFunction("GetStats", function(player, itemIds)
-		if not RateLimitService.check(player, "GetStats") then
-			return { ok = false, err = "rate_limited" }
-		end
 		local ok, err = Guard.checkItemIdList(itemIds, 64)
 		if not ok then
 			return { ok = false, err = err }
