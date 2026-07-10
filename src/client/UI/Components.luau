@@ -83,6 +83,36 @@ function Components.fillItemTile(tile: Instance, snapshot: any?, count: number?)
 	t.CountBadge.Text = (count and count > 1) and ("x" .. tostring(count)) or ""
 end
 
+-- Device fit: every top-level panel carries a "FitScale" UIScale (built by
+-- GuiBuilder). One camera listener shrinks each panel proportionally to the
+-- live viewport so the whole panel — bottom buttons included — always fits,
+-- on any screen size / window / OS scaling. Scale never exceeds 1 (design
+-- size) and layouts/text stay proportionally intact.
+function Components.wireFitScales(gui: ScreenGui)
+	local camera = workspace.CurrentCamera
+	local panels: { { scale: UIScale, w: number, h: number } } = {}
+	for _, child in gui:GetChildren() do
+		local fit = child:FindFirstChild("FitScale")
+		if child:IsA("Frame") and fit and fit:IsA("UIScale") then
+			table.insert(panels, {
+				scale = fit,
+				w = child.Size.X.Offset,
+				h = child.Size.Y.Offset,
+			})
+		end
+	end
+	local function refit()
+		local vp = camera.ViewportSize
+		for _, p in panels do
+			if p.w > 0 and p.h > 0 then
+				p.scale.Scale = math.min(1, (vp.Y - 90) / p.h, (vp.X - 40) / p.w)
+			end
+		end
+	end
+	refit()
+	camera:GetPropertyChangedSignal("ViewportSize"):Connect(refit)
+end
+
 -- Wire the shared Tooltip frame (from StarterGui) to hover events.
 -- Returns attach(guiObject, getSnapshot).
 function Components.wireTooltip(gui: ScreenGui)

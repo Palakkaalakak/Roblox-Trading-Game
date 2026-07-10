@@ -10,7 +10,8 @@ local TradeConfig = {
 
 	-- After BOTH players accept, the server waits this long before locking in
 	-- (PS99-style countdown). Either player can still cancel during it.
-	ConfirmGraceSeconds = 4,
+	-- Kept short: it's the only artificial wait in the whole trade flow.
+	ConfirmGraceSeconds = 2,
 
 	InviteTimeoutSeconds = 60, -- pending invite expiry
 	TradeIdleTimeoutSeconds = 300, -- open trade with no activity

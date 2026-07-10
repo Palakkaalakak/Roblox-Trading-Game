@@ -455,12 +455,7 @@ local function buildTradePanel(parent: Instance)
 		Size = UDim2.fromOffset(W, 640),
 		Visible = false,
 	}, parent)
-	-- Runtime-driven shrink-to-fit: the panel is a fixed 674x640 box, and on
-	-- small viewports (laptops, windowed clients, OS display scaling) its
-	-- bottom strip — the ACCEPT/Cancel buttons — landed off-screen, so the
-	-- other player literally could not accept a trade. TradeScreen sets the
-	-- Scale from the actual viewport size.
-	new("UIScale", { Name = "FitScale", Scale = 1 }, tradePanel)
+	-- FitScale is added generically to every modal panel in buildModals.
 
 	label("Title", {
 		Position = UDim2.fromOffset(16, 10),
@@ -2132,6 +2127,18 @@ local function buildModals(parent: Instance)
 		TextWrapped = true,
 		ZIndex = 51,
 	}, tip)
+
+	-- Device fit: every top-level modal panel gets a UIScale ("FitScale").
+	-- Panels are designed in fixed offsets against a large reference screen;
+	-- Components.wireFitScales shrinks each proportionally to the live
+	-- viewport so the WHOLE panel (buttons included) fits any device without
+	-- distorting layout or text. Tooltip excluded: positioned in raw mouse
+	-- pixels at runtime, scaling would desync it from the cursor.
+	for _, child in gui:GetChildren() do
+		if child:IsA("Frame") and child.Name ~= "Tooltip" and child:FindFirstChild("FitScale") == nil then
+			new("UIScale", { Name = "FitScale", Scale = 1 }, child)
+		end
+	end
 
 	return gui
 end

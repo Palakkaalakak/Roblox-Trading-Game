@@ -39,6 +39,7 @@ local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
 local modalGui = playerGui:WaitForChild("TradingModals") :: ScreenGui
 
 local tooltip = Components.wireTooltip(modalGui)
+Components.wireFitScales(modalGui) -- shrink every panel to fit this device's viewport
 local function toast(text: string, color: Color3)
 	if HUD.toast then
 		HUD.toast(text, color)
