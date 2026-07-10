@@ -48,6 +48,25 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local countdownText = countdownBar:WaitForChild("Text") :: TextLabel
 	local autoToggle = panel:FindFirstChild("AutoToggle") :: TextButton?
 
+	-- Shrink the fixed-size panel to fit small viewports. Without this the
+	-- bottom strip (ACCEPT/Cancel) rendered off-screen on smaller windows,
+	-- so the other player couldn't accept or cancel a trade at all.
+	local fitScale = panel:FindFirstChild("FitScale") :: UIScale?
+	if fitScale then
+		local camera = workspace.CurrentCamera
+		local baseSize = panel.Size -- fixed offsets (674 x 640)
+		local function refit()
+			local vp = camera.ViewportSize
+			fitScale.Scale = math.min(
+				1,
+				(vp.Y - 90) / baseSize.Y.Offset, -- leave room for the top inset + margins
+				(vp.X - 40) / baseSize.X.Offset
+			)
+		end
+		refit()
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(refit)
+	end
+
 	-- Board-compose mode: the same trade window, but BOTH sides are yours to
 	-- edit (give = escrowed on post, want = what you're asking). Local state
 	-- only — nothing touches the server until POST.

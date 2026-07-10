@@ -455,6 +455,12 @@ local function buildTradePanel(parent: Instance)
 		Size = UDim2.fromOffset(W, 640),
 		Visible = false,
 	}, parent)
+	-- Runtime-driven shrink-to-fit: the panel is a fixed 674x640 box, and on
+	-- small viewports (laptops, windowed clients, OS display scaling) its
+	-- bottom strip — the ACCEPT/Cancel buttons — landed off-screen, so the
+	-- other player literally could not accept a trade. TradeScreen sets the
+	-- Scale from the actual viewport size.
+	new("UIScale", { Name = "FitScale", Scale = 1 }, tradePanel)
 
 	label("Title", {
 		Position = UDim2.fromOffset(16, 10),
