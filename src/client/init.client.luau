@@ -10,16 +10,19 @@ local InventoryController = require(Controllers.InventoryController)
 local EconomyController = require(Controllers.EconomyController)
 local TradeController = require(Controllers.TradeController)
 local ProfileController = require(Controllers.ProfileController)
+local NotificationController = require(Controllers.NotificationController)
 
 InventoryController.Init()
 EconomyController.Init()
 TradeController.Init()
 ProfileController.Init()
+NotificationController.Init()
 
 InventoryController.Start()
 EconomyController.Start()
 TradeController.Start()
 ProfileController.Start()
+NotificationController.Start()
 
 local UI = script.UI
 local Components = require(UI.Components)
@@ -81,16 +84,11 @@ Net.on("Notify", function(text)
 	end
 end)
 
--- ask the player to opt into experience notifications (safe no-op in Studio)
+-- generic fallback: ask players who never post a board listing (the more
+-- contextual trigger, in BoardScreen) to opt into notifications anyway
 task.spawn(function()
 	task.wait(15)
-	pcall(function()
-		local ExperienceNotificationService = game:GetService("ExperienceNotificationService")
-		local canPrompt = ExperienceNotificationService:CanPromptOptInAsync()
-		if canPrompt then
-			ExperienceNotificationService:PromptOptIn()
-		end
-	end)
+	NotificationController.promptOptIn("Enable notifications to hear about trade board activity while you're away!", toast)
 end)
 
 print("[Client] trading UI ready")

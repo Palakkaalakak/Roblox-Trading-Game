@@ -16,6 +16,7 @@ local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
+local NotificationController = require(script.Parent.Parent.Controllers.NotificationController)
 local TradeScreen = require(script.Parent.TradeScreen)
 
 local BoardScreen = {}
@@ -516,6 +517,14 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 						autoTrade = auto,
 					})
 					toast(result.ok and "Posted to the board!" or ("Couldn't post: " .. tostring(result.err)), result.ok and Theme.Good or Theme.Bad)
+					if result.ok then
+						-- they'll get notified later either way — "someone
+						-- wants this" (ask-first) or "it went through" (auto)
+						NotificationController.promptOptIn(
+							"Enable notifications so we can tell you about activity on this trade!",
+							toast
+						)
+					end
 					BoardScreen.open()
 				end)
 			end)
@@ -575,6 +584,11 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				toast("Posted to the board!", Theme.Good)
 				post.Visible = false
 				refresh()
+				NotificationController.promptOptIn(
+					modalKind == "bulk" and "Enable notifications so we can tell you when your bulk order fills!"
+						or "Enable notifications so we can tell you when your listing sells!",
+					toast
+				)
 			else
 				toast("Couldn't post: " .. tostring(result.err), Theme.Bad)
 			end

@@ -57,14 +57,14 @@ local function sendPush(userId: number, text: string)
 		local body = HttpService:JSONEncode({
 			source = { universe = "universes/" .. tostring(universeId) },
 			payload = {
-				type = "MOMENT_STARTED",
-				messageId = PushConfig.MessageId,
-				parameters = { message = { stringValue = text:sub(1, 200) } },
+				type = "MOMENT",
+				message_id = PushConfig.MessageId,
+				parameters = { message = { string_value = text:sub(1, 200) } },
 			},
 		})
 		local ok, response = pcall(function()
 			return HttpService:RequestAsync({
-				Url = ("https://apis.roblox.com/cloud/v2/universes/%d/users/%d/notifications"):format(universeId, userId),
+				Url = ("https://apis.roblox.com/cloud/v2/users/%d/notifications"):format(userId),
 				Method = "POST",
 				Headers = { ["x-api-key"] = apiKey, ["Content-Type"] = "application/json" },
 				Body = body,

@@ -8,15 +8,22 @@ local PushConfig = {
 	-- fresh install doesn't fire HTTP requests against an unconfigured key.
 	Enabled = false,
 
-	-- 1. Creator Dashboard > your experience > Engagement APIs > Notifications
-	--    -> create a message template, paste its id here.
+	-- 1. dashboard.roblox.com (Creator Dashboard) > pick this game > left
+	--    column "Engagement" > Notifications > "Create a Notification String".
+	--    The string MUST contain the literal placeholder {message} somewhere,
+	--    e.g. "{message}" or "Trade board: {message}" — the game's title is
+	--    used as the notification title automatically. Paste the string's
+	--    asset id here (max 99 chars in the template itself).
 	MessageId = "",
 
 	-- 2. Game Settings > Security > Secrets -> add a secret holding an Open
-	--    Cloud API key scoped to this universe's Notifications API, name it
-	--    to match here (HttpService:GetSecret reads it; the key never
-	--    appears in source or in Output).
+	--    Cloud API key (scoped to this universe, "Notifications" permission),
+	--    name it to match here. HttpService:GetSecret reads it server-side;
+	--    the raw value never appears in source or in Output.
 	SecretName = "OpenCloudApiKey",
+
+	-- Roblox throttles to 1 notification per user per day per experience,
+	-- non-negotiable on their end — not something to tune here.
 }
 
 return PushConfig
