@@ -24,19 +24,29 @@ function ProfileProjection.isEarnedSource(source: string): boolean
 end
 
 local SHOWCASE_MAX = 6
-local CHIP_MAX = 4
-local DEFAULT_CHIPS = { "portfolioValue", "trades", "mythicals", "accountAge" }
+local CHIP_MAX = 3
+local DEFAULT_CHIPS = { "portfolioValue", "trades", "mythicals" }
 
 local CHIP_LABELS = {
 	portfolioValue = "Portfolio Value",
 	trades = "Trades",
 	gemsEarned = "Gems Earned",
 	mythicals = "Mythicals Owned",
-	accountAge = "Account Age",
 	distinctItems = "Distinct Items",
 	gems = "Gems",
 }
 ProfileProjection.AllowedChips = CHIP_LABELS
+
+-- Simulator Icon Pack asset ids, one per stat (gem concept always uses the
+-- same GemIcon id — never a different-but-similar gem graphic).
+ProfileProjection.ChipIcons = {
+	portfolioValue = "rbxassetid://17368064384", -- Gems.GemIcon
+	gems = "rbxassetid://17368064384", -- Gems.GemIcon
+	gemsEarned = "rbxassetid://17368064384", -- Gems.GemIcon
+	trades = "rbxassetid://15403064919", -- Arrows.Trade
+	mythicals = "rbxassetid://17368097932", -- Stars.Star
+	distinctItems = "rbxassetid://127110909372919", -- Menus.Index
+}
 
 -- owned (count>=1) + resolvable itemIds, ascending CIRCULATING (fewest in
 -- existence = scarcest first); ties by itemId for determinism. Up to `limit`.
@@ -90,7 +100,7 @@ function ProfileProjection.portfolioValue(inv: { [string]: number }, resolve: Re
 	return math.floor(total + 0.5)
 end
 
-function ProfileProjection.resolveChip(key: string, ctx: any): { key: string, label: string, value: number }?
+function ProfileProjection.resolveChip(key: string, ctx: any): { key: string, label: string, value: number, icon: string }?
 	local label = CHIP_LABELS[key]
 	if label == nil then
 		return nil
@@ -104,8 +114,6 @@ function ProfileProjection.resolveChip(key: string, ctx: any): { key: string, la
 		value = ctx.lifetime.gemsEarned
 	elseif key == "gems" then
 		value = ctx.gems
-	elseif key == "accountAge" then
-		value = math.max(0, ctx.now - ctx.firstJoin)
 	elseif key == "distinctItems" then
 		local n = 0
 		for _, c in ctx.inventory do
@@ -128,7 +136,7 @@ function ProfileProjection.resolveChip(key: string, ctx: any): { key: string, la
 	else
 		return nil
 	end
-	return { key = key, label = label, value = value }
+	return { key = key, label = label, value = value, icon = ProfileProjection.ChipIcons[key] or "" }
 end
 
 -- Assemble the public snapshot, honoring privacy toggles by omission.

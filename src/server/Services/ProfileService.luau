@@ -205,7 +205,7 @@ function ProfileService.Start()
 		for _, key in keys do
 			if type(key) == "string" and ALLOWED_CHIPS[key] then
 				table.insert(clean, key)
-				if #clean >= 4 then
+				if #clean >= 3 then
 					break
 				end
 			end

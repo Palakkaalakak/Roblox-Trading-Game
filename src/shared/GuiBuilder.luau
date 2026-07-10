@@ -33,6 +33,7 @@ local ICONS = {
 	Gem = "rbxassetid://17368064384",
 	Trade = "rbxassetid://15403064919",
 	Inventory = "rbxassetid://15402958715",
+	Player = "rbxassetid://92109681457452",
 }
 local FONT = Enum.Font.GothamBold
 local FONT_LIGHT = Enum.Font.Gotham
@@ -174,7 +175,7 @@ local function buildHud(parent: Instance)
 	-- the way in (EventPrompt / BoardPrompt proximity prompts)
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.57))
-	iconButton("ProfileButton", ICONS.Inventory, "PROFILE", UDim2.fromScale(0.955, 0.47))
+	iconButton("ProfileButton", ICONS.Player, "PLAYERS", UDim2.fromScale(0.955, 0.47))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.37))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
@@ -1490,7 +1491,7 @@ local function buildProfilePanel(parent: Instance)
 	label("Title", {
 		Position = UDim2.fromOffset(14, 8),
 		Size = UDim2.new(1, -60, 0, 24),
-		Text = "Profiles",
+		Text = "Players",
 		TextSize = 18,
 	}, root)
 	button("CloseButton", {
@@ -1654,24 +1655,28 @@ local function buildProfilePanel(parent: Instance)
 		BackgroundColor3 = C.Accent,
 		Visible = false,
 	}, viewF)
-	label("PortfolioValue", {
-		Position = UDim2.fromOffset(0, 106),
-		Size = UDim2.new(1, 0, 0, 20),
-		Text = "Portfolio: —",
-		TextSize = 15,
-		TextColor3 = C.Gold,
+	label("Status", {
+		Position = UDim2.fromOffset(0, 104),
+		Size = UDim2.new(1, 0, 0, 32),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 13,
+		TextColor3 = C.Text,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
 	}, viewF)
 
-	-- showcase grid (up to 6)
+	-- showcase grid (up to 6, 3 cols x 2 rows, fills the width evenly via
+	-- scale-based cells: 3*0.313 + 2*0.0305 = 1.0 exactly)
 	local showcase = new("Frame", {
 		Name = "Showcase",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 132),
-		Size = UDim2.new(1, 0, 0, 150),
+		Position = UDim2.fromOffset(0, 140),
+		Size = UDim2.new(1, 0, 0, 190),
 	}, viewF)
 	new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(118, 70),
-		CellPadding = UDim2.fromOffset(8, 8),
+		CellSize = UDim2.new(0.313, 0, 0, 86),
+		CellPadding = UDim2.new(0.0305, 0, 0, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, showcase)
 	local slot = new("Frame", {
@@ -1685,92 +1690,95 @@ local function buildProfilePanel(parent: Instance)
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(6, 6),
-		Size = UDim2.fromOffset(58, 58),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 5),
+		Size = UDim2.fromOffset(44, 44),
 		ScaleType = Enum.ScaleType.Fit,
 	}, slot)
 	label("ItemName", {
-		Position = UDim2.fromOffset(70, 8),
-		Size = UDim2.new(1, -76, 0, 16),
+		Position = UDim2.fromOffset(4, 51),
+		Size = UDim2.new(1, -8, 0, 14),
 		Text = "Item",
-		TextSize = 12,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	}, slot)
 	label("Rarity", {
-		Position = UDim2.fromOffset(70, 26),
-		Size = UDim2.new(1, -76, 0, 14),
+		Position = UDim2.fromOffset(4, 66),
+		Size = UDim2.new(0.5, -6, 0, 14),
 		Text = "Common",
 		Font = FONT_LIGHT,
-		TextSize = 11,
+		TextSize = 10,
 		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
 	}, slot)
 	label("ItemValue", {
-		Position = UDim2.fromOffset(70, 44),
-		Size = UDim2.new(1, -76, 0, 14),
+		Position = UDim2.new(0.5, 2, 0, 66),
+		Size = UDim2.new(0.5, -6, 0, 14),
 		Text = "",
 		Font = FONT_LIGHT,
-		TextSize = 11,
+		TextSize = 10,
 		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Right,
 	}, slot)
 	label("ShowcaseEmpty", {
 		Name = "ShowcaseEmpty",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.new(1, 0, 0, 24),
+		Position = UDim2.fromOffset(0, 140),
+		Size = UDim2.new(1, 0, 0, 40),
 		Text = "",
 		TextSize = 12,
 		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Left,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
 		Visible = false,
 	}, viewF)
 
-	-- stat chips row (up to 4)
+	-- stat chips: inverse-pyramid layout (2 wide on top, 1 centered below),
+	-- max 3 stats — fixed slots, no clone/destroy needed.
 	local chips = new("Frame", {
 		Name = "Chips",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 290),
-		Size = UDim2.new(1, 0, 0, 48),
+		Position = UDim2.fromOffset(0, 338),
+		Size = UDim2.new(1, 0, 0, 76),
 	}, viewF)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 8),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, chips)
-	local chip = new("Frame", {
-		Name = "ChipTemplate",
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(94, 46),
-		Visible = false,
-	}, chips)
-	corner(chip, 6)
-	label("ChipValue", {
-		Position = UDim2.fromOffset(6, 6),
-		Size = UDim2.new(1, -12, 0, 18),
-		Text = "0",
-		TextSize = 15,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, chip)
-	label("ChipLabel", {
-		Position = UDim2.fromOffset(6, 26),
-		Size = UDim2.new(1, -12, 0, 14),
-		Text = "Stat",
-		Font = FONT_LIGHT,
-		TextSize = 10,
-		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, chip)
-
-	label("Status", {
-		Position = UDim2.fromOffset(0, 346),
-		Size = UDim2.new(1, 0, 0, 40),
-		Text = "",
-		Font = FONT_LIGHT,
-		TextSize = 13,
-		TextColor3 = C.Text,
-		TextWrapped = true,
-		TextYAlignment = Enum.TextYAlignment.Top,
-	}, viewF)
+	local function chipSlot(name: string, position: UDim2, size: UDim2)
+		local c = new("Frame", {
+			Name = name,
+			BackgroundColor3 = C.BgLight,
+			BorderSizePixel = 0,
+			Position = position,
+			Size = size,
+			Visible = false,
+		}, chips)
+		corner(c, 6)
+		new("ImageLabel", {
+			Name = "Icon",
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(6, 5),
+			Size = UDim2.fromOffset(26, 26),
+			ScaleType = Enum.ScaleType.Fit,
+			Image = "",
+		}, c)
+		label("ChipValue", {
+			Position = UDim2.fromOffset(38, 2),
+			Size = UDim2.new(1, -44, 0, 17),
+			Text = "0",
+			TextSize = 14,
+		}, c)
+		label("ChipLabel", {
+			Position = UDim2.fromOffset(38, 19),
+			Size = UDim2.new(1, -44, 0, 13),
+			Text = "Stat",
+			Font = FONT_LIGHT,
+			TextSize = 10,
+			TextColor3 = C.TextDim,
+		}, c)
+		return c
+	end
+	chipSlot("Chip1", UDim2.new(0, 0, 0, 0), UDim2.new(0.485, 0, 0, 34))
+	chipSlot("Chip2", UDim2.new(0.515, 0, 0, 0), UDim2.new(0.485, 0, 0, 34))
+	chipSlot("Chip3", UDim2.new(0.25, 0, 0, 42), UDim2.new(0.5, 0, 0, 34))
 
 	-- ============ EDIT (self only) ============
 	local edit = new("Frame", {
@@ -1810,7 +1818,7 @@ local function buildProfilePanel(parent: Instance)
 	label("ChipHint", {
 		Position = UDim2.fromOffset(0, 74),
 		Size = UDim2.new(1, 0, 0, 16),
-		Text = "Pin up to 4 stats:",
+		Text = "Pin up to 3 stats:",
 		Font = FONT_LIGHT,
 		TextSize = 12,
 		TextColor3 = C.TextDim,

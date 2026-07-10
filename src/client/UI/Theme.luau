@@ -36,6 +36,8 @@ local Theme = {
 		Inventory = "rbxassetid://15402958715",
 		Accept = "rbxassetid://17368190066",
 		Deny = "rbxassetid://17368208554",
+		Player = "rbxassetid://92109681457452",
+		Star = "rbxassetid://17368097932",
 	},
 }
 

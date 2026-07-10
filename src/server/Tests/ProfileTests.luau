@@ -113,6 +113,31 @@ return {
 			eq(pub.portfolioValue, 5, "value present")
 		end,
 
+		["resolveChip: accountAge removed, unknown keys resolve to nil"] = function()
+			local resolve = function(_)
+				return nil
+			end
+			local ctx = { inventory = {}, resolve = resolve, gems = 0, lifetime = { gemsEarned = 0, trades = 0 }, firstJoin = 0, now = 100 }
+			eq(PP.resolveChip("accountAge", ctx), nil, "accountAge no longer a stat")
+			eq(PP.resolveChip("nonsense", ctx), nil, "unknown key")
+		end,
+
+		["project: default chips cap at 3 (portfolioValue/trades/mythicals)"] = function()
+			local resolve = function(id)
+				return view(id, { estValue = 1 })
+			end
+			local pub = PP.project({
+				userId = 1, name = "n", displayName = "d", firstJoin = 0, now = 0,
+				inventory = {}, gems = 0, showcase = {}, statChips = {},
+				status = "", privacy = { hideValue = false, hideShowcase = false },
+				lifetime = { gemsEarned = 0, trades = 0 }, resolve = resolve,
+			})
+			eq(#pub.statChips, 3, "default chip count")
+			eq(pub.statChips[1].key, "portfolioValue")
+			eq(pub.statChips[2].key, "trades")
+			eq(pub.statChips[3].key, "mythicals")
+		end,
+
 		["project: empty inventory yields empty showcase + zero value"] = function()
 			local resolve = function(_)
 				return nil

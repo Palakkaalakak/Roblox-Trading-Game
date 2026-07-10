@@ -16,7 +16,8 @@ local TradeController = require(script.Parent.Parent.Controllers.TradeController
 local ProfileProjection = require(ReplicatedStorage.Shared.Util.ProfileProjection)
 
 -- stable display order for the pinnable stat chips (keys -> labels in Shared)
-local CHIP_ORDER = { "portfolioValue", "trades", "gemsEarned", "mythicals", "accountAge", "distinctItems", "gems" }
+local CHIP_ORDER = { "portfolioValue", "trades", "gemsEarned", "mythicals", "distinctItems", "gems" }
+local CHIP_MAX = 3
 
 local ProfileScreen = {}
 local localUserId = Players.LocalPlayer.UserId
@@ -62,12 +63,11 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 	local vJoin = viewF:WaitForChild("JoinDate") :: TextLabel
 	local tradeBtn = viewF:WaitForChild("TradeButton") :: TextButton
 	local editBtn = viewF:WaitForChild("EditButton") :: TextButton
-	local vPortfolio = viewF:WaitForChild("PortfolioValue") :: TextLabel
 	local showcase = viewF:WaitForChild("Showcase") :: Frame
 	local slotTemplate = showcase:WaitForChild("SlotTemplate") :: Frame
 	local showcaseEmpty = viewF:WaitForChild("ShowcaseEmpty") :: TextLabel
 	local chips = viewF:WaitForChild("Chips") :: Frame
-	local chipTemplate = chips:WaitForChild("ChipTemplate") :: Frame
+	local chipSlots = { chips:WaitForChild("Chip1"), chips:WaitForChild("Chip2"), chips:WaitForChild("Chip3") }
 	local vStatus = viewF:WaitForChild("Status") :: TextLabel
 
 	local edit = viewF:WaitForChild("Edit") :: Frame
@@ -126,12 +126,14 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 	local function listServer()
 		clearList()
 		local order = 0
+		local me = Players.LocalPlayer
+		addRow(me.UserId, me.DisplayName, me.Name, 1) -- you're always first, so editing your own profile is one click
+		order = 1
 		for _, p in Players:GetPlayers() do
-			order += 1
-			addRow(p.UserId, p.DisplayName, p.Name, order)
-		end
-		if order == 0 then
-			notice("Nobody here")
+			if p ~= me then
+				order += 1
+				addRow(p.UserId, p.DisplayName, p.Name, order)
+			end
 		end
 	end
 
@@ -289,7 +291,7 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 					local idx = chipSelected(key)
 					if idx then
 						table.remove(editState.chips, idx)
-					elseif #editState.chips < 4 then
+					elseif #editState.chips < CHIP_MAX then
 						table.insert(editState.chips, key)
 					end
 					opt.BackgroundColor3 = chipSelected(key) and Theme.Accent or Theme.BgLight
@@ -322,7 +324,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 		chips.Visible = false
 		vStatus.Visible = false
 		showcaseEmpty.Visible = false
-		vPortfolio.Visible = false
 		editBtn.Visible = false
 		edit.Visible = true
 	end
@@ -331,7 +332,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 		showcase.Visible = true
 		chips.Visible = true
 		vStatus.Visible = true
-		vPortfolio.Visible = true
 	end
 
 	editBtn.Activated:Connect(function()
@@ -373,7 +373,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 			vName.Text = "Loading…"
 			vUser.Text = ""
 			vJoin.Text = ""
-			vPortfolio.Text = ""
 			tradeBtn.Visible = false
 			editBtn.Visible = false
 			return
@@ -382,7 +381,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 			vName.Text = "Unavailable"
 			vUser.Text = "no profile yet"
 			vJoin.Text = ""
-			vPortfolio.Text = ""
 			tradeBtn.Visible = false
 			editBtn.Visible = false
 			return
@@ -395,13 +393,6 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 		-- self sees Edit; others see Trade (only when online)
 		editBtn.Visible = isSelf and not edit.Visible
 		tradeBtn.Visible = (not isSelf) and Players:GetPlayerByUserId(userId) ~= nil
-
-		-- portfolio
-		if profile.portfolioValue ~= nil then
-			vPortfolio.Text = "Portfolio: " .. tostring(profile.portfolioValue) .. " gems"
-		else
-			vPortfolio.Text = "Portfolio: Hidden"
-		end
 
 		-- showcase
 		clearClones(showcase, slotTemplate)
@@ -433,15 +424,19 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 			end
 		end
 
-		-- chips
-		clearClones(chips, chipTemplate)
-		for _, c in profile.statChips or {} do
-			local chipUI = chipTemplate:Clone()
-			chipUI.Visible = true
-			chipUI.Name = "Chip_" .. c.key
-			;(chipUI:WaitForChild("ChipValue") :: TextLabel).Text = tostring(c.value)
-			;(chipUI:WaitForChild("ChipLabel") :: TextLabel).Text = c.label
-			chipUI.Parent = chips
+		-- stat chips: fixed Chip1/Chip2/Chip3 slots (inverse pyramid), each
+		-- shown or hidden — no clone/destroy since the count is capped at 3
+		local statChips = profile.statChips or {}
+		for i, slotUI in chipSlots do
+			local c = statChips[i]
+			if c then
+				slotUI.Visible = true
+				;(slotUI:WaitForChild("Icon") :: ImageLabel).Image = c.icon or ""
+				;(slotUI:WaitForChild("ChipValue") :: TextLabel).Text = tostring(c.value)
+				;(slotUI:WaitForChild("ChipLabel") :: TextLabel).Text = c.label
+			else
+				slotUI.Visible = false
+			end
 		end
 
 		-- status
