@@ -90,6 +90,14 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 						TradeScreen.openPicker(mine and "inventory" or "catalog")
 					end
 				elseif mine then
+					-- Once you've accepted, your offer is locked — a stray
+					-- click on your own slot (e.g. just looking at an item)
+					-- used to silently drop your accept, because ANY offer
+					-- edit resets both confirms server-side. Unaccept first.
+					local view = TradeController.trade:get()
+					if view and view.you.confirmed then
+						return
+					end
 					if entry.itemId then
 						TradeController.removeItem(entry.itemId)
 					else
@@ -123,9 +131,14 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				if compose then
 					compose.give.gems = n
 					renderCompose()
-				else
-					TradeController.setGems(n)
+					return
 				end
+				local view = TradeController.trade:get()
+				if view and view.you.confirmed then
+					box.Text = tostring(view.you.offer.gems) -- revert stray edit; already accepted
+					return
+				end
+				TradeController.setGems(n)
 			end
 			ok.Activated:Connect(submit)
 			box.FocusLost:Connect(function(enterPressed)
@@ -216,6 +229,16 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 		side.readyPill.Text = confirmed and "READY ✔" or "not ready"
 		side.readyPill.TextColor3 = confirmed and Theme.Good or Theme.TextDim
+
+		-- your own grid dims once accepted — it's locked (unaccept to edit)
+		if side.mine then
+			local dim = confirmed and 0.5 or 0
+			for _, entry in side.slots do
+				entry.icon.ImageTransparency = dim
+				entry.plus.TextTransparency = dim
+			end
+			side.gemsBox.TextEditable = not confirmed
+		end
 	end
 
 	--------------------------------------------------------------------------

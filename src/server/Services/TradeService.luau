@@ -599,6 +599,17 @@ local function handleSetConfirm(player: Player, tradeId: any, confirmed: any)
 	local committed, mErr = mutate(tradeId, function(r)
 		return TradeCore.setConfirm(r, player.UserId, confirmed, os.time())
 	end)
+	-- Every confirm/unaccept, not just full double-confirm — this is the only
+	-- server-side trace of a single-side accept, which previously left zero
+	-- log evidence when a trade never reached "both confirmed".
+	AnalyticsService.log("trade_confirm_set", {
+		tradeId = tradeId,
+		userId = player.UserId,
+		requested = confirmed,
+		ok = committed ~= nil,
+		err = mErr,
+		resultState = committed and committed.state or nil,
+	})
 	if committed == nil then
 		return { ok = false, err = mErr }
 	end

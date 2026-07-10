@@ -95,10 +95,17 @@ function TradeController.setConfirm(confirmed: boolean)
 	if tradeId == nil or TradeController.pendingConfirm:get() then
 		return
 	end
+	-- TEMP diagnostic: traces every confirm/unaccept request + its call site,
+	-- so an unexpected caller (vs. the Accept button) is immediately visible
+	-- in the client output instead of just seeing the effect. Remove once
+	-- the "accepts then immediately unaccepts" report is root-caused.
+	print(("[TradeDebug] setConfirm(%s) tradeId=%s\n%s"):format(tostring(confirmed), tradeId, debug.traceback()))
 	TradeController.pendingConfirm:set(true)
 	task.spawn(function()
 		local result = Net.invoke("SetConfirm", tradeId, confirmed)
 		TradeController.pendingConfirm:set(false)
+		print(("[TradeDebug] setConfirm(%s) result ok=%s err=%s"):format(
+			tostring(confirmed), tostring(result.ok), tostring(result.err)))
 		if not result.ok then
 			TradeController.actionError:Fire(result.err or "failed")
 		end
@@ -163,7 +170,12 @@ function TradeController.Start()
 			return
 		end
 		local current = TradeController.trade:get()
+		-- TEMP diagnostic: see docstring in setConfirm above; remove together.
+		print(("[TradeDebug] push v=%s state=%s you.confirmed=%s them.confirmed=%s (current.v=%s)"):format(
+			tostring(view.v), tostring(view.state), tostring(view.you and view.you.confirmed),
+			tostring(view.them and view.them.confirmed), tostring(current and current.v)))
 		if current and current.tradeId == view.tradeId and current.v >= view.v then
+			print("[TradeDebug] ^ dropped as stale")
 			return -- stale
 		end
 		if view.state == "Settled" or view.state == "Aborted" then
