@@ -90,8 +90,41 @@ local function mutate(id: string, fn: (any) -> any?): (any?, string?)
 	return result, nil
 end
 
--- deliver goods to a user: direct when local+loaded, else mailbox. Idempotent.
+-- Market bots (negative userIds) are full inventory actors: their charges
+-- and credits route into BotService's durable state instead of a profile.
+-- Lazy require: BotService requires this module for its board entry points.
+local function bots(): any
+	return require(script.Parent.BotService)
+end
+
+-- Charge/credit the ACTING party (player online here, or a bot). Same
+-- validate-then-apply semantics either way. Returns ok, err.
+local function actorDelta(userId: number, delta: any, source: string, key: string?): (boolean, string?)
+	if userId < 0 then
+		return bots().applyDelta(userId, delta, source, key)
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	if player == nil or not DataService.isLoaded(player) then
+		return false, "loading"
+	end
+	return InventoryService.applyDelta(player, delta, source, key)
+end
+
+local function actorSave(userId: number)
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		task.spawn(function()
+			DataService.saveNow(player)
+		end)
+	end
+end
+
+-- deliver goods to a user: direct when local+loaded, bot state for bots,
+-- else mailbox. Idempotent.
 local function deliver(userId: number, items: { [string]: number }, gems: number, source: string, claimId: string): boolean
+	if userId < 0 then
+		return bots().credit(userId, items, gems, claimId)
+	end
 	local player = Players:GetPlayerByUserId(userId)
 	if player and DataService.isLoaded(player) then
 		local ok = InventoryService.applyDelta(player, { items = items, gems = gems }, source, claimId)
@@ -256,14 +289,11 @@ end
 -- Posting
 --------------------------------------------------------------------------------
 
-local function handlePost(player: Player, payload: any)
-	if not DataService.isLoaded(player) then
-		return { ok = false, err = "loading" }
-	end
+local function postCore(userId: number, userName: string, payload: any)
 	if type(payload) ~= "table" then
 		return { ok = false, err = "bad_args" }
 	end
-	if activeListingCount(player.UserId) >= MAX_LISTINGS_PER_PLAYER then
+	if activeListingCount(userId) >= MAX_LISTINGS_PER_PLAYER then
 		return { ok = false, err = "too_many_listings" }
 	end
 
@@ -300,8 +330,8 @@ local function handlePost(player: Player, payload: any)
 		for itemId, count in payload.give.items do
 			negItems[itemId] = -count
 		end
-		local escrowed, escrowErr = InventoryService.applyDelta(
-			player,
+		local escrowed, escrowErr = actorDelta(
+			userId,
 			{ items = negItems, gems = -payload.give.gems },
 			Enums.GrantSource.Board
 		)
@@ -312,8 +342,8 @@ local function handlePost(player: Player, payload: any)
 		listing = {
 			id = id,
 			kind = "swap",
-			posterId = player.UserId,
-			posterName = player.Name,
+			posterId = userId,
+			posterName = userName,
 			give = payload.give,
 			want = payload.want,
 			autoTrade = payload.autoTrade == true,
@@ -338,7 +368,7 @@ local function handlePost(player: Player, payload: any)
 			return { ok = false, err = "gems_too_low" } -- must pay >= 1 gem per copy
 		end
 
-		local escrowed, escrowErr = InventoryService.applyDelta(player, { gems = -escrow }, Enums.GrantSource.Bulk)
+		local escrowed, escrowErr = actorDelta(userId, { gems = -escrow }, Enums.GrantSource.Bulk)
 		if not escrowed then
 			return { ok = false, err = escrowErr }
 		end
@@ -346,8 +376,8 @@ local function handlePost(player: Player, payload: any)
 		listing = {
 			id = id,
 			kind = "bulk",
-			posterId = player.UserId,
-			posterName = player.Name,
+			posterId = userId,
+			posterName = userName,
 			itemId = payload.itemId,
 			wantedCount = payload.count,
 			remainingCount = payload.count,
@@ -369,8 +399,8 @@ local function handlePost(player: Player, payload: any)
 		end
 
 		-- escrow the copies being sold
-		local escrowed, escrowErr = InventoryService.applyDelta(
-			player,
+		local escrowed, escrowErr = actorDelta(
+			userId,
 			{ items = { [payload.itemId] = -payload.count } },
 			Enums.GrantSource.Board
 		)
@@ -381,8 +411,8 @@ local function handlePost(player: Player, payload: any)
 		listing = {
 			id = id,
 			kind = "sell",
-			posterId = player.UserId,
-			posterName = player.Name,
+			posterId = userId,
+			posterName = userName,
 			itemId = payload.itemId,
 			wantedCount = payload.count, -- copies listed
 			remainingCount = payload.count, -- copies still for sale
@@ -402,18 +432,16 @@ local function handlePost(player: Player, payload: any)
 	if not stored then
 		-- give the escrow back; posting failed
 		if listing.kind == "swap" then
-			InventoryService.applyDelta(player, { items = listing.give.items, gems = listing.give.gems }, Enums.GrantSource.Refund)
+			actorDelta(userId, { items = listing.give.items, gems = listing.give.gems }, Enums.GrantSource.Refund)
 		elseif listing.kind == "sell" then
-			InventoryService.applyDelta(player, { items = { [listing.itemId] = listing.remainingCount } }, Enums.GrantSource.Refund)
+			actorDelta(userId, { items = { [listing.itemId] = listing.remainingCount } }, Enums.GrantSource.Refund)
 		else -- bulk
-			InventoryService.applyDelta(player, { gems = listing.remainingCount * listing.gemsPerCopy }, Enums.GrantSource.Refund)
+			actorDelta(userId, { gems = listing.remainingCount * listing.gemsPerCopy }, Enums.GrantSource.Refund)
 		end
 		return { ok = false, err = "store_error" }
 	end
-	task.spawn(function()
-		DataService.saveNow(player)
-	end)
-	AnalyticsService.log("board_posted", { id = id, kind = listing.kind, userId = player.UserId })
+	actorSave(userId)
+	AnalyticsService.log("board_posted", { id = id, kind = listing.kind, userId = userId })
 
 	-- counter-listing check: someone already posted the mirror of this trade
 	if listing.kind == "swap" then
@@ -502,8 +530,8 @@ end
 -- Swap accept / interest
 --------------------------------------------------------------------------------
 
-local function handleAccept(player: Player, id: any)
-	if not DataService.isLoaded(player) or not Guard.isString(id, 64) then
+local function acceptCore(userId: number, userName: string, id: any)
+	if not Guard.isString(id, 64) then
 		return { ok = false, err = "bad_args" }
 	end
 
@@ -515,11 +543,11 @@ local function handleAccept(player: Player, id: any)
 		if l.status ~= "open" then
 			return nil, "gone"
 		end
-		if l.posterId == player.UserId then
+		if l.posterId == userId then
 			return nil, "own_listing"
 		end
 		l.status = "claimed"
-		l.claimedBy = player.UserId
+		l.claimedBy = userId
 		l.v += 1
 		return l
 	end)
@@ -532,8 +560,8 @@ local function handleAccept(player: Player, id: any)
 	for itemId, count in claimed.want.items do
 		negItems[itemId] = -count
 	end
-	local paid, payErr = InventoryService.applyDelta(
-		player,
+	local paid, payErr = actorDelta(
+		userId,
 		{ items = negItems, gems = -claimed.want.gems },
 		Enums.GrantSource.Board
 	)
@@ -549,15 +577,13 @@ local function handleAccept(player: Player, id: any)
 
 	-- settle both directions (gem tax on each receiver's gems)
 	local accepterNet = Tax.split(claimed.give.gems)
-	InventoryService.applyDelta(
-		player,
+	actorDelta(
+		userId,
 		{ items = claimed.give.items, gems = accepterNet },
 		Enums.GrantSource.Board,
 		"board_settle_" .. id .. "_taker"
 	)
-	task.spawn(function()
-		DataService.saveNow(player)
-	end)
+	actorSave(userId)
 
 	local posterNet = Tax.split(claimed.want.gems)
 	deliver(claimed.posterId, claimed.want.items, posterNet, Enums.GrantSource.Board, "board_settle_" .. id .. "_poster")
@@ -568,8 +594,8 @@ local function handleAccept(player: Player, id: any)
 		return l
 	end)
 
-	NotificationService.notify(claimed.posterId, ("📌 Your board trade was accepted by %s!"):format(player.Name))
-	AnalyticsService.log("board_accepted", { id = id, by = player.UserId })
+	NotificationService.notify(claimed.posterId, ("📌 Your board trade was accepted by %s!"):format(userName))
+	AnalyticsService.log("board_accepted", { id = id, by = userId })
 	return { ok = true }
 end
 
@@ -610,8 +636,8 @@ end
 -- Bulk contribute
 --------------------------------------------------------------------------------
 
-local function handleContribute(player: Player, id: any, count: any)
-	if not DataService.isLoaded(player) or not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
+local function contributeCore(userId: number, userName: string, id: any, count: any)
+	if not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
 		return { ok = false, err = "bad_args" }
 	end
 
@@ -621,7 +647,7 @@ local function handleContribute(player: Player, id: any, count: any)
 		if l.kind ~= "bulk" or l.status ~= "open" then
 			return nil, "gone"
 		end
-		if l.posterId == player.UserId then
+		if l.posterId == userId then
 			return nil, "own_listing"
 		end
 		taken = math.min(count, l.remainingCount)
@@ -640,8 +666,8 @@ local function handleContribute(player: Player, id: any, count: any)
 	end
 
 	-- charge the contributor the copies
-	local paid, payErr = InventoryService.applyDelta(
-		player,
+	local paid, payErr = actorDelta(
+		userId,
 		{ items = { [committed.itemId] = -taken } },
 		Enums.GrantSource.Bulk
 	)
@@ -660,22 +686,24 @@ local function handleContribute(player: Player, id: any, count: any)
 	-- pay out (taxed) + ship copies to the poster
 	local gross = taken * committed.gemsPerCopy
 	local net, cut = Tax.split(gross)
-	InventoryService.applyDelta(player, { gems = net }, Enums.GrantSource.Bulk)
-	task.spawn(function()
-		DataService.saveNow(player)
-	end)
+	actorDelta(userId, { gems = net }, Enums.GrantSource.Bulk)
+	actorSave(userId)
 	deliver(
 		committed.posterId,
 		{ [committed.itemId] = taken },
 		0,
 		Enums.GrantSource.Bulk,
-		("bulk_fill_%s_%d_%d"):format(id, player.UserId, committed.remainingCount)
+		("bulk_fill_%s_%d_%d"):format(id, userId, committed.remainingCount)
 	)
+
+	-- a filled bulk order is a real gems-for-copies transaction at a clean
+	-- per-copy price — feed it into RAP just like a direct sale
+	EconomyService.recordSale(committed.itemId, committed.gemsPerCopy, taken)
 
 	if committed.status == "done" then
 		NotificationService.notify(committed.posterId, ("📌 Your bulk order for %dx %s is complete!"):format(committed.wantedCount, committed.itemId))
 	end
-	AnalyticsService.log("bulk_contributed", { id = id, by = player.UserId, count = taken, net = net, tax = cut })
+	AnalyticsService.log("bulk_contributed", { id = id, by = userId, count = taken, net = net, tax = cut })
 	return { ok = true, payout = net, count = taken }
 end
 
@@ -683,8 +711,8 @@ end
 -- Gem-only shop: buy from a sell listing
 --------------------------------------------------------------------------------
 
-local function handleBuyFromListing(player: Player, id: any, count: any)
-	if not DataService.isLoaded(player) or not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
+local function buyCore(userId: number, userName: string, id: any, count: any)
+	if not Guard.isString(id, 64) or not Guard.isPositiveInt(count) then
 		return { ok = false, err = "bad_args" }
 	end
 
@@ -694,7 +722,7 @@ local function handleBuyFromListing(player: Player, id: any, count: any)
 		if l.kind ~= "sell" or l.status ~= "open" then
 			return nil, "gone"
 		end
-		if l.posterId == player.UserId then
+		if l.posterId == userId then
 			return nil, "own_listing"
 		end
 		taken = math.min(count, l.remainingCount)
@@ -714,7 +742,7 @@ local function handleBuyFromListing(player: Player, id: any, count: any)
 
 	-- charge the buyer gems for the copies
 	local spent = taken * committed.gemsPerCopy
-	local paid, payErr = InventoryService.applyDelta(player, { gems = -spent }, Enums.GrantSource.Board)
+	local paid, payErr = actorDelta(userId, { gems = -spent }, Enums.GrantSource.Board)
 	if not paid then
 		-- put the copies back on sale
 		mutate(id, function(l)
@@ -729,17 +757,15 @@ local function handleBuyFromListing(player: Player, id: any, count: any)
 	end
 
 	-- deliver copies to the buyer, pay the seller (taxed)
-	InventoryService.applyDelta(player, { items = { [committed.itemId] = taken } }, Enums.GrantSource.Board)
-	task.spawn(function()
-		DataService.saveNow(player)
-	end)
+	actorDelta(userId, { items = { [committed.itemId] = taken } }, Enums.GrantSource.Board)
+	actorSave(userId)
 	local net = Tax.split(spent)
 	deliver(
 		committed.posterId,
 		{},
 		net,
 		Enums.GrantSource.Board,
-		("sell_pay_%s_%d_%d"):format(id, player.UserId, committed.remainingCount)
+		("sell_pay_%s_%d_%d"):format(id, userId, committed.remainingCount)
 	)
 
 	-- CLEAN gem price signal: a direct gems-for-item sale needs no barter
@@ -749,7 +775,7 @@ local function handleBuyFromListing(player: Player, id: any, count: any)
 	if committed.status == "done" then
 		NotificationService.notify(committed.posterId, ("📌 Your sale of %dx %s sold out!"):format(committed.wantedCount, committed.itemId))
 	end
-	AnalyticsService.log("sell_bought", { id = id, by = player.UserId, count = taken, spent = spent })
+	AnalyticsService.log("sell_bought", { id = id, by = userId, count = taken, spent = spent })
 	return { ok = true, spent = spent, count = taken }
 end
 
@@ -757,7 +783,7 @@ end
 -- Cancel + lifecycle
 --------------------------------------------------------------------------------
 
-local function handleCancel(player: Player, id: any)
+local function cancelCore(userId: number, id: any)
 	if not Guard.isString(id, 64) then
 		return { ok = false, err = "bad_args" }
 	end
@@ -765,13 +791,62 @@ local function handleCancel(player: Player, id: any)
 	pcall(function()
 		current = board:GetAsync(id)
 	end)
-	if current == nil or current.posterId ~= player.UserId then
+	if current == nil or current.posterId ~= userId then
 		return { ok = false, err = "not_yours" }
 	end
 	if not cancelListing(current, "cancelled_by_poster") then
 		return { ok = false, err = "gone" }
 	end
 	return { ok = true }
+end
+
+--------------------------------------------------------------------------------
+-- Bot entry points + raw reads (BotService brains; no Player involved)
+--------------------------------------------------------------------------------
+
+-- Raw open listing records (lazy-expiring, same as the player read path).
+function TradeBoardService.rawOpenListings(): { any }
+	local now = os.time()
+	local out = {}
+	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
+		local l = entry.value
+		if l and l.status == "open" then
+			if l.expiresAt and now > l.expiresAt then
+				task.spawn(cancelListing, l, "expired")
+			else
+				table.insert(out, l)
+			end
+		end
+	end
+	return out
+end
+
+function TradeBoardService.botPost(botId: number, botName: string, payload: any)
+	return postCore(botId, botName, payload)
+end
+
+function TradeBoardService.botAccept(botId: number, botName: string, id: string)
+	return acceptCore(botId, botName, id)
+end
+
+function TradeBoardService.botContribute(botId: number, botName: string, id: string, count: number)
+	return contributeCore(botId, botName, id, count)
+end
+
+function TradeBoardService.botBuy(botId: number, botName: string, id: string, count: number)
+	return buyCore(botId, botName, id, count)
+end
+
+function TradeBoardService.botCancel(botId: number, id: string)
+	return cancelCore(botId, id)
+end
+
+--------------------------------------------------------------------------------
+-- Remote wrappers (real players; loaded-profile gate then shared cores)
+--------------------------------------------------------------------------------
+
+local function loadedGate(player: Player)
+	return DataService.isLoaded(player)
 end
 
 function TradeBoardService.Init()
@@ -781,12 +856,34 @@ end
 
 function TradeBoardService.Start()
 	Net.bindFunction("GetBoard", handleGetBoard)
-	Net.bindFunction("PostListing", handlePost)
-	Net.bindFunction("CancelListing", handleCancel)
-	Net.bindFunction("AcceptListing", handleAccept)
+	Net.bindFunction("PostListing", function(player, payload)
+		if not loadedGate(player) then
+			return { ok = false, err = "loading" }
+		end
+		return postCore(player.UserId, player.Name, payload)
+	end)
+	Net.bindFunction("CancelListing", function(player, id)
+		return cancelCore(player.UserId, id)
+	end)
+	Net.bindFunction("AcceptListing", function(player, id)
+		if not loadedGate(player) then
+			return { ok = false, err = "loading" }
+		end
+		return acceptCore(player.UserId, player.Name, id)
+	end)
 	Net.bindFunction("RegisterInterest", handleInterest)
-	Net.bindFunction("ContributeBulk", handleContribute)
-	Net.bindFunction("BuyFromListing", handleBuyFromListing)
+	Net.bindFunction("ContributeBulk", function(player, id, count)
+		if not loadedGate(player) then
+			return { ok = false, err = "loading" }
+		end
+		return contributeCore(player.UserId, player.Name, id, count)
+	end)
+	Net.bindFunction("BuyFromListing", function(player, id, count)
+		if not loadedGate(player) then
+			return { ok = false, err = "loading" }
+		end
+		return buyCore(player.UserId, player.Name, id, count)
+	end)
 end
 
 return TradeBoardService

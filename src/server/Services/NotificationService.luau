@@ -79,6 +79,9 @@ local function sendPush(userId: number, text: string)
 end
 
 function NotificationService.notify(userId: number, text: string)
+	if userId < 0 then
+		return -- market bot: no toasts, no queue, no push
+	end
 	if pushLocal(userId, text) then
 		return
 	end

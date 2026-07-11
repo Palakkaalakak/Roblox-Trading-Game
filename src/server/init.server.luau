@@ -24,6 +24,7 @@ local ordered = {
 	{ "TradeBoard", require(Services.TradeBoardService) },
 	{ "Trade", require(Services.TradeService) },
 	{ "Profile", require(Services.ProfileService) },
+	{ "Bots", require(Services.BotService) },
 }
 
 for _, entry in ordered do
