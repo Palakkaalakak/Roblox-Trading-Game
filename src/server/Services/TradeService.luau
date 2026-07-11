@@ -663,7 +663,7 @@ end
 
 function TradeService.Init()
 	StoreAdapters.init()
-	tradeMap = StoreAdapters.sortedMap("Trades_v1")
+	tradeMap = StoreAdapters.sortedMap("Trades_v2")
 end
 
 function TradeService.Start()

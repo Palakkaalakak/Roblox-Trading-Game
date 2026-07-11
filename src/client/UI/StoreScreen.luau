@@ -158,6 +158,7 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	function StoreScreen.open()
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		if lastItems then
 			renderList(lastItems, lastRotatesAt) -- instant paint from cache

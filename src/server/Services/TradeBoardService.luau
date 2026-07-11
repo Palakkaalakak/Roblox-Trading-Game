@@ -776,7 +776,7 @@ end
 
 function TradeBoardService.Init()
 	StoreAdapters.init()
-	board = StoreAdapters.sortedMap("TradeBoard_v1")
+	board = StoreAdapters.sortedMap("TradeBoard_v2")
 end
 
 function TradeBoardService.Start()

@@ -56,7 +56,12 @@ function InventoryScreen.wire(gui: ScreenGui, tooltip: any)
 	State.Observe(EconomyController.stats, refresh)
 
 	function InventoryScreen.toggle()
-		panel.Visible = not panel.Visible
+		if panel.Visible then
+			panel.Visible = false
+		else
+			Components.closeOtherPanels(panel)
+			panel.Visible = true
+		end
 	end
 end
 

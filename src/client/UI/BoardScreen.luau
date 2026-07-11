@@ -46,7 +46,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		table.clear(spawned)
 	end
 
-	local function addChip(holder: Frame, imageId: string?, name: string, countText: string, order: number)
+	-- itemId (optional): when present, hovering shows the item's live stats
+	-- (Value/RAP/existence). Gem chips pass nil and just show name/icon.
+	local function addChip(holder: Frame, imageId: string?, name: string, countText: string, order: number, itemId: string?)
 		local chip = chipTemplate:Clone()
 		chip.Visible = true
 		chip.LayoutOrder = order
@@ -54,7 +56,13 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		;(chip:WaitForChild("CountLabel") :: TextLabel).Text = countText
 		chip.Parent = holder
 		table.insert(spawned, chip)
+		if itemId then
+			EconomyController.ensure({ itemId })
+		end
 		tooltip.attach(chip, function()
+			if itemId then
+				return EconomyController.get(itemId) or { name = name, imageId = imageId }, nil
+			end
 			return { name = name, imageId = imageId }, nil
 		end)
 	end
@@ -63,11 +71,13 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local order = 0
 		for _, entry in offer.items do
 			order += 1
-			addChip(holder, entry.imageId, entry.name, "x" .. entry.count, order)
+			addChip(holder, entry.imageId, entry.name, "x" .. entry.count, order, entry.itemId)
 		end
 		if offer.gems > 0 then
 			order += 1
-			addChip(holder, Theme.Icons.Gem, "Gems", tostring(offer.gems), order)
+			-- gem offers are transferred post-tax to the recipient
+			local net = Tax.split(offer.gems)
+			addChip(holder, Theme.Icons.Gem, "Gems", tostring(net) .. " (after tax)", order)
 		end
 	end
 
@@ -175,7 +185,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			badge.Text = "BULK BUY"
 			badge.TextColor3 = Theme.Gem
 			addChip(giveHolder, Theme.Icons.Gem, "Gems", tostring(listing.gemsPerCopy) .. "/copy", 1)
-			addChip(wantHolder, listing.imageId, listing.itemName, "x" .. listing.remainingCount, 1)
+			addChip(wantHolder, listing.imageId, listing.itemName, "x" .. listing.remainingCount, 1, listing.itemId)
 
 			-- stats block: per-unit AND total (× what's still wanted) Est.
 			-- Value / RAP / Store Cost, plus (for contributors) a live payout
@@ -253,7 +263,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		else -- sell (gem-only shop)
 			badge.Text = "FOR SALE"
 			badge.TextColor3 = Theme.Good
-			addChip(giveHolder, listing.imageId, listing.itemName, "x" .. listing.remainingCount, 1)
+			addChip(giveHolder, listing.imageId, listing.itemName, "x" .. listing.remainingCount, 1, listing.itemId)
 			addChip(wantHolder, Theme.Icons.Gem, "Gems", tostring(listing.gemsPerCopy) .. "/ea", 1)
 
 			EconomyController.ensure({ listing.itemId })
@@ -356,6 +366,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	function BoardScreen.open()
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		if lastListings then
 			renderBoard(lastListings)

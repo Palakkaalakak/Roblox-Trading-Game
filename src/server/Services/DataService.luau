@@ -321,9 +321,9 @@ end
 
 function DataService.Init()
 	StoreAdapters.init()
-	profileStore = SessionStore.new("PlayerProfiles_v1", template)
-	mailboxStore = StoreAdapters.dataStore("Mailbox_v1")
-	seenStore = StoreAdapters.dataStore("SeenPlayers_v1")
+	profileStore = SessionStore.new("PlayerProfiles_v2", template)
+	mailboxStore = StoreAdapters.dataStore("Mailbox_v2")
+	seenStore = StoreAdapters.dataStore("SeenPlayers_v2")
 	refreshSeenCache()
 end
 

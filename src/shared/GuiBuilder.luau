@@ -82,7 +82,7 @@ local function label(name: string, props: { [string]: any }, parent: Instance): 
 		BackgroundTransparency = 1,
 		Font = FONT,
 		TextColor3 = C.Text,
-		TextSize = 14,
+		TextSize = 16,
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}
 	for k, v in props do
@@ -97,7 +97,7 @@ local function button(name: string, props: { [string]: any }, parent: Instance):
 		BackgroundColor3 = C.Accent,
 		Font = FONT,
 		TextColor3 = C.Text,
-		TextSize = 14,
+		TextSize = 16,
 		AutoButtonColor = true,
 		BorderSizePixel = 0,
 	}

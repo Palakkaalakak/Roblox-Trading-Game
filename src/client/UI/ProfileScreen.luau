@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local State = require(ReplicatedStorage.Shared.Util.State)
 local Theme = require(script.Parent.Theme)
+local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
 local ProfileController = require(script.Parent.Parent.Controllers.ProfileController)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
@@ -499,12 +500,14 @@ function ProfileScreen.wire(gui: ScreenGui, _tooltip: any)
 	-- public entry points
 	--------------------------------------------------------------------------
 	function ProfileScreen.openUser(userId: number)
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		showView()
 		ProfileController.openUser(userId)
 	end
 
 	function ProfileScreen.openBrowser()
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		showBrowser()
 		selectTab(false)

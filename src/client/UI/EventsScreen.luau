@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
+local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 
 local EventsScreen = {}
 
@@ -52,8 +53,10 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local enough = input.owned >= input.count
 		countLabel.Text = ("%d/%d"):format(input.owned, input.count)
 		countLabel.TextColor3 = enough and Theme.Good or Theme.Bad
+		EconomyController.ensure({ input.itemId })
 		tooltip.attach(chip, function()
-			return { name = input.name, imageId = input.imageId }, input.owned
+			-- full item data on hover (falls back to name/icon before stats load)
+			return EconomyController.get(input.itemId) or { name = input.name, imageId = input.imageId }, input.owned
 		end)
 	end
 
@@ -61,7 +64,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		row.LayoutOrder = order
 		row.Visible = true
 
-		-- inputs
+		-- inputs (item chips only — the gem cost shows as the Cost: line below,
+		-- never as a fake "item" card)
 		local holder = row:WaitForChild("InputsHolder") :: Frame
 		local gemInput = recipe.gems and recipe.gems > 0
 		local chipOrder = 0
@@ -79,19 +83,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			if input.owned < input.count then
 				canAfford = false
 			end
-		end
-		-- gems as a chip
-		if gemInput then
-			chipOrder += 1
-			local chip = chipTemplate:Clone()
-			chip.Name = "chip_gems"
-			chip.Visible = true
-			chip.LayoutOrder = chipOrder
-			Components.setIcon(chip:WaitForChild("Icon") :: ImageLabel, { imageId = Theme.Icons.Gem })
-			;(chip:WaitForChild("CountLabel") :: TextLabel).Text = "gems"
-			;(chip:WaitForChild("GemChip") :: TextLabel).Text = tostring(recipe.gems)
-			chip.Parent = holder
-			table.insert(spawned, chip)
 		end
 
 		-- output
@@ -131,8 +122,10 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			refresh()
 		end)
 
+		EconomyController.ensure({ recipe.output.itemId })
 		tooltip.attach(row:WaitForChild("OutputIcon") :: ImageLabel, function()
-			return { name = recipe.output.name, imageId = recipe.output.imageId }, nil
+			return EconomyController.get(recipe.output.itemId)
+				or { name = recipe.output.name, imageId = recipe.output.imageId }, nil
 		end)
 	end
 
@@ -192,6 +185,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	end
 
 	function EventsScreen.open()
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		if lastEvents then
 			renderEvents(lastEvents)

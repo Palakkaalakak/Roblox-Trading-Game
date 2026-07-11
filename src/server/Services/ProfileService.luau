@@ -122,7 +122,7 @@ local function readProfile(userId: number): any?
 end
 
 function ProfileService.Init()
-	publicStore = StoreAdapters.dataStore("PublicProfile_v1")
+	publicStore = StoreAdapters.dataStore("PublicProfile_v2")
 end
 
 function ProfileService.Start()

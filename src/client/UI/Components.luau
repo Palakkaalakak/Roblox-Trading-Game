@@ -113,6 +113,31 @@ function Components.wireFitScales(gui: ScreenGui)
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(refit)
 end
 
+-- Top-level modal panels that are mutually exclusive: opening one closes the
+-- rest so they never clip/overlay. Popups (Invite) and templates are excluded.
+local EXCLUSIVE_PANELS = {
+	InventoryPanel = true,
+	TradePanel = true,
+	StorePanel = true,
+	EventsPanel = true,
+	BoardPanel = true,
+	ProfilePanel = true,
+	SearchPanel = true,
+}
+
+-- Hide every other exclusive panel (call at the start of a panel's open()).
+function Components.closeOtherPanels(panel: Instance)
+	local gui = panel.Parent
+	if gui == nil then
+		return
+	end
+	for _, sibling in gui:GetChildren() do
+		if sibling ~= panel and sibling:IsA("Frame") and EXCLUSIVE_PANELS[sibling.Name] then
+			sibling.Visible = false
+		end
+	end
+end
+
 -- Wire the shared Tooltip frame (from StarterGui) to hover events.
 -- Returns attach(guiObject, getSnapshot).
 function Components.wireTooltip(gui: ScreenGui)

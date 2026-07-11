@@ -103,7 +103,7 @@ end
 
 function NotificationService.Init()
 	StoreAdapters.init()
-	queueStore = StoreAdapters.dataStore("Notifications_v1")
+	queueStore = StoreAdapters.dataStore("Notifications_v2")
 end
 
 function NotificationService.Start()

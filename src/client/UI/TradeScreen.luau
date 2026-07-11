@@ -11,6 +11,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local State = require(ReplicatedStorage.Shared.Util.State)
 local TradeConfig = require(ReplicatedStorage.Shared.Config.TradeConfig)
+local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
@@ -123,7 +124,10 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 		if mine then
 			local box = gemsRow:WaitForChild("AmountBox") :: TextBox
-			local ok = gemsRow:WaitForChild("OkButton") :: TextButton
+			local ok = gemsRow:FindFirstChild("OkButton") :: TextButton?
+			if ok then
+				ok.Visible = false -- gems auto-confirm on type now; no OK click needed
+			end
 			api.gemsBox = box
 			local function submit()
 				local n = tonumber(box.Text)
@@ -143,11 +147,27 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				end
 				TradeController.setGems(n)
 			end
-			ok.Activated:Connect(submit)
-			box.FocusLost:Connect(function(enterPressed)
-				if enterPressed then
-					submit()
+			-- Auto-confirm: debounce a touch so a burst of keystrokes sends one
+			-- SetOffer, not one per digit. FocusLost still flushes immediately.
+			local pending: thread? = nil
+			box:GetPropertyChangedSignal("Text"):Connect(function()
+				if not box:IsFocused() then
+					return -- programmatic set from a render, not the user typing
 				end
+				if pending then
+					task.cancel(pending)
+				end
+				pending = task.delay(0.4, function()
+					pending = nil
+					submit()
+				end)
+			end)
+			box.FocusLost:Connect(function()
+				if pending then
+					task.cancel(pending)
+					pending = nil
+				end
+				submit()
 			end)
 		else
 			api.gemsLabel = gemsRow:WaitForChild("Amount") :: TextLabel
@@ -177,10 +197,12 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local yourTotal = panel:FindFirstChild("YourTotal") :: TextLabel?
 	local theirTotal = panel:FindFirstChild("TheirTotal") :: TextLabel?
 
-	-- Sum of estimated item values + offered gems. Items whose value is still
-	-- N/A are counted at 0 and flagged with a '+?'.
+	-- Sum of estimated item values + offered gems, all POST-TAX (gems the
+	-- recipient actually receives after the house cut). Items whose value is
+	-- still N/A are counted at 0 and flagged with a '+?'.
 	local function offerTotalText(offer: any, stats: { [string]: any }): string
-		local total = offer.gems
+		local netGems = Tax.split(offer.gems)
+		local total = netGems
 		local unknown = false
 		local copies = 0
 		for itemId, count in offer.items do
@@ -192,12 +214,12 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				unknown = true
 			end
 		end
-		return ("Total: ~%d 💎%s  (%d item%s + %d gems)"):format(
+		return ("Total: ~%d 💎%s  (%d item%s + %d gems after tax)"):format(
 			total,
 			unknown and " +?" or "",
 			copies,
 			copies == 1 and "" or "s",
-			offer.gems
+			netGems
 		)
 	end
 
@@ -223,11 +245,14 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 
 		if side.mine then
+			-- your side: what you actually put in (gross) — you're editing it
 			if not side.gemsBox:IsFocused() then
 				side.gemsBox.Text = tostring(offer.gems)
 			end
 		else
-			side.gemsLabel.Text = tostring(offer.gems)
+			-- their side: what you'll RECEIVE after the 5% house cut
+			local net = Tax.split(offer.gems)
+			side.gemsLabel.Text = offer.gems > 0 and (tostring(net) .. " (after tax)") or "0"
 		end
 
 		side.readyPill.Text = confirmed and "READY ✔" or "not ready"
@@ -259,6 +284,11 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 	local pickerTiles: { [string]: ImageButton } = {}
 	local catalogCache: { any }? = nil
+	-- Which list the picker is currently showing. The trade view / inventory /
+	-- stats observers all re-run refreshPicker() with no arg on background
+	-- pushes; without remembering the source they'd fall through to the
+	-- (maybe-empty) catalog branch and blank the grid mid-pick. This keeps it.
+	local pickerSource: string = "inventory"
 
 	-- what happens when a picker tile is clicked, by (compose, source)
 	local function onPicked(itemId: string, source: string)
@@ -282,7 +312,8 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 	-- source "inventory": your items with available counts (give side / live trades)
 	-- source "catalog": every registered item (compose WANT side)
-	local function refreshPicker(source: string)
+	local function refreshPicker(source: string?)
+		source = source or pickerSource
 		clearPicker()
 		local stats = EconomyController.stats:get()
 
@@ -335,6 +366,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 	function TradeScreen.openPicker(source: string?)
 		source = source or "inventory"
+		pickerSource = source
 		if source == "catalog" and catalogCache == nil then
 			task.spawn(function()
 				local result = Net.invoke("GetCatalog")
@@ -431,6 +463,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 		EconomyController.ensure(wanted)
 
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		title.Text = "📌 Post a board trade"
 		yourSide.header.Text = "You give (escrowed on post)"
@@ -491,6 +524,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			tooltip.hide()
 			return
 		end
+		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		if theirSide.wantBox then
 			theirSide.wantBox.Visible = false

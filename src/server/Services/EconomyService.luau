@@ -15,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local Items = require(ReplicatedStorage.Shared.Config.Items)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+local EventConfig = require(ReplicatedStorage.Shared.Config.EventConfig)
 local RollingAverage = require(ReplicatedStorage.Shared.Util.RollingAverage)
 local Rarity = require(ReplicatedStorage.Shared.Util.Rarity)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
@@ -94,7 +95,51 @@ function EconomyService.displayStoreCost(item: any): number?
 	return item.storeCost or rarityFallbackCost(item.rarity)
 end
 
-local function seedFor(item: any): number
+-- Event/crafted items have no store cost. Seed their Est. Value from what it
+-- COST to make one: sum of input item values + input gems, +5% (the crafting
+-- premium). Built once from EventConfig; falls back to scarcity if a recipe
+-- is missing. `evt_<sku>` matches CraftingService.outputItemId.
+local eventRecipeIndex: { [string]: { inputs: { [string]: number }, gems: number } }? = nil
+local function buildEventRecipeIndex()
+	local index: { [string]: any } = {}
+	local function add(recipe: any)
+		index["evt_" .. recipe.output.sku] = { inputs = recipe.inputs, gems = recipe.gems or 0 }
+	end
+	for _, event in EventConfig.Events do
+		for _, recipe in event.recipes do
+			add(recipe)
+		end
+	end
+	if EventConfig.RotatingRecipes then
+		for _, recipe in EventConfig.RotatingRecipes.Pool do
+			add(recipe)
+		end
+	end
+	eventRecipeIndex = index
+end
+
+local function eventSeed(itemId: string): number?
+	if eventRecipeIndex == nil then
+		buildEventRecipeIndex()
+	end
+	local recipe = (eventRecipeIndex :: any)[itemId]
+	if recipe == nil then
+		return nil
+	end
+	local total = recipe.gems
+	for inId, count in recipe.inputs do
+		total += EconomyService.valueOf(inId) * count
+	end
+	return math.max(1, math.floor(total * 1.05 + 0.5))
+end
+
+local function seedFor(item: any, itemId: string?): number
+	if item.eventItem and itemId then
+		local es = eventSeed(itemId)
+		if es then
+			return es
+		end
+	end
 	return EconomyService.displayStoreCost(item) or EconomyService.scarcitySeed(item.totalSupply)
 end
 
@@ -393,7 +438,7 @@ function EconomyService.snapshot(itemId: string): any?
 	local now = os.time()
 	local demand = decayedDemand(rec, now)
 	local circulating = rec.circulating or 0
-	local value = EconomyService.computeValue(seedFor(item), rec.rapValue or 0, rec.rapCount or 0)
+	local value = EconomyService.computeValue(seedFor(item, itemId), rec.rapValue or 0, rec.rapCount or 0)
 
 	return {
 		itemId = itemId,
@@ -418,7 +463,7 @@ function EconomyService.valueOf(itemId: string): number
 	if item == nil then
 		return 1
 	end
-	return EconomyService.computeValue(seedFor(item), rec and rec.rapValue or 0, rec and rec.rapCount or 0)
+	return EconomyService.computeValue(seedFor(item, itemId), rec and rec.rapValue or 0, rec and rec.rapCount or 0)
 end
 
 --------------------------------------------------------------------------------
@@ -470,9 +515,9 @@ end
 
 function EconomyService.Init()
 	StoreAdapters.init()
-	registryStore = StoreAdapters.dataStore("ItemRegistry_v1")
-	econStore = StoreAdapters.dataStore("EconomyStore_v1")
-	hotMap = StoreAdapters.sortedMap("EconomyHot_v1")
+	registryStore = StoreAdapters.dataStore("ItemRegistry_v2")
+	econStore = StoreAdapters.dataStore("EconomyStore_v2")
+	hotMap = StoreAdapters.sortedMap("EconomyHot_v2")
 	EconomyService.loadRegistry()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything
