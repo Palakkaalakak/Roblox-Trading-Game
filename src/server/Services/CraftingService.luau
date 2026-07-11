@@ -17,6 +17,7 @@
 -- reserve output copy (CAS; refund inputs if it lost the race) -> retire
 -- consumed copies -> grant output -> async save.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
@@ -159,10 +160,12 @@ local function handleGetEvents(player: Player)
 	return { ok = true, events = events, now = now }
 end
 
-local function handleCraft(player: Player, eventId: any, rid: any)
-	if not DataService.isLoaded(player) then
-		return { ok = false, err = "loading" }
-	end
+-- Bots craft too; their charges/grants live in BotService state.
+local function bots(): any
+	return require(script.Parent.BotService)
+end
+
+local function craftCore(userId: number, eventId: any, rid: any)
 	if not Guard.isString(eventId, 64) or not Guard.isString(rid, 64) then
 		return { ok = false, err = "bad_args" }
 	end
@@ -173,13 +176,24 @@ local function handleCraft(player: Player, eventId: any, rid: any)
 	end
 	local outId = outputItemId(recipe.output.sku)
 
+	local isBot = userId < 0
+	local player = if isBot then nil else Players:GetPlayerByUserId(userId)
+	local function delta(d: any, source: string): (boolean, string?)
+		if isBot then
+			return bots().applyDelta(userId, d, source)
+		end
+		if player == nil then
+			return false, "loading"
+		end
+		return InventoryService.applyDelta(player, d, source)
+	end
+
 	-- charge all inputs atomically (validate-all-then-apply)
 	local negInputs = {}
 	for itemId, count in recipe.inputs do
 		negInputs[itemId] = -count
 	end
-	local charged, chargeErr = InventoryService.applyDelta(
-		player,
+	local charged, chargeErr = delta(
 		{ items = negInputs, gems = -(recipe.gems or 0) },
 		Enums.GrantSource.Craft
 	)
@@ -195,7 +209,7 @@ local function handleCraft(player: Player, eventId: any, rid: any)
 		for itemId, count in recipe.inputs do
 			posInputs[itemId] = count
 		end
-		InventoryService.applyDelta(player, { items = posInputs, gems = recipe.gems or 0 }, Enums.GrantSource.Refund)
+		delta({ items = posInputs, gems = recipe.gems or 0 }, Enums.GrantSource.Refund)
 		return { ok = false, err = "recipe_soldout" }
 	end
 
@@ -206,19 +220,37 @@ local function handleCraft(player: Player, eventId: any, rid: any)
 		table.insert(touched, itemId)
 	end
 
-	InventoryService.applyDelta(player, { items = { [outId] = 1 } }, Enums.GrantSource.Craft)
-	task.spawn(function()
-		DataService.saveNow(player)
-	end)
+	delta({ items = { [outId] = 1 } }, Enums.GrantSource.Craft)
+	if player then
+		task.spawn(function()
+			DataService.saveNow(player)
+		end)
+	end
 
 	AnalyticsService.log("craft", {
-		userId = player.UserId,
+		userId = userId,
 		eventId = eventId,
 		rid = rid,
 		output = outId,
 		gems = recipe.gems or 0,
 	})
 	return { ok = true, output = { itemId = outId, name = recipe.output.name } }
+end
+
+local function handleCraft(player: Player, eventId: any, rid: any)
+	if not DataService.isLoaded(player) then
+		return { ok = false, err = "loading" }
+	end
+	return craftCore(player.UserId, eventId, rid)
+end
+
+-- Bot entry points + helpers
+function CraftingService.botCraft(botId: number, eventId: string, rid: string)
+	return craftCore(botId, eventId, rid)
+end
+
+function CraftingService.outputIdFor(sku: string): string
+	return outputItemId(sku)
 end
 
 --------------------------------------------------------------------------------

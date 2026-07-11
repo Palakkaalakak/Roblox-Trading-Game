@@ -11,6 +11,7 @@
 -- Reserve failure (sold out under us) refunds the charge. All same-server,
 -- in-memory profile ops => no partial state.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
@@ -111,10 +112,13 @@ local function listing(player: Player): ({ any }, number?)
 	return out, rotatesAt
 end
 
-local function handleBuy(player: Player, itemId: any)
-	if not DataService.isLoaded(player) then
-		return { ok = false, err = "loading" }
-	end
+-- Market bots buy from the store too (same caps, same CAS stock draw);
+-- their charges/records live in BotService state instead of a profile.
+local function bots(): any
+	return require(script.Parent.BotService)
+end
+
+local function buyCore(userId: number, itemId: any)
 	if not Guard.isString(itemId, 64) or not catalogSet[itemId] then
 		return { ok = false, err = "not_store_item" }
 	end
@@ -128,10 +132,15 @@ local function handleBuy(player: Player, itemId: any)
 		return { ok = false, err = "unknown_item" }
 	end
 
-	-- per-player buy limit (purchases only; trading in more is fine)
-	local profile = DataService.getProfile(player)
-	local limit = StoreService.buyLimitFor(player, itemId)
-	if profile and purchasedCount(profile, itemId) >= limit then
+	local isBot = userId < 0
+	local player = if isBot then nil else Players:GetPlayerByUserId(userId)
+	local profile = player and DataService.getProfile(player) or nil
+
+	-- per-buyer lifetime cap (purchases only; trading in more is fine)
+	local meta = catalogMeta[itemId]
+	local limit = (meta and meta.maxPerPlayer) or StoreConfig.DefaultMaxPerPlayer
+	local bought = if isBot then bots().storeCount(userId, itemId) else (profile and purchasedCount(profile, itemId) or 0)
+	if bought >= limit then
 		return { ok = false, err = "buy_limit", limit = limit }
 	end
 
@@ -142,26 +151,68 @@ local function handleBuy(player: Player, itemId: any)
 
 	local price = StoreService.priceFor(itemId)
 
-	-- charge first (validates funds atomically in-memory)...
-	local charged, chargeErr = InventoryService.applyDelta(player, { gems = -price }, Enums.GrantSource.Store)
+	-- charge first (validates funds atomically)...
+	local charged, chargeErr
+	if isBot then
+		charged, chargeErr = bots().applyDelta(userId, { gems = -price }, Enums.GrantSource.Store)
+	else
+		charged, chargeErr = InventoryService.applyDelta(player :: Player, { gems = -price }, Enums.GrantSource.Store)
+	end
 	if not charged then
 		return { ok = false, err = chargeErr }
 	end
 	-- ...then take a copy out of stock (atomic cross-server CAS)
 	local reserved = EconomyService.reserveOne(itemId)
 	if not reserved then
-		InventoryService.applyDelta(player, { gems = price }, Enums.GrantSource.Refund)
+		if isBot then
+			bots().applyDelta(userId, { gems = price }, Enums.GrantSource.Refund)
+		else
+			InventoryService.applyDelta(player :: Player, { gems = price }, Enums.GrantSource.Refund)
+		end
 		return { ok = false, err = "out_of_stock" }
 	end
-	InventoryService.applyDelta(player, { items = { [itemId] = 1 } }, Enums.GrantSource.Store)
-	-- record the purchase against the player's limit
-	if profile then
-		profile.StorePurchases[itemId] = purchasedCount(profile, itemId) + 1
+	if isBot then
+		bots().applyDelta(userId, { items = { [itemId] = 1 } }, Enums.GrantSource.Store)
+		bots().bumpStoreCount(userId, itemId)
+	else
+		InventoryService.applyDelta(player :: Player, { items = { [itemId] = 1 } }, Enums.GrantSource.Store)
+		if profile then
+			profile.StorePurchases[itemId] = purchasedCount(profile, itemId) + 1
+		end
+		DataService.saveNow(player :: Player)
 	end
-	DataService.saveNow(player)
 
-	AnalyticsService.log("store_purchase", { userId = player.UserId, itemId = itemId, price = price })
-	return { ok = true, price = price, purchased = profile and profile.StorePurchases[itemId] or 1, limit = limit }
+	AnalyticsService.log("store_purchase", { userId = userId, itemId = itemId, price = price })
+	return { ok = true, price = price, purchased = bought + 1, limit = limit }
+end
+
+local function handleBuy(player: Player, itemId: any)
+	if not DataService.isLoaded(player) then
+		return { ok = false, err = "loading" }
+	end
+	return buyCore(player.UserId, itemId)
+end
+
+-- Bot entry: buy one copy at the fixed store price.
+function StoreService.botBuy(botId: number, itemId: string)
+	return buyCore(botId, itemId)
+end
+
+-- Bot-readable shelf: {itemId, price, remaining} for what's buyable now.
+function StoreService.shelfForBots(): { any }
+	local shelf = StoreService.activeShelf(os.time())
+	local out = {}
+	for itemId in shelf do
+		local snap = EconomyService.snapshot(itemId)
+		if snap and (snap.reserveRemaining or 0) > 0 then
+			table.insert(out, {
+				itemId = itemId,
+				price = StoreService.priceFor(itemId),
+				remaining = snap.reserveRemaining,
+			})
+		end
+	end
+	return out
 end
 
 function StoreService.Init()
