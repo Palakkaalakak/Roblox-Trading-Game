@@ -67,18 +67,17 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end)
 	end
 
-	local function fillOfferChips(holder: Frame, offer: any)
+	-- Item cards only in the chip row; gems are never a fake item card — just
+	-- an icon + "+N gems (after tax)" line under the holder.
+	local function fillOfferChips(holder: Frame, gemsIcon: ImageLabel, gemsLabel: TextLabel, offer: any)
 		local order = 0
 		for _, entry in offer.items do
 			order += 1
 			addChip(holder, entry.imageId, entry.name, "x" .. entry.count, order, entry.itemId)
 		end
-		if offer.gems > 0 then
-			order += 1
-			-- gem offers are transferred post-tax to the recipient
-			local net = Tax.split(offer.gems)
-			addChip(holder, Theme.Icons.Gem, "Gems", tostring(net) .. " (after tax)", order)
-		end
+		local hasGems = offer.gems > 0
+		gemsIcon.Visible = hasGems
+		gemsLabel.Text = hasGems and ("+%d gems (after tax)"):format(Tax.split(offer.gems)) or ""
 	end
 
 	local function invokeAction(fn: () -> any): any
@@ -101,6 +100,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 
 		local giveHolder = row:WaitForChild("GiveHolder") :: Frame
 		local wantHolder = row:WaitForChild("WantHolder") :: Frame
+		local giveGemsIcon = row:WaitForChild("GiveGemsIcon") :: ImageLabel
+		local giveGemsLabel = row:WaitForChild("GiveGemsLabel") :: TextLabel
+		local wantGemsIcon = row:WaitForChild("WantGemsIcon") :: ImageLabel
+		local wantGemsLabel = row:WaitForChild("WantGemsLabel") :: TextLabel
 		local info = row:WaitForChild("InfoLabel") :: TextLabel
 		local badge = row:WaitForChild("Badge") :: TextLabel
 		local countBox = row:WaitForChild("CountBox") :: TextBox
@@ -111,8 +114,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		if listing.kind == "swap" then
 			badge.Text = listing.autoTrade and "AUTO-TRADE" or "ASK FIRST"
 			badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
-			fillOfferChips(giveHolder, listing.give) -- what the poster GIVES you
-			fillOfferChips(wantHolder, listing.want) -- what they WANT from you
+			fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give) -- what the poster GIVES you
+			fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want) -- what they WANT from you
 			if listing.mine and #listing.interested > 0 then
 				local names = {}
 				for _, e in listing.interested do

@@ -910,6 +910,24 @@ local function buildBoardPanel(parent: Instance)
 		Position = UDim2.fromOffset(10, 24),
 		Size = UDim2.fromOffset(200, 64),
 	}, row)
+	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
+	new("ImageLabel", {
+		Name = "GiveGemsIcon",
+		Image = ICONS.Gem,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(10, 88),
+		Size = UDim2.fromOffset(14, 14),
+		ScaleType = Enum.ScaleType.Fit,
+		Visible = false,
+	}, row)
+	label("GiveGemsLabel", {
+		Position = UDim2.fromOffset(28, 88),
+		Size = UDim2.fromOffset(182, 14),
+		Text = "",
+		TextSize = 12,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		Padding = UDim.new(0, 4),
@@ -957,6 +975,23 @@ local function buildBoardPanel(parent: Instance)
 		Position = UDim2.fromOffset(248, 24),
 		Size = UDim2.fromOffset(200, 64),
 	}, row)
+	new("ImageLabel", {
+		Name = "WantGemsIcon",
+		Image = ICONS.Gem,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(248, 88),
+		Size = UDim2.fromOffset(14, 14),
+		ScaleType = Enum.ScaleType.Fit,
+		Visible = false,
+	}, row)
+	label("WantGemsLabel", {
+		Position = UDim2.fromOffset(266, 88),
+		Size = UDim2.fromOffset(182, 14),
+		Text = "",
+		TextSize = 12,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, row)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		Padding = UDim.new(0, 4),
@@ -967,8 +1002,8 @@ local function buildBoardPanel(parent: Instance)
 	-- "Interested: ..." for ask-first swap rows the poster owns. Sits below
 	-- the chips, full width minus the bottom-right controls' reserved column.
 	label("InfoLabel", {
-		Position = UDim2.fromOffset(10, 92),
-		Size = UDim2.new(1, -178, 0, 56),
+		Position = UDim2.fromOffset(10, 104),
+		Size = UDim2.new(1, -178, 0, 44),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 11,
