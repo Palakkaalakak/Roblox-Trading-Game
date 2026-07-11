@@ -1409,9 +1409,18 @@ local function buildEventsPanel(parent: Instance)
 		TextSize = 11,
 		TextColor3 = C.TextDim,
 	}, row)
+	new("ImageLabel", {
+		Name = "CostIcon",
+		Image = ICONS.Gem,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(340, 53),
+		Size = UDim2.fromOffset(16, 16),
+		ScaleType = Enum.ScaleType.Fit,
+		Visible = false,
+	}, row)
 	label("CostLabel", {
-		Position = UDim2.fromOffset(340, 54),
-		Size = UDim2.fromOffset(180, 16),
+		Position = UDim2.fromOffset(360, 54),
+		Size = UDim2.fromOffset(160, 16),
 		Text = "",
 		TextSize = 13,
 		TextColor3 = C.Gem,

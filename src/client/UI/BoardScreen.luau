@@ -454,6 +454,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, entry)
 			;(tile:WaitForChild("ItemName") :: TextLabel).Text = entry.name
 			;(tile:WaitForChild("CountLabel") :: TextLabel).Text = entry.count and ("x" .. entry.count) or ""
+			EconomyController.ensure({ entry.itemId })
+			tooltip.attach(tile, function()
+				return EconomyController.get(entry.itemId) or entry, entry.count
+			end)
 			tile.Activated:Connect(function()
 				picker.Visible = false
 				onPick(entry.itemId, entry.name, entry.imageId)

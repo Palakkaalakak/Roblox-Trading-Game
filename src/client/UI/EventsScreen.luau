@@ -93,7 +93,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		;(row:WaitForChild("OutputName") :: TextLabel).Text = recipe.output.name
 		;(row:WaitForChild("OutputStock") :: TextLabel).Text =
 			("%d/%d left"):format(recipe.output.remaining, recipe.output.total)
-		;(row:WaitForChild("CostLabel") :: TextLabel).Text = gemInput and ("Cost: %d 💎"):format(recipe.gems) or ""
+		;(row:WaitForChild("CostIcon") :: ImageLabel).Visible = gemInput
+		;(row:WaitForChild("CostLabel") :: TextLabel).Text = gemInput and ("Cost: %d"):format(recipe.gems) or ""
 
 		local soldOut = recipe.output.remaining <= 0
 		;(row:WaitForChild("DoneOverlay") :: Frame).Visible = soldOut

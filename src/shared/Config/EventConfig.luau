@@ -2,9 +2,11 @@
 -- EventConfig: limited events — crafting, sacrifices, rotating recipes.
 --
 -- EVERYTHING here is a RECIPE: consume inputs, receive a LIMITED output item.
---   * kind = "crafting"  -> multi-item recipes (any inputs + optional gems)
---   * kind = "sacrifice" -> deleting EXACTLY ONE item (one input, count 1,
---     no gems). Enforced at boot — violations warn and the recipe is skipped.
+--   * kind = "crafting"  -> several different item types, each any count (a
+--     little of one, a lot of another) + optional gems. The cheaper path.
+--   * kind = "sacrifice" -> ONE item type only, but a LOT of it — a real
+--     dent in your holdings. Always costs MORE gems than a crafting recipe
+--     (harder, more committed path to the same kind of output).
 --
 -- Each event may carry `npc = { position = {x, y, z} }`: the server spawns an
 -- event NPC there at boot (shopkeeper-style, event-named sign); triggering
@@ -56,8 +58,8 @@ local EventConfig = {
 			recipes = {
 				{
 					rid = "shadow_crown",
-					inputs = { ["itm_1_5_void_shard"] = 1 },
-					gems = 0,
+					inputs = { ["itm_1_5_void_shard"] = 5 }, -- one item type, a lot of it
+					gems = 60, -- sacrifice always costs more gems than crafting
 					output = {
 						sku = "shadow_crown",
 						name = "Shadow Crown",
