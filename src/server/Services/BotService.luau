@@ -1,5 +1,5 @@
 --!strict
--- BotService v3: 100 deterministic profit-seeking trading agents.
+-- BotService v4: 100 deterministic profit-seeking trading agents.
 --
 -- Zero randomness. Each bot's behavior is a pure function of:
 --   * market state: order book (shared snapshot per sweep), fair values
@@ -8,19 +8,29 @@
 --     open quotes (net worth INCLUDES escrow — a bot with 10 open bids is
 --     not "poor", a mistake that made v2 bots spiral into bulk spam)
 --   * its index-derived parameters (edge, inventory aversion gamma, target
---     gem fraction, quote specialization) — fixed formulas, no dice.
+--     gem fraction, quote specialization) — fixed formulas, no dice
+--   * its ROTATING DESIRES (index+epoch formula) — time-varying private
+--     values. v3 froze: with one shared fair value, bids sat below fair and
+--     asks above it, spreads never crossed, and after positions converged
+--     the whole market hit a no-trade equilibrium (bot_sweep actions:0
+--     forever). Trades need valuations that DIFFER and CHANGE.
 --
 -- Strategy per pass (see BotConfig header for the finance background):
---   TAKE  — score every executable deal by expected profit vs the bot's
---           reservation price; run the best TakesPerPass:
---           lift cheap asks / fill rich bids / accept +EV swaps /
---           buy underpriced store stock / craft +EV recipes.
---   NEED  — if a +EV recipe lacks inputs, bid for the missing inputs at a
---           price justified by the recipe's profit (need-based pricing).
---   QUOTE — maintain ask+bid on the bot's specialization items around its
---           inventory-skewed reservation price, undercutting/outbidding
---           the book inside hard value-tethered guard rails; requote when
---           price drifts or goes stale.
+--   TAKE   — score every executable deal by expected profit vs the bot's
+--            reservation price; run the best TakesPerPass:
+--            lift cheap asks / fill rich bids / accept +EV swaps /
+--            buy underpriced store stock / craft +EV recipes. Edge tightens
+--            with every sweep since the bot's last fill (hunger), so a
+--            stale book always unfreezes.
+--   NEED   — if a +EV recipe lacks inputs, bid for the missing inputs at a
+--            price justified by the recipe's profit (need-based pricing).
+--   QUOTE  — maintain ask+bid on specialization + desired items around the
+--            inventory-skewed PRIVATE reservation price, undercutting /
+--            outbidding the book inside hard value-tethered guard rails;
+--            requote only on real price drift.
+--   BARTER — keep one 1-for-1 auto-swap open: give the best non-desired
+--            held item, want a desired one of comparable fair value.
+--            Opposite-taste bots accept -> visible item-for-item trades.
 --
 -- Ops notes: one leader server runs brains (MemoryStore lease); the order
 -- book is fetched ONCE per sweep and shared by all 100 bots (with local
@@ -256,10 +266,44 @@ local function fair(itemId: string): number
 	return f
 end
 
--- Reservation price: fair value skewed against the bot's position.
+-- Rotating private values (taste shocks): the DesireCount items this bot
+-- currently desires, derived from (index, epoch) with co-prime strides.
+-- Rotates every DesireRotateSeconds — deterministic, dice-free. Stashed on
+-- the bot at pass start as bot.desired.
+local function desiresFor(bot: any, itemIds: { string }): { [string]: boolean }
+	local set: { [string]: boolean } = {}
+	local n = #itemIds
+	if n == 0 then
+		return set
+	end
+	local epoch = math.floor(os.time() / BotConfig.DesireRotateSeconds)
+	for k = 0, BotConfig.DesireCount - 1 do
+		set[itemIds[((bot.index * 11 + epoch * 17 + k * 29) % n) + 1]] = true
+	end
+	return set
+end
+
+-- Private-value multiplier: desired items are worth more TO THIS BOT,
+-- everything else slightly less. The overlap between one bot's boosted bid
+-- and another's trimmed ask is what makes deterministic quotes cross.
+local function pref(bot: any, itemId: string): number
+	if bot.desired and bot.desired[itemId] then
+		return 1 + BotConfig.PrefBoost
+	end
+	return 1 - BotConfig.PrefTrim
+end
+
+-- Reservation price: PRIVATE value (fair x pref) skewed against position.
 local function reservation(bot: any, itemId: string, position: number): number
 	local excess = (position - BotConfig.TargetHoldPerItem) / BotConfig.SkewScale
-	return fair(itemId) * (1 - bot.gamma * excess)
+	return fair(itemId) * pref(bot, itemId) * (1 - bot.gamma * excess)
+end
+
+-- Hunger: edge tightens every sweep without a fill, so a frozen book
+-- always unfreezes (the starved bot eventually crosses the spread).
+local function effectiveEdge(bot: any, sweep: number): number
+	local starved = sweep - (bot.lastFillSweep or 0)
+	return math.max(BotConfig.MinEdge, bot.edge / (1 + BotConfig.HungerEdgeDecay * starved))
 end
 
 -- Book view built once per sweep from rawOpenListings: best ask/bid per
@@ -303,11 +347,13 @@ end
 -- One bot pass (pure decisions -> real board/store/craft calls)
 --------------------------------------------------------------------------------
 
-local function pass(bot: any, book: any, itemIds: { string }): { string }
+local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { string }
 	local TradeBoardService = require(script.Parent.TradeBoardService) :: any
 	local StoreService = require(script.Parent.StoreService) :: any
 	local CraftingService = require(script.Parent.CraftingService) :: any
 
+	bot.desired = desiresFor(bot, itemIds)
+	local edge = effectiveEdge(bot, sweep)
 	local state = getState(bot.userId)
 	local actions: { string } = {}
 
@@ -344,7 +390,7 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 			if l.posterId ~= bot.userId and l.remainingCount > 0 then
 				local pos = state.inventory[l.itemId] or 0
 				local r = reservation(bot, l.itemId, pos)
-				if l.gemsPerCopy <= r * (1 - bot.edge) and pos < BotConfig.MaxHoldPerItem and l.gemsPerCopy <= spendable then
+				if l.gemsPerCopy <= r * (1 - edge) and pos < BotConfig.MaxHoldPerItem and l.gemsPerCopy <= spendable then
 					local count = math.min(l.remainingCount, math.floor(spendable / l.gemsPerCopy), BotConfig.QuoteCopies)
 					if count >= 1 then
 						table.insert(candidates, {
@@ -370,7 +416,7 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 			if owned >= 1 then
 				local r = reservation(bot, l.itemId, owned)
 				local net = Tax.split(l.gemsPerCopy)
-				if net >= r * (1 + bot.edge) then
+				if net >= r * (1 + edge) then
 					local count = math.min(owned, l.remainingCount)
 					table.insert(candidates, {
 						profit = (net - r) * count,
@@ -387,12 +433,14 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 			end
 		end
 	end
-	-- accept +EV auto swaps
+	-- accept +EV auto swaps (private values on BOTH sides: the give side is
+	-- worth more to a bot that desires it, the want side costs less to one
+	-- that doesn't — opposite tastes are exactly when barter clears)
 	for _, l in book.swaps do
 		if l.posterId ~= bot.userId and l.status == "open" then
 			local receive = Tax.split(l.give.gems)
 			for itemId, count in l.give.items do
-				receive += fair(itemId) * count
+				receive += fair(itemId) * pref(bot, itemId) * count
 			end
 			local pay = l.want.gems
 			local canPay = l.want.gems <= spendable
@@ -402,7 +450,7 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 					canPay = false
 				end
 			end
-			if canPay and pay > 0 and receive - pay >= bot.edge * pay then
+			if canPay and pay > 0 and receive - pay >= edge * pay then
 				table.insert(candidates, {
 					profit = receive - pay,
 					tag = "accept_swap",
@@ -422,7 +470,7 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 		for _, s in StoreService.shelfForBots() do
 			local pos = state.inventory[s.itemId] or 0
 			local r = reservation(bot, s.itemId, pos)
-			if s.price <= r * (1 - bot.edge) and s.price <= spendable and pos < BotConfig.MaxHoldPerItem then
+			if s.price <= r * (1 - edge) and s.price <= spendable and pos < BotConfig.MaxHoldPerItem then
 				table.insert(candidates, {
 					profit = r - s.price,
 					tag = "store_buy",
@@ -451,7 +499,7 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 					end
 				end
 				local outFair = fair(outId)
-				if outFair >= cost * (1 + bot.edge) then
+				if outFair >= cost * (1 + edge) then
 					if haveAll then
 						table.insert(candidates, {
 							profit = outFair - cost,
@@ -487,13 +535,14 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 		if c.run() then
 			taken += 1
 			table.insert(actions, c.tag)
+			bot.lastFillSweep = sweep -- fed: hunger resets, edge relaxes
 			state = getState(bot.userId)
 			spendable = state.gems - BotConfig.MinGemsKept
 		end
 	end
 
 	----------------------------------------------------------------------
-	-- QUOTE: maintain ask+bid on specialization items (+ needed inputs)
+	-- QUOTE: maintain ask+bid on specialization + desired items (+ inputs)
 	----------------------------------------------------------------------
 	-- specialization: fixed slice of the item universe by bot index
 	local focus: { [string]: boolean } = {}
@@ -501,6 +550,9 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 		for k = 0, BotConfig.QuoteItemsPerBot - 1 do
 			focus[itemIds[((bot.index * 3 + k * 41) % #itemIds) + 1]] = true
 		end
+	end
+	for itemId in bot.desired do
+		focus[itemId] = true -- bid on what the bot actually wants right now
 	end
 	for itemId in neededInputs do
 		focus[itemId] = true
@@ -511,20 +563,29 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 			focus[itemId] = true
 		end
 	end
+	-- hash iteration order is nondeterministic; sort for reproducibility
+	local focusList = {}
+	for itemId in focus do
+		table.insert(focusList, itemId)
+	end
+	table.sort(focusList)
 
 	-- index own open quotes by item
 	local ownSell: { [string]: any } = {}
 	local ownBulk: { [string]: any } = {}
+	local ownSwaps: { any } = {}
 	for _, l in book.ownOpen[bot.userId] or {} do
 		if l.kind == "sell" then
 			ownSell[l.itemId] = l
 		elseif l.kind == "bulk" then
 			ownBulk[l.itemId] = l
+		elseif l.kind == "swap" then
+			table.insert(ownSwaps, l)
 		end
 	end
 
 	local quoted = 0
-	for itemId in focus do
+	for _, itemId in focusList do
 		if quoted >= 2 then
 			break -- bounded board churn per pass
 		end
@@ -534,18 +595,18 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 
 		-- ASK side: own a copy -> keep a sell quote near r*(1+edge)
 		if pos >= 1 then
-			local floorPrice = math.max(1, math.floor(math.max(r * (1 + bot.edge / 2), value * BotConfig.MinSellVsValue) + 0.5))
-			local target = math.floor(r * (1 + bot.edge) + 0.5)
+			local floorPrice = math.max(1, math.floor(math.max(r * (1 + edge / 2), value * BotConfig.MinSellVsValue) + 0.5))
+			local target = math.floor(r * (1 + edge) + 0.5)
 			local ask = book.bestAsk[itemId]
 			if ask and ask - 1 >= floorPrice and ask - 1 < target then
 				target = ask - 1 -- undercut inside our floor
 			end
 			target = math.max(target, floorPrice)
 			local existing = ownSell[itemId]
-			local stale = existing
-				and (now - existing.createdAt > BotConfig.RepriceSeconds
-					or math.abs(existing.gemsPerCopy - target) > target * BotConfig.RepriceFrac)
-			if existing and stale then
+			-- reprice only on real drift; age-based reposting was pure churn
+			local drifted = existing
+				and math.abs(existing.gemsPerCopy - target) > math.max(1, target * BotConfig.RepriceFrac)
+			if existing and drifted then
 				if TradeBoardService.botCancel(bot.userId, existing.id).ok then
 					table.insert(actions, "reprice_cancel")
 					existing = nil
@@ -570,8 +631,8 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 
 		-- BID side: below target gem fraction we don't bid (shedding mode)
 		if gemFrac >= bot.targetGemFrac * 0.6 and pos < BotConfig.MaxHoldPerItem then
-			local ceiling = math.floor(math.min(r * (1 - bot.edge / 2), value * BotConfig.MaxBidVsValue) + 0.5)
-			local target = math.floor(r * (1 - bot.edge) + 0.5)
+			local ceiling = math.floor(math.min(r * (1 - edge / 2), value * BotConfig.MaxBidVsValue) + 0.5)
+			local target = math.floor(r * (1 - edge) + 0.5)
 			local need = neededInputs[itemId]
 			if need then
 				target = math.min(need, ceiling) -- recipe-justified bid
@@ -583,10 +644,9 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 			target = math.min(math.max(1, target), ceiling)
 			local count = BotConfig.QuoteCopies
 			local existing = ownBulk[itemId]
-			local stale = existing
-				and (now - existing.createdAt > BotConfig.RepriceSeconds
-					or math.abs(existing.gemsPerCopy - target) > math.max(1, target * BotConfig.RepriceFrac))
-			if existing and stale then
+			local drifted = existing
+				and math.abs(existing.gemsPerCopy - target) > math.max(1, target * BotConfig.RepriceFrac)
+			if existing and drifted then
 				if TradeBoardService.botCancel(bot.userId, existing.id).ok then
 					table.insert(actions, "reprice_cancel")
 					existing = nil
@@ -604,6 +664,64 @@ local function pass(bot: any, book: any, itemIds: { string }): { string }
 					table.insert(actions, "post_bulk")
 					quoted += 1
 					state = getState(bot.userId)
+				end
+			end
+		end
+	end
+
+	----------------------------------------------------------------------
+	-- BARTER: keep one 1-for-1 auto-swap open (give non-desired, want
+	-- desired, comparable fair value). Opposite-taste bots accept it.
+	----------------------------------------------------------------------
+	-- drop swaps whose want-side the bot no longer desires (taste rotated)
+	local openSwap: any = nil
+	for _, l in ownSwaps do
+		local wantId = next(l.want.items)
+		if wantId == nil or not bot.desired[wantId] then
+			if TradeBoardService.botCancel(bot.userId, l.id).ok then
+				table.insert(actions, "swap_retire")
+				state = getState(bot.userId)
+			end
+		elseif openSwap == nil then
+			openSwap = l
+		end
+	end
+	if openSwap == nil then
+		-- give: the highest-fair non-desired item held (deterministic pick)
+		local giveId: string? = nil
+		for itemId, count in state.inventory do
+			if count >= 1 and not bot.desired[itemId] then
+				if giveId == nil or fair(itemId) > fair(giveId) or (fair(itemId) == fair(giveId) and itemId < giveId) then
+					giveId = itemId
+				end
+			end
+		end
+		if giveId then
+			-- want: a desired item under target, fair value within the gap
+			local giveFair = fair(giveId)
+			local wantId: string? = nil
+			local wantIds = {}
+			for itemId in bot.desired do
+				table.insert(wantIds, itemId)
+			end
+			table.sort(wantIds)
+			for _, itemId in wantIds do
+				if (state.inventory[itemId] or 0) < BotConfig.TargetHoldPerItem then
+					local gap = math.abs(fair(itemId) - giveFair) / math.max(giveFair, 1)
+					if gap <= BotConfig.SwapMaxValueGap then
+						wantId = itemId
+						break
+					end
+				end
+			end
+			if wantId then
+				if TradeBoardService.botPost(bot.userId, bot.name, {
+					kind = "swap",
+					give = { items = { [giveId] = 1 }, gems = 0 },
+					want = { items = { [wantId] = 1 }, gems = 0 },
+					autoTrade = true,
+				}).ok then
+					table.insert(actions, "post_swap")
 				end
 			end
 		end
@@ -698,7 +816,7 @@ function BotService.Start()
 
 					local sweepActions = 0
 					for idx, bot in bots do
-						local ok, actions = pcall(pass, bot, book, itemIds)
+						local ok, actions = pcall(pass, bot, book, itemIds, sweep)
 						if ok then
 							sweepActions += #actions
 						else
@@ -706,6 +824,20 @@ function BotService.Start()
 						end
 						if idx % 5 == 0 then
 							task.wait(0.1) -- yield; spreads board ops across the sweep
+						end
+					end
+
+					-- gem faucet: taxes/store/crafts only drain the population;
+					-- top up poor bots so the market never starves to death
+					if sweep % BotConfig.StipendEvery == 0 then
+						for idx, bot in bots do
+							local s = getState(bot.userId)
+							if s.gems < BotConfig.StipendBelowGems then
+								BotService.applyDelta(bot.userId, { gems = BotConfig.StipendGems }, "stipend")
+							end
+							if idx % 10 == 0 then
+								task.wait(0.1)
+							end
 						end
 					end
 

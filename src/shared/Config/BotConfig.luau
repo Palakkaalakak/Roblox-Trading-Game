@@ -1,22 +1,34 @@
 --!strict
--- Market bots v3: 100 independent, fully DETERMINISTIC trading agents.
+-- Market bots v4: 100 independent, fully DETERMINISTIC trading agents.
 -- No randomness anywhere — every price and decision is a calculation from
 -- market state (fair value, order book, supply/demand) and the bot's own
 -- position. Strategies (adapted from real market microstructure):
 --
 --   1. INVENTORY-SKEWED MARKET MAKING (Avellaneda-Stoikov, simplified):
 --      each bot quotes a sell (ask) and a bulk buy (bid) around its
---      reservation price r = fair * (1 - gamma * (position - target)/scale).
+--      reservation price r = fair * pref * (1 - gamma * (position - target)/scale).
 --      Holding too much of an item lowers r (quote cheaper, shed inventory);
---      holding none raises it (bid harder). Different positions + different
---      gamma/edge per bot -> quotes structurally cross -> constant trade.
---   2. STAT-ARB TAKING: lift any ask priced <= r*(1-edge); sell into any
+--      holding none raises it (bid harder).
+--   2. ROTATING PRIVATE VALUES (taste shocks): each bot DESIRES a small,
+--      index+epoch-derived set of items (+PrefBoost to its private value;
+--      -PrefTrim on everything else), rotating every DesireRotateSeconds.
+--      This is what keeps a deterministic population trading FOREVER: with a
+--      single shared fair value the book converges to a no-trade equilibrium
+--      (bids sit below fair, asks above — nothing ever crosses). Real
+--      markets trade because valuations differ and change; this models that
+--      without dice.
+--   3. STAT-ARB TAKING: lift any ask priced <= r*(1-edge); sell into any
 --      bid whose after-tax proceeds >= r*(1+edge). Pure threshold rules.
---   3. PRODUCTION ARBITRAGE (events): craft when fair(output) beats total
+--      Edge TIGHTENS each sweep a bot goes without a fill (hunger), so a
+--      stale market always unfreezes itself.
+--   4. BARTER (swaps): a bot holding a non-desired item posts a 1-for-1
+--      auto-swap asking for a desired item of comparable fair value;
+--      opposite-taste bots accept. Item-for-item trades, no gems needed.
+--   5. PRODUCTION ARBITRAGE (events): craft when fair(output) beats total
 --      input cost by the bot's edge; when inputs are missing, BID for them
 --      (need-based pricing — the recipe's profitability sets what the bot
 --      will pay).
---   4. PRIMARY-MARKET ARB (NPC store): buy stock priced under fair value.
+--   6. PRIMARY-MARKET ARB (NPC store): buy stock priced under fair value.
 --
 -- Per-bot parameters derive from the bot index via fixed formulas (below),
 -- so the population is heterogeneous but reproducible run-to-run.
@@ -55,19 +67,46 @@ local BotConfig = {
 	DemandTilt = 0.10, -- fair value tilt per unit of normalized demand
 	DemandRef = 5, -- demand EMA that counts as "fully hot"
 
+	-- Rotating private values (taste shocks). Every epoch each bot desires
+	-- DesireCount items (index+epoch formula in BotService); those get
+	-- +PrefBoost on its private value, everything else -PrefTrim. The
+	-- resulting bid/ask overlap is what makes trades happen continuously.
+	DesireRotateSeconds = 600,
+	DesireCount = 3,
+	PrefBoost = 0.30,
+	PrefTrim = 0.10,
+
+	-- Hunger: a bot's edge divides by (1 + HungerEdgeDecay * sweepsSinceFill),
+	-- floored at MinEdge — starved bots trade tighter until they fill.
+	HungerEdgeDecay = 0.2,
+	MinEdge = 0.01,
+
+	-- Barter: post a 1-for-1 swap (give non-desired, want desired) when the
+	-- two fair values are within SwapMaxValueGap of each other. One open
+	-- swap per bot.
+	SwapMaxValueGap = 0.35,
+
 	-- Guard rails: quotes stay tethered to market value; deterministic churn
 	-- can't spiral prices.
 	MinSellVsValue = 0.85,
 	MaxBidVsValue = 1.15,
 
 	-- Quote management: replace own quote when its price drifts off the
-	-- currently-computed one by more than RepriceFrac, or when stale.
+	-- currently-computed one by more than RepriceFrac. (No age-based
+	-- reposting — that was pure churn at unchanged prices.)
 	RepriceFrac = 0.10,
-	RepriceSeconds = 300,
 
 	MinGemsKept = 25,
 	MaxHoldPerItem = 8,
 	QuoteCopies = 2, -- copies per sell quote / per bulk bid
+
+	-- Gem faucet: taxes + store buys + craft costs only ever DRAIN bot gems
+	-- (bot-to-bot trade is zero-sum minus tax) — without an income the
+	-- population starves and the market dies. Every StipendEvery sweeps a
+	-- bot below StipendBelowGems receives StipendGems.
+	StipendEvery = 10,
+	StipendGems = 25,
+	StipendBelowGems = 150,
 
 	NetworthLogEvery = 10, -- log bot_networth every N sweeps (aggregate)
 }
