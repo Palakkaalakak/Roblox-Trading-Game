@@ -14,47 +14,59 @@ export type ItemDef = {
 
 local Items = {
 	-- How many weighted draws each first-join starter bundle contains.
-	-- Duplicates allowed (stack counts). K=4 chosen so portfolios are
+	-- Duplicates allowed (stack counts). K chosen so portfolios are
 	-- heterogeneous enough for starter-vs-starter trading.
-	StarterBundleSize = 4,
+	StarterBundleSize = 5,
 
 	-- Gems granted alongside the starter bundle. 0 for now — the gem faucet
 	-- arrives with the shop phase; use the debug button meanwhile.
 	StarterGems = 0,
 
 	-- totalSupply >= threshold -> that tier (checked top-down). Below all -> Mythical.
-	-- Starter pools are HUGE (mythicals included, so even they stay cheap);
-	-- small-supply items (the limited store, future events) land Mythical.
+	-- WIDE disparity on purpose: a Common is ~1500x more plentiful than the
+	-- scarcest Mythical, so scarcity (and thus Value / price) spreads hard
+	-- across the catalog instead of everything clustering near one price.
 	RarityThresholds = {
-		{ tier = "Common", min = 15000 },
-		{ tier = "Rare", min = 6000 },
-		{ tier = "Legendary", min = 2000 },
-		-- < 2000 -> Mythical
+		{ tier = "Common", min = 20000 },
+		{ tier = "Rare", min = 5000 },
+		{ tier = "Legendary", min = 800 },
+		-- < 800 -> Mythical (down to ~40)
 	},
 
 	-- assignmentWeight default = round(totalSupply ^ exponent * scale).
 	AssignmentWeightExponent = 0.75,
 	AssignmentWeightScale = 1,
 
-	-- Store cost (gems) per rarity tier — arbitrary placeholders until the
-	-- rotating store phase. Items with NO store cost (future event-only
-	-- items) display "Store Cost: N/A (Event Item)".
+	-- Store cost (gems) per rarity tier. Disparity widened to match the supply
+	-- spread — a Mythical seeds ~60x a Common, so scarce items feel scarce.
 	StoreCostByRarity = {
-		Common = 10,
-		Rare = 25,
-		Legendary = 50,
-		Mythical = 100,
+		Common = 8,
+		Rare = 35,
+		Legendary = 130,
+		Mythical = 500,
 	},
 
-	-- Placeholder initial pool (pool #1). Spread satisfies the pool-generation
-	-- invariant: >=2 Common, >=1 Rare, >=1 Legendary-or-Mythical.
+	-- Placeholder initial pool (pool #1) — 12 diverse items spanning every
+	-- tier so a fresh economy already has a wide value ladder. Spread satisfies
+	-- the pool-generation invariant (>=3 Common, >=1 of each higher tier).
 	-- imageId: decal ids from the Simulator Icon Pack (Workspace).
 	InitialPool = {
-		{ name = "Stone Relic", totalSupply = 20000, imageId = "rbxassetid://17368402884" }, -- crate
-		{ name = "Amber Idol", totalSupply = 16000, imageId = "rbxassetid://12129301834" }, -- trophy
-		{ name = "Jade Serpent", totalSupply = 9000, imageId = "rbxassetid://15403270948" }, -- green potion
-		{ name = "Crimson Crown", totalSupply = 3200, imageId = "rbxassetid://16912465495" }, -- crown
-		{ name = "Void Shard", totalSupply = 1200, imageId = "rbxassetid://15402964203" }, -- beta gem
+		-- Common (plentiful, cheap)
+		{ name = "Stone Relic", totalSupply = 52000, imageId = "rbxassetid://17368402884" }, -- crate
+		{ name = "Copper Coin", totalSupply = 44000, imageId = "rbxassetid://15402844695" }, -- coin stack
+		{ name = "Amber Idol", totalSupply = 33000, imageId = "rbxassetid://12129301834" }, -- trophy
+		{ name = "Clay Totem", totalSupply = 24000, imageId = "rbxassetid://17368122337" }, -- box
+		-- Rare
+		{ name = "Jade Serpent", totalSupply = 14000, imageId = "rbxassetid://15403270948" }, -- green potion
+		{ name = "Sunstone Charm", totalSupply = 9000, imageId = "rbxassetid://17368097932" }, -- star
+		{ name = "Frost Lantern", totalSupply = 5600, imageId = "rbxassetid://15403275152" }, -- blue potion
+		-- Legendary
+		{ name = "Crimson Crown", totalSupply = 3000, imageId = "rbxassetid://16912465495" }, -- crown
+		{ name = "Storm Sigil", totalSupply = 1500, imageId = "rbxassetid://15403144723" }, -- fire
+		{ name = "Obsidian Fang", totalSupply = 900, imageId = "rbxassetid://17368155868" }, -- key
+		-- Mythical (scarce, prized)
+		{ name = "Void Shard", totalSupply = 420, imageId = "rbxassetid://15402964203" }, -- beta gem
+		{ name = "Astral Prism", totalSupply = 90, imageId = "rbxassetid://15402896733" }, -- gem chest
 	},
 
 	-- Icon candidates for procedurally generated pools (rotation). Drawn
@@ -87,15 +99,22 @@ local Items = {
 		"rbxassetid://17368197534", -- wheel
 	},
 
-	-- Procedural generation template for rotated pools (pool #2+).
-	-- One entry per slot; supply rolled uniformly in [min, max].
-	-- Template guarantees the rarity spread structurally.
+	-- Procedural generation template for rotated pools (pool #2+). 12 slots,
+	-- one entry per slot; supply rolled uniformly in [min, max]. Template
+	-- guarantees the full rarity spread structurally.
 	PoolTemplate = {
-		{ min = 15000, max = 24000 }, -- Common
-		{ min = 15000, max = 24000 }, -- Common
-		{ min = 6000, max = 12000 }, -- Rare
-		{ min = 2000, max = 5000 }, -- Legendary
-		{ min = 800, max = 1800 }, -- Mythical
+		{ min = 24000, max = 60000 }, -- Common
+		{ min = 22000, max = 50000 }, -- Common
+		{ min = 20000, max = 40000 }, -- Common
+		{ min = 12000, max = 19000 }, -- Rare
+		{ min = 8000, max = 15000 }, -- Rare
+		{ min = 5000, max = 9000 }, -- Rare
+		{ min = 2500, max = 4500 }, -- Legendary
+		{ min = 1400, max = 2800 }, -- Legendary
+		{ min = 800, max = 1500 }, -- Legendary
+		{ min = 300, max = 700 }, -- Mythical
+		{ min = 120, max = 350 }, -- Mythical
+		{ min = 40, max = 150 }, -- Mythical
 	},
 
 	-- Name generation for rotated pools.
@@ -103,11 +122,13 @@ local Items = {
 		"Ancient", "Frozen", "Gilded", "Shadow", "Solar", "Storm", "Ember",
 		"Ivory", "Obsidian", "Coral", "Astral", "Rusted", "Verdant", "Silent",
 		"Molten", "Twilight", "Radiant", "Hollow", "Feral", "Arcane",
+		"Cursed", "Sacred", "Frostbit", "Sunlit", "Umbral", "Prismatic",
 	},
 	NameNouns = {
 		"Totem", "Mask", "Blade", "Orb", "Crown", "Idol", "Talisman",
 		"Lantern", "Chalice", "Sigil", "Fang", "Mirror", "Drum", "Compass",
 		"Feather", "Prism", "Horn", "Locket", "Scepter", "Shard",
+		"Relic", "Effigy", "Gauntlet", "Rune", "Censer", "Diadem",
 	},
 }
 

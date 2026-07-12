@@ -321,8 +321,10 @@ end
 
 function DataService.Init()
 	StoreAdapters.init()
-	profileStore = SessionStore.new("PlayerProfiles_v3", template)
-	mailboxStore = StoreAdapters.dataStore("Mailbox_v3")
+	-- v4: full economy regen (new item catalog + wider rarity) — old profiles
+	-- hold now-nonexistent itemIds, so start players fresh.
+	profileStore = SessionStore.new("PlayerProfiles_v4", template)
+	mailboxStore = StoreAdapters.dataStore("Mailbox_v4")
 	seenStore = StoreAdapters.dataStore("SeenPlayers_v2")
 	refreshSeenCache()
 end

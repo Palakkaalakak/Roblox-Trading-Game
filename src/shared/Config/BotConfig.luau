@@ -1,56 +1,56 @@
 --!strict
--- Market bots v4: 100 independent, fully DETERMINISTIC trading agents.
--- No randomness anywhere — every price and decision is a calculation from
--- market state (fair value, order book, supply/demand) and the bot's own
--- position. Strategies (adapted from real market microstructure):
+-- Market bots v5: 500 independent, fully DETERMINISTIC trading agents whose
+-- DEMAND IS REASONED, not random. Every bot belongs to a trader archetype
+-- (drawn from real agent-based-market-model literature), and what a bot wants
+-- to acquire is computed from actual market signals — never a dice roll or an
+-- arbitrary hash.
 --
---   1. INVENTORY-SKEWED MARKET MAKING (Avellaneda-Stoikov, simplified):
---      each bot quotes a sell (ask) and a bulk buy (bid) around its
---      reservation price r = fair * pref * (1 - gamma * (position - target)/scale).
---      Holding too much of an item lowers r (quote cheaper, shed inventory);
---      holding none raises it (bid harder).
---   2. ROTATING PRIVATE VALUES (taste shocks): each bot DESIRES a small,
---      index+epoch-derived set of items (+PrefBoost to its private value;
---      -PrefTrim on everything else), rotating every DesireRotateSeconds.
---      This is what keeps a deterministic population trading FOREVER: with a
---      single shared fair value the book converges to a no-trade equilibrium
---      (bids sit below fair, asks above — nothing ever crosses). Real
---      markets trade because valuations differ and change; this models that
---      without dice.
---   3. STAT-ARB TAKING: lift any ask priced <= r*(1-edge); sell into any
---      bid whose after-tax proceeds >= r*(1+edge). Pure threshold rules.
---      Edge TIGHTENS each sweep a bot goes without a fill (hunger), so a
---      stale market always unfreezes itself.
---   4. BARTER (swaps): a bot holding a non-desired item posts a 1-for-1
---      auto-swap asking for a desired item of comparable fair value;
---      opposite-taste bots accept. Item-for-item trades, no gems needed.
---   5. PRODUCTION ARBITRAGE (events): craft when fair(output) beats total
---      input cost by the bot's edge; when inputs are missing, BID for them
---      (need-based pricing — the recipe's profitability sets what the bot
---      will pay).
---   6. PRIMARY-MARKET ARB (NPC store): buy stock priced under fair value.
+-- WHY ARCHETYPES: in real markets people trade because they value the same
+-- asset differently, and those valuations come from concrete reasons —
+-- someone needs the item as a production input, someone thinks it's
+-- underpriced, someone is chasing a hot trend, someone is cornering a scarce
+-- supply. A single shared "fair value" produces a no-trade equilibrium (every
+-- bid below fair, every ask above, nothing crosses). Heterogeneous, reasoned
+-- valuations make bids and asks overlap continuously — that is what actually
+-- jumpstarts an economy.
 --
--- Per-bot parameters derive from the bot index via fixed formulas (below),
--- so the population is heterogeneous but reproducible run-to-run.
+-- THE SIX ARCHETYPES (desire = which items the bot is currently trying to
+-- acquire; scored from live market state, recomputed each sweep):
+--   * fundamentalist — wants items trading BELOW their Est. Value (buy low).
+--     Reason: mispricing. score = (Value - bestAsk)/Value.
+--   * momentum       — wants items with RISING demand (chase the trend).
+--     Reason: demand signal. score = normalized demand EMA.
+--   * speculator     — wants SCARCE items to hoard (corner tight supply).
+--     Reason: scarcity. score = 1 - circulating/totalSupply.
+--   * crafter        — wants INPUTS to a currently-profitable recipe.
+--     Reason: production. score = recipe edge if item is an input.
+--   * collector      — wants items it owns FEW of, weighted to rarer ones
+--     (completing a set). Reason: completeness. score = rarityRank/(1+owned).
+--   * maker          — market maker: little directional desire; earns the
+--     bid/ask spread by quoting both sides tightly. Reason: liquidity.
 --
--- KILL SWITCH: Enabled = false stops all brains and cancels leftover bot
--- listings at next boot.
+-- Everything else (inventory-skewed reservation pricing, hunger, barter swaps,
+-- stipend) is unchanged from v4. Per-bot numeric params still derive from the
+-- index via fixed co-prime strides, so the population is reproducible.
+--
+-- KILL SWITCH: Enabled = false stops all brains and clears bot listings.
 
 local BotConfig = {
 	Enabled = true,
 
-	Count = 100, -- number of independent bots (userIds -101 .. -(100+Count))
+	Count = 500, -- number of independent bots (userIds -101 .. -(100+Count))
 
 	StartGems = 300, -- one-time seed balance per bot
-	StarterDraws = 4, -- one-time seed items per bot (real reserve draws)
+	StarterDraws = 5, -- one-time seed items per bot (in-memory reserve draws)
 
-	-- Pace: one full sweep (every bot thinks once) per SweepSeconds.
-	SweepSeconds = 45,
+	-- Pace: one full sweep (every bot thinks once) per SweepSeconds. With 500
+	-- bots the per-bot work must stay tiny (all in-memory now — no DataStore).
+	SweepSeconds = 30,
 	TakesPerPass = 2, -- max deals a bot executes per pass
 	QuoteItemsPerBot = 2, -- how many items a bot actively quotes (specialization)
 
-	-- Parameter formulas (index i, 1..Count). Deliberately co-prime strides
-	-- so the three traits decorrelate across the population.
+	-- Numeric parameter formulas (index i, 1..Count). Co-prime strides so the
+	-- traits decorrelate across the population.
 	--   edge_i   = EdgeMin  + EdgeSpan  * ((i * 7)  % Count) / (Count - 1)
 	--   gamma_i  = GammaMin + GammaSpan * ((i * 13) % Count) / (Count - 1)
 	--   target_i = TargetGemFracMin + TargetGemFracSpan * ((i * 29) % Count) / (Count - 1)
@@ -61,17 +61,27 @@ local BotConfig = {
 	TargetGemFracMin = 0.30,
 	TargetGemFracSpan = 0.40,
 
+	-- Archetype mix (must sum to 100). Assigned deterministically by index so
+	-- the distribution is exact and reproducible. Maker-heavy for liquidity.
+	Archetypes = {
+		{ id = "maker", pct = 28 },
+		{ id = "fundamentalist", pct = 20 },
+		{ id = "momentum", pct = 16 },
+		{ id = "speculator", pct = 14 },
+		{ id = "crafter", pct = 12 },
+		{ id = "collector", pct = 10 },
+	},
+
 	-- Reservation-price model
 	TargetHoldPerItem = 2, -- position target per item
 	SkewScale = 4, -- units of excess position per full gamma step
 	DemandTilt = 0.10, -- fair value tilt per unit of normalized demand
 	DemandRef = 5, -- demand EMA that counts as "fully hot"
 
-	-- Rotating private values (taste shocks). Every epoch each bot desires
-	-- DesireCount items (index+epoch formula in BotService); those get
-	-- +PrefBoost on its private value, everything else -PrefTrim. The
-	-- resulting bid/ask overlap is what makes trades happen continuously.
-	DesireRotateSeconds = 600,
+	-- Reasoned demand: each sweep a bot ranks items by its archetype's score
+	-- function and DESIRES the top DesireCount. Desired items get +PrefBoost
+	-- on the bot's private value, everything else -PrefTrim — the overlap
+	-- between one bot's boosted bid and another's trimmed ask is what clears.
 	DesireCount = 3,
 	PrefBoost = 0.30,
 	PrefTrim = 0.10,
@@ -91,9 +101,8 @@ local BotConfig = {
 	MinSellVsValue = 0.85,
 	MaxBidVsValue = 1.15,
 
-	-- Quote management: replace own quote when its price drifts off the
-	-- currently-computed one by more than RepriceFrac. (No age-based
-	-- reposting — that was pure churn at unchanged prices.)
+	-- Quote management: replace own quote only when its price drifts off the
+	-- freshly-computed one by more than RepriceFrac (no age-based churn).
 	RepriceFrac = 0.10,
 
 	MinGemsKept = 25,
@@ -101,14 +110,14 @@ local BotConfig = {
 	QuoteCopies = 2, -- copies per sell quote / per bulk bid
 
 	-- Gem faucet: taxes + store buys + craft costs only ever DRAIN bot gems
-	-- (bot-to-bot trade is zero-sum minus tax) — without an income the
-	-- population starves and the market dies. Every StipendEvery sweeps a
-	-- bot below StipendBelowGems receives StipendGems.
+	-- (bot-to-bot trade is zero-sum minus tax) — without income the population
+	-- starves. Every StipendEvery sweeps a bot below StipendBelowGems gets a
+	-- StipendGems top-up.
 	StipendEvery = 10,
 	StipendGems = 25,
 	StipendBelowGems = 150,
 
-	NetworthLogEvery = 10, -- log bot_networth every N sweeps (aggregate)
+	NetworthLogEvery = 10, -- log bot_sweep aggregate every N sweeps
 }
 
 return BotConfig

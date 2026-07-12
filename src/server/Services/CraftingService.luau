@@ -201,8 +201,11 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		return { ok = false, err = chargeErr } -- insufficient_items / insufficient_gems
 	end
 
-	-- take one output copy from the uncrafted reserve (atomic cross-server)
-	local reserved = EconomyService.reserveOne(outId)
+	-- take one output copy from the uncrafted reserve. Bots use the lazy
+	-- in-memory path (leader-local, no per-craft DataStore write) so a busy
+	-- 500-bot sweep never stalls the shared request budget; players keep the
+	-- strong cross-server CAS.
+	local reserved = if isBot then EconomyService.reserveOneLazy(outId) else EconomyService.reserveOne(outId)
 	if not reserved then
 		-- fully crafted elsewhere: give everything back
 		local posInputs = {}
@@ -213,10 +216,14 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		return { ok = false, err = "recipe_soldout" }
 	end
 
-	-- consumed inputs leave existence (the sink)
+	-- consumed inputs leave existence (the sink). Bots retire lazily (see above).
 	local touched = {}
 	for itemId, count in recipe.inputs do
-		EconomyService.retireCopies(itemId, count)
+		if isBot then
+			EconomyService.retireCopiesLazy(itemId, count)
+		else
+			EconomyService.retireCopies(itemId, count)
+		end
 		table.insert(touched, itemId)
 	end
 

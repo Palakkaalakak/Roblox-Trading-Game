@@ -33,6 +33,8 @@ local StoreScreen = require(UI.StoreScreen)
 local EventsScreen = require(UI.EventsScreen)
 local BoardScreen = require(UI.BoardScreen)
 local ProfileScreen = require(UI.ProfileScreen)
+local ActivityFeed = require(UI.ActivityFeed)
+local AdminScreen = require(UI.AdminScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
@@ -76,6 +78,10 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt)
 		BoardScreen.open()
 	end
 end)
+
+-- always-on market ticker (live bot + player trades) and admin bot inspector
+ActivityFeed.start()
+AdminScreen.start(toast)
 
 -- generic notifications (board pings, event news) as toasts
 local Net = require(script.Net)

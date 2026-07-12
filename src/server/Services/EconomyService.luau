@@ -367,6 +367,26 @@ function EconomyService.reserveOne(itemId: string): (boolean, number)
 	return true, rec.reserveRemaining
 end
 
+-- Reserve one copy the LAZY way (in-memory record + dirty flush). For the
+-- market-bot seeding burst only: 500 bots x StarterDraws would be thousands
+-- of synchronous DataStore UpdateAsync calls through reserveOne and blow the
+-- request budget (which then starves player profile ops). Bots run
+-- leader-local, so the leader's cached record is authoritative here; the
+-- flush persists circulating/reserve within the minute. Real players still
+-- use the strong reserveOne (cross-server atomic).
+function EconomyService.reserveOneLazy(itemId: string): boolean
+	local rec = mutateRecordLazy(itemId, function(old)
+		if (old.reserveRemaining or 0) <= 0 then
+			return nil
+		end
+		old.reserveRemaining -= 1
+		old.circulating += 1
+		old.updatedAt = os.time()
+		return old
+	end)
+	return rec ~= nil
+end
+
 -- Demand bump (offer inclusion or trade completion).
 function EconomyService.bumpDemand(itemId: string, amount: number, countAsSample: boolean)
 	mutateRecordLazy(itemId, function(old)
@@ -389,6 +409,22 @@ function EconomyService.retireCopies(itemId: string, count: number)
 		return
 	end
 	mutateRecord(itemId, function(old)
+		old.circulating = math.max(0, (old.circulating or 0) - count)
+		old.updatedAt = os.time()
+		return old
+	end)
+	EconomyService.broadcastStats({ itemId })
+end
+
+-- Retire copies the LAZY way (in-memory + dirty flush). For the market-bot
+-- craft path only — same rationale as reserveOneLazy: a synchronous DataStore
+-- UpdateAsync per bot craft, x hundreds of bots, starves the request budget
+-- and stalls player calls.
+function EconomyService.retireCopiesLazy(itemId: string, count: number)
+	if count <= 0 then
+		return
+	end
+	mutateRecordLazy(itemId, function(old)
 		old.circulating = math.max(0, (old.circulating or 0) - count)
 		old.updatedAt = os.time()
 		return old
@@ -550,8 +586,8 @@ end
 
 function EconomyService.Init()
 	StoreAdapters.init()
-	registryStore = StoreAdapters.dataStore("ItemRegistry_v3")
-	econStore = StoreAdapters.dataStore("EconomyStore_v3")
+	registryStore = StoreAdapters.dataStore("ItemRegistry_v4")
+	econStore = StoreAdapters.dataStore("EconomyStore_v4")
 	EconomyService.loadRegistry()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything

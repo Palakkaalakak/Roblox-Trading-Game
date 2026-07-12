@@ -190,6 +190,47 @@ local function deliver(userId: number, items: { [string]: number }, gems: number
 	})
 end
 
+-- Live trade feed: completed fills/swaps are broadcast to all clients as one
+-- human-readable line (the ticker shows the last N). This is what makes the
+-- economy VISIBLY alive — settlements otherwise only reach the server log.
+-- Rate-limited: 500 bots can settle hundreds of deals per sweep; the ticker
+-- is illustrative, not an audit log, so we cap broadcasts (excess dropped)
+-- to keep network + client churn sane. Players trade rarely, so their events
+-- almost always fit under the cap.
+local ANNOUNCE_PER_WINDOW = 4
+local ANNOUNCE_WINDOW = 1 -- seconds
+local announceCount = 0
+local announceWindowStart = 0
+local function announce(text: string)
+	local now = os.clock()
+	if now - announceWindowStart >= ANNOUNCE_WINDOW then
+		announceWindowStart = now
+		announceCount = 0
+	end
+	if announceCount >= ANNOUNCE_PER_WINDOW then
+		return
+	end
+	announceCount += 1
+	Net.fireAllClients("BoardActivity", { text = text, t = os.time() })
+end
+
+local function itemLabel(itemId: string): string
+	local item = EconomyService.getItem(itemId)
+	return item and item.name or itemId
+end
+
+local function offerLabel(offer: any): string
+	local parts = {}
+	for itemId, count in offer.items do
+		table.insert(parts, ("%dx %s"):format(count, itemLabel(itemId)))
+	end
+	table.sort(parts)
+	if offer.gems and offer.gems > 0 then
+		table.insert(parts, ("%d gems"):format(offer.gems))
+	end
+	return table.concat(parts, " + ")
+end
+
 -- bulk quote: what one copy pays and what the poster must escrow.
 function TradeBoardService.bulkQuote(count: number, totalGems: number): (number, number)
 	local perCopy = math.floor(totalGems / count)
@@ -650,6 +691,8 @@ function TradeBoardService.tryMatch(listing: any)
 		removeListing(l.id) -- terminal: keep the quota-bound MemoryStore lean
 	end
 
+	announce(("%s ⇄ %s matched mirror trades: %s for %s"):format(
+		mine.posterName, theirs.posterName, offerLabel(mine.give), offerLabel(theirs.give)))
 	AnalyticsService.log("board_matched", { a = mine.id, b = theirs.id })
 end
 
@@ -722,6 +765,7 @@ local function acceptCore(userId: number, userName: string, id: any)
 	end)
 	removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 
+	announce(("%s ⇄ %s: %s for %s"):format(userName, claimed.posterName, offerLabel(claimed.want), offerLabel(claimed.give)))
 	AnalyticsService.log("board_accepted", { id = id, by = userId })
 	return { ok = true }
 end
@@ -830,6 +874,7 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 	if committed.status == "done" then
 		removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 	end
+	announce(("%s filled %d x %s @ %d gems for %s"):format(userName, taken, itemLabel(committed.itemId), committed.gemsPerCopy, committed.posterName))
 	AnalyticsService.log("bulk_contributed", { id = id, by = userId, count = taken, net = net, tax = cut })
 	return { ok = true, payout = net, count = taken }
 end
@@ -902,6 +947,7 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 	if committed.status == "done" then
 		removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 	end
+	announce(("%s bought %d x %s @ %d gems from %s"):format(userName, taken, itemLabel(committed.itemId), committed.gemsPerCopy, committed.posterName))
 	AnalyticsService.log("sell_bought", { id = id, by = userId, count = taken, spent = spent })
 	return { ok = true, spent = spent, count = taken }
 end
@@ -968,7 +1014,7 @@ end
 
 function TradeBoardService.Init()
 	StoreAdapters.init()
-	board = StoreAdapters.sortedMap("TradeBoard_v6")
+	board = StoreAdapters.sortedMap("TradeBoard_v7")
 
 	-- One-time purge of retired MemoryStore maps (old boards + the retired
 	-- EconomyHot mirror). Their entries persist on multi-day TTLs and count
@@ -977,7 +1023,7 @@ function TradeBoardService.Init()
 	-- old TTLs lapse (days). Cheap when clean: one empty GetRangeAsync per
 	-- retired map. Delete this block once the retired maps have aged out.
 	task.spawn(function()
-		local retired = { "TradeBoard_v3", "TradeBoard_v4", "EconomyHot_v3" }
+		local retired = { "TradeBoard_v3", "TradeBoard_v4", "TradeBoard_v6", "EconomyHot_v3" }
 		for i = 1, 16 do
 			table.insert(retired, "TradeBoard_v5_" .. i)
 		end

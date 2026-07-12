@@ -1,42 +1,33 @@
 --!strict
--- BotService v4: 100 deterministic profit-seeking trading agents.
+-- BotService v5: 500 deterministic trading agents with REASONED demand.
 --
--- Zero randomness. Each bot's behavior is a pure function of:
---   * market state: order book (shared snapshot per sweep), fair values
---     (Value blended with demand tilt), NPC store stock, active recipes
---   * its own durable position: gems + inventory + escrow locked in its
---     open quotes (net worth INCLUDES escrow — a bot with 10 open bids is
---     not "poor", a mistake that made v2 bots spiral into bulk spam)
---   * its index-derived parameters (edge, inventory aversion gamma, target
---     gem fraction, quote specialization) — fixed formulas, no dice
---   * its ROTATING DESIRES (index+epoch formula) — time-varying private
---     values. v3 froze: with one shared fair value, bids sat below fair and
---     asks above it, spreads never crossed, and after positions converged
---     the whole market hit a no-trade equilibrium (bot_sweep actions:0
---     forever). Trades need valuations that DIFFER and CHANGE.
+-- Zero randomness. Each bot is a pure function of market state + its own
+-- position + its index-derived numeric params (edge, gamma, target gem
+-- fraction) + its ARCHETYPE. The archetype decides WHY the bot wants the
+-- items it wants — demand is computed from live signals, never a hash:
+--   fundamentalist -> items trading below Est. Value (mispricing)
+--   momentum       -> items with rising demand (trend)
+--   speculator     -> scarce items (corner supply)
+--   crafter        -> inputs to a profitable active recipe (production)
+--   collector      -> rare items it owns few of (completeness)
+--   maker          -> no directional desire; quotes both sides tightly
+-- See BotConfig for the finance background.
 --
--- Strategy per pass (see BotConfig header for the finance background):
---   TAKE   — score every executable deal by expected profit vs the bot's
---            reservation price; run the best TakesPerPass:
---            lift cheap asks / fill rich bids / accept +EV swaps /
---            buy underpriced store stock / craft +EV recipes. Edge tightens
---            with every sweep since the bot's last fill (hunger), so a
---            stale book always unfreezes.
---   NEED   — if a +EV recipe lacks inputs, bid for the missing inputs at a
---            price justified by the recipe's profit (need-based pricing).
---   QUOTE  — maintain ask+bid on specialization + desired items around the
---            inventory-skewed PRIVATE reservation price, undercutting /
---            outbidding the book inside hard value-tethered guard rails;
---            requote only on real price drift.
---   BARTER — keep one 1-for-1 auto-swap open: give the best non-desired
---            held item, want a desired one of comparable fair value.
---            Opposite-taste bots accept -> visible item-for-item trades.
+-- STATE IS IN-MEMORY. Bots run leader-local (one server holds the lease and
+-- the order book), so their gems/inventory live in a plain server table — no
+-- DataStore. This is deliberate and load-critical: v4 kept bot state in a
+-- DataStore and every bot settlement did a synchronous UpdateAsync. With 100+
+-- bots that saturated the shared DataStore request budget, which then stalled
+-- PLAYER profile/inventory calls — the "my post/accept/contribute doesn't
+-- register" bug. In-memory bot state is instant, never throttles players, and
+-- scales to 500. Bots are simulation: a fresh server re-seeds them, no
+-- durability needed.
 --
--- Ops notes: one leader server runs brains (MemoryStore lease); the order
--- book is fetched ONCE per sweep and shared by all 100 bots (with local
--- decrements as deals execute, so later bots don't chase filled listings).
--- Bot state is CAS in DataStore (any server can settle against a bot) with
--- a leader-side cache refreshed from every CAS result.
+-- Strategy per pass: TAKE (profit-ranked deals: lift cheap asks / fill rich
+-- bids / accept +EV swaps / buy underpriced store stock / craft +EV recipes;
+-- edge tightens with hunger) -> QUOTE (ask+bid on focus+desired items around
+-- the inventory-skewed private reservation price) -> BARTER (one 1-for-1
+-- auto-swap: give a non-desired item, want a desired one).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -49,15 +40,33 @@ local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local BotService = {}
 
-local botStore: any -- DataStore "BotEconomy_v2", key "bot_<-id>"
 local lockMap: any -- MemoryStore map: leader lease
 
 --------------------------------------------------------------------------------
--- Deterministic bot roster (index-derived names + parameters)
+-- Deterministic bot roster (index-derived names + params + archetype)
 --------------------------------------------------------------------------------
 
 local FIRST = { "Ada", "Brutus", "Cleo", "Dot", "Edgar", "Fern", "Gus", "Hazel", "Igor", "June" }
 local LAST = { "Byte", "Copper", "Drift", "Ember", "Flux", "Gale", "Ash", "Pip", "Quill", "Sable" }
+
+-- 100-entry bucket -> archetype id, built from BotConfig.Archetypes percentages.
+-- Exact distribution; combined with a co-prime index stride it also spreads
+-- archetypes evenly across the roster.
+local BUCKET_ARCH: { string } = {}
+do
+	local b = 0
+	for _, a in BotConfig.Archetypes do
+		for _ = 1, a.pct do
+			b += 1
+			BUCKET_ARCH[b] = a.id
+		end
+	end
+	-- pad any rounding remainder with the first archetype
+	while b < 100 do
+		b += 1
+		BUCKET_ARCH[b] = BotConfig.Archetypes[1].id
+	end
+end
 
 local bots: { any } = {}
 local botsById: { [number]: any } = {}
@@ -68,10 +77,12 @@ do
 		local bot = {
 			userId = -(100 + i),
 			name = ("%s %s [bot]"):format(FIRST[((i - 1) % #FIRST) + 1], LAST[(math.floor((i - 1) / #FIRST) % #LAST) + 1]),
+			archetype = BUCKET_ARCH[((i * 41) % 100) + 1],
 			edge = BotConfig.EdgeMin + BotConfig.EdgeSpan * ((i * 7) % n) / denom,
 			gamma = BotConfig.GammaMin + BotConfig.GammaSpan * ((i * 13) % n) / denom,
 			targetGemFrac = BotConfig.TargetGemFracMin + BotConfig.TargetGemFracSpan * ((i * 29) % n) / denom,
 			index = i,
+			lastFillSweep = 0,
 		}
 		table.insert(bots, bot)
 		botsById[bot.userId] = bot
@@ -82,12 +93,9 @@ function BotService.isBot(userId: number): boolean
 	return botsById[userId] ~= nil
 end
 
-local function stateKey(botId: number): string
-	return "bot_" .. tostring(-botId)
-end
-
 --------------------------------------------------------------------------------
--- Durable state (CAS; any server may credit) + leader-side cache
+-- In-memory state (leader-local). Single Luau thread + no yields in these
+-- functions => the mutations are atomic; no CAS needed.
 --------------------------------------------------------------------------------
 
 local function freshState()
@@ -101,58 +109,49 @@ local function freshState()
 	}
 end
 
-local stateCache: { [number]: { state: any, at: number } } = {}
-local CACHE_TTL = 30
+local botState: { [number]: any } = {}
+
+local function getState(botId: number): any
+	local s = botState[botId]
+	if s == nil then
+		s = freshState()
+		botState[botId] = s
+	end
+	return s
+end
 
 function BotService.applyDelta(botId: number, delta: { items: { [string]: number }?, gems: number? }, source: string, idempotencyKey: string?): (boolean, string?)
-	local errOut: string? = nil
-	local newState: any = nil
-	local ok = pcall(function()
-		newState = botStore:UpdateAsync(stateKey(botId), function(state)
-			state = state or freshState()
-			if idempotencyKey and state.claimed[idempotencyKey] then
-				errOut = nil
-				return state
-			end
-			local gems = delta.gems or 0
-			if state.gems + gems < 0 then
-				errOut = "insufficient_gems"
-				return nil
-			end
-			if delta.items then
-				for itemId, count in delta.items do
-					if (state.inventory[itemId] or 0) + count < 0 then
-						errOut = "insufficient_items:" .. itemId
-						return nil
-					end
-				end
-			end
-			state.gems += gems
-			if gems > 0 then
-				state.lifetime.earned += gems
-			elseif gems < 0 then
-				state.lifetime.spent -= gems
-			end
-			if delta.items then
-				for itemId, count in delta.items do
-					local newCount = (state.inventory[itemId] or 0) + count
-					state.inventory[itemId] = newCount ~= 0 and newCount or nil
-				end
-			end
-			if idempotencyKey then
-				state.claimed[idempotencyKey] = true
-			end
-			errOut = nil
-			return state
-		end)
-	end)
-	if not ok then
-		return false, "store_error"
+	local state = getState(botId)
+	if idempotencyKey and state.claimed[idempotencyKey] then
+		return true, nil -- already applied
 	end
-	if errOut == nil and newState ~= nil then
-		stateCache[botId] = { state = newState, at = os.clock() }
+	local gems = delta.gems or 0
+	if state.gems + gems < 0 then
+		return false, "insufficient_gems"
 	end
-	return errOut == nil, errOut
+	if delta.items then
+		for itemId, count in delta.items do
+			if (state.inventory[itemId] or 0) + count < 0 then
+				return false, "insufficient_items:" .. itemId
+			end
+		end
+	end
+	state.gems += gems
+	if gems > 0 then
+		state.lifetime.earned += gems
+	elseif gems < 0 then
+		state.lifetime.spent -= gems
+	end
+	if delta.items then
+		for itemId, count in delta.items do
+			local newCount = (state.inventory[itemId] or 0) + count
+			state.inventory[itemId] = newCount ~= 0 and newCount or nil
+		end
+	end
+	if idempotencyKey then
+		state.claimed[idempotencyKey] = true
+	end
+	return true, nil
 end
 
 function BotService.credit(botId: number, items: { [string]: number }, gems: number, claimId: string): boolean
@@ -160,46 +159,17 @@ function BotService.credit(botId: number, items: { [string]: number }, gems: num
 end
 
 function BotService.storeCount(botId: number, itemId: string): number
-	local cached = stateCache[botId]
-	local s = cached and cached.state
-	if s == nil then
-		pcall(function()
-			s = botStore:GetAsync(stateKey(botId))
-		end)
-	end
-	return s and s.storePurchases and s.storePurchases[itemId] or 0
+	local s = getState(botId)
+	return s.storePurchases[itemId] or 0
 end
 
 function BotService.bumpStoreCount(botId: number, itemId: string)
-	pcall(function()
-		local newState = botStore:UpdateAsync(stateKey(botId), function(s)
-			s = s or freshState()
-			s.storePurchases = s.storePurchases or {}
-			s.storePurchases[itemId] = (s.storePurchases[itemId] or 0) + 1
-			return s
-		end)
-		if newState then
-			stateCache[botId] = { state = newState, at = os.clock() }
-		end
-	end)
-end
-
-local function getState(botId: number): any
-	local cached = stateCache[botId]
-	if cached and os.clock() - cached.at < CACHE_TTL then
-		return cached.state
-	end
-	local state
-	pcall(function()
-		state = botStore:GetAsync(stateKey(botId))
-	end)
-	state = state or freshState()
-	stateCache[botId] = { state = state, at = os.clock() }
-	return state
+	local s = getState(botId)
+	s.storePurchases[itemId] = (s.storePurchases[itemId] or 0) + 1
 end
 
 --------------------------------------------------------------------------------
--- Seeding: deterministic round-robin reserve draws
+-- Seeding: deterministic round-robin draws (in-memory reserve, no DataStore)
 --------------------------------------------------------------------------------
 
 local function seedBot(bot: any)
@@ -207,6 +177,9 @@ local function seedBot(bot: any)
 	if state.seeded then
 		return
 	end
+	state.seeded = true
+	state.gems += BotConfig.StartGems
+
 	local candidates = {}
 	for itemId, item in EconomyService.allItems() do
 		if (item.assignmentWeight or 0) > 0 then
@@ -214,32 +187,15 @@ local function seedBot(bot: any)
 		end
 	end
 	table.sort(candidates) -- stable order -> deterministic draws
-	local granted: { [string]: number } = {}
-	if #candidates > 0 then
-		for d = 1, BotConfig.StarterDraws do
-			local itemId = candidates[((bot.index + d * 3) % #candidates) + 1]
-			if EconomyService.reserveOne(itemId) then -- broadcast is coalesced centrally now
-				granted[itemId] = (granted[itemId] or 0) + 1
-			end
+	if #candidates == 0 then
+		return
+	end
+	for d = 1, BotConfig.StarterDraws do
+		local itemId = candidates[((bot.index + d * 3) % #candidates) + 1]
+		if EconomyService.reserveOneLazy(itemId) then
+			state.inventory[itemId] = (state.inventory[itemId] or 0) + 1
 		end
 	end
-	pcall(function()
-		local newState = botStore:UpdateAsync(stateKey(bot.userId), function(s)
-			s = s or freshState()
-			if s.seeded then
-				return s
-			end
-			s.seeded = true
-			s.gems += BotConfig.StartGems
-			for itemId, count in granted do
-				s.inventory[itemId] = (s.inventory[itemId] or 0) + count
-			end
-			return s
-		end)
-		if newState then
-			stateCache[bot.userId] = { state = newState, at = os.clock() }
-		end
-	end)
 end
 
 --------------------------------------------------------------------------------
@@ -247,7 +203,6 @@ end
 --------------------------------------------------------------------------------
 
 -- Fair value: market Value (RAP-blended) tilted by normalized demand.
--- Deterministic from the economy snapshot.
 local fairCache: { [string]: number } = {}
 local function fair(itemId: string): number
 	local cached = fairCache[itemId]
@@ -266,27 +221,111 @@ local function fair(itemId: string): number
 	return f
 end
 
--- Rotating private values (taste shocks): the DesireCount items this bot
--- currently desires, derived from (index, epoch) with co-prime strides.
--- Rotates every DesireRotateSeconds — deterministic, dice-free. Stashed on
--- the bot at pass start as bot.desired.
-local function desiresFor(bot: any, itemIds: { string }): { [string]: boolean }
+-- Per-sweep market signal context (computed once, shared by all bots). Every
+-- number here is a real observable, which is what makes the demand "reasoned".
+local RARITY_RANK = { Common = 0.15, Rare = 0.45, Legendary = 0.75, Mythical = 1.0 }
+local function buildContext(itemIds: { string }, book: any)
+	local ctx = {
+		valueGap = {} :: { [string]: number }, -- (Value - bestAsk)/Value, underpricing
+		demandNorm = {} :: { [string]: number }, -- demand EMA normalized 0..1
+		scarcity = {} :: { [string]: number }, -- 1 - circulating/totalSupply
+		rarity = {} :: { [string]: number }, -- rarity rank 0..1
+		recipeInput = {} :: { [string]: number }, -- recipe profitability if an input
+	}
+	for _, itemId in itemIds do
+		local snap = EconomyService.snapshot(itemId)
+		local value = snap and snap.value and snap.value.value or fair(itemId)
+		local ask = book.bestAsk[itemId]
+		ctx.valueGap[itemId] = (ask and value > 0) and math.max(0, (value - ask) / value) or 0
+		local demand = (snap and snap.demand and snap.demand.state == "Known") and (snap.demand.value or 0) or 0
+		ctx.demandNorm[itemId] = math.min(demand / BotConfig.DemandRef, 1)
+		local total = (snap and snap.totalSupply) or 1
+		local circ = (snap and snap.supply and snap.supply.value) or 0
+		ctx.scarcity[itemId] = math.clamp(1 - circ / math.max(total, 1), 0, 1)
+		local item = EconomyService.getItem(itemId)
+		ctx.rarity[itemId] = item and RARITY_RANK[item.rarity] or 0.3
+	end
+
+	-- recipe inputs: for each active recipe whose output beats input cost,
+	-- score its inputs by the recipe's profitability margin
+	local CraftingService = require(script.Parent.CraftingService) :: any
+	local now = os.time()
+	for _, event in CraftingService.activeEvents(now) do
+		for _, recipe in event.recipes do
+			local outId = CraftingService.outputIdFor(recipe.output.sku)
+			local cost = recipe.gems or 0
+			for inId, count in recipe.inputs do
+				cost += fair(inId) * count
+			end
+			local margin = cost > 0 and (fair(outId) - cost) / cost or 0
+			if margin > 0 then
+				for inId in recipe.inputs do
+					ctx.recipeInput[inId] = math.max(ctx.recipeInput[inId] or 0, margin)
+				end
+			end
+		end
+	end
+	return ctx
+end
+
+-- Archetype desire score for one item (>0 means the bot wants to acquire it).
+-- A small rarity floor keeps every non-maker bot expressing SOME reasoned
+-- demand even when its primary signal is flat (e.g. a momentum bot before any
+-- demand has built, or a fundamentalist when nothing is trading below Value):
+-- absent a live signal it leans toward rarer items, which is still a real
+-- reason (scarcer = more prized), never a coin flip. Its archetype signal —
+-- scaled 0..1 — dominates the floor the moment it appears.
+local function desireScore(bot: any, itemId: string, ctx: any, owned: number): number
+	local a = bot.archetype
+	local floor = (ctx.rarity[itemId] or 0.3) * 0.05
+	if a == "fundamentalist" then
+		return floor + (ctx.valueGap[itemId] or 0)
+	elseif a == "momentum" then
+		return floor + (ctx.demandNorm[itemId] or 0)
+	elseif a == "speculator" then
+		return floor + (ctx.scarcity[itemId] or 0)
+	elseif a == "crafter" then
+		return floor + (ctx.recipeInput[itemId] or 0)
+	elseif a == "collector" then
+		return floor + (ctx.rarity[itemId] or 0) / (1 + owned)
+	end
+	return 0 -- maker: no directional desire
+end
+
+-- The DesireCount items this bot most wants right now, by its archetype's
+-- reasoned score. Deterministic (score desc, itemId tiebreak). Stashed as
+-- bot.desired for the pass. Makers desire nothing (they quote both sides).
+local function computeDesires(bot: any, itemIds: { string }, ctx: any, state: any): { [string]: boolean }
 	local set: { [string]: boolean } = {}
-	local n = #itemIds
-	if n == 0 then
+	if bot.archetype == "maker" then
 		return set
 	end
-	local epoch = math.floor(os.time() / BotConfig.DesireRotateSeconds)
-	for k = 0, BotConfig.DesireCount - 1 do
-		set[itemIds[((bot.index * 11 + epoch * 17 + k * 29) % n) + 1]] = true
+	local scored = {}
+	for _, itemId in itemIds do
+		local s = desireScore(bot, itemId, ctx, state.inventory[itemId] or 0)
+		if s > 0 then
+			table.insert(scored, { id = itemId, s = s })
+		end
+	end
+	table.sort(scored, function(x, y)
+		if x.s ~= y.s then
+			return x.s > y.s
+		end
+		return x.id < y.id
+	end)
+	for k = 1, math.min(BotConfig.DesireCount, #scored) do
+		set[scored[k].id] = true
 	end
 	return set
 end
 
--- Private-value multiplier: desired items are worth more TO THIS BOT,
--- everything else slightly less. The overlap between one bot's boosted bid
--- and another's trimmed ask is what makes deterministic quotes cross.
+-- Private-value multiplier. Makers value everything at true fair (neutral —
+-- they earn the spread, not a directional view). Others boost desired items
+-- and trim the rest; the boosted-bid/trimmed-ask overlap is what clears.
 local function pref(bot: any, itemId: string): number
+	if bot.archetype == "maker" then
+		return 1
+	end
 	if bot.desired and bot.desired[itemId] then
 		return 1 + BotConfig.PrefBoost
 	end
@@ -299,23 +338,21 @@ local function reservation(bot: any, itemId: string, position: number): number
 	return fair(itemId) * pref(bot, itemId) * (1 - bot.gamma * excess)
 end
 
--- Hunger: edge tightens every sweep without a fill, so a frozen book
--- always unfreezes (the starved bot eventually crosses the spread).
+-- Hunger: edge tightens every sweep without a fill, so a frozen book unfreezes.
 local function effectiveEdge(bot: any, sweep: number): number
 	local starved = sweep - (bot.lastFillSweep or 0)
 	return math.max(BotConfig.MinEdge, bot.edge / (1 + BotConfig.HungerEdgeDecay * starved))
 end
 
--- Book view built once per sweep from rawOpenListings: best ask/bid per
--- item + the raw lists (locally decremented as deals execute).
+-- Book view built once per sweep: best ask/bid per item + raw lists.
 local function buildBook(listings: { any })
 	local book = {
-		sells = {} :: { any }, -- open sell listings
-		bulks = {} :: { any }, -- open bulk bids
+		sells = {} :: { any },
+		bulks = {} :: { any },
 		swaps = {} :: { any },
 		bestAsk = {} :: { [string]: number },
 		bestBid = {} :: { [string]: number },
-		ownOpen = {} :: { [number]: { any } }, -- posterId -> listings
+		ownOpen = {} :: { [number]: { any } },
 	}
 	for _, l in listings do
 		if l.kind == "sell" then
@@ -347,17 +384,17 @@ end
 -- One bot pass (pure decisions -> real board/store/craft calls)
 --------------------------------------------------------------------------------
 
-local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { string }
+local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: number): { string }
 	local TradeBoardService = require(script.Parent.TradeBoardService) :: any
 	local StoreService = require(script.Parent.StoreService) :: any
 	local CraftingService = require(script.Parent.CraftingService) :: any
 
-	bot.desired = desiresFor(bot, itemIds)
-	local edge = effectiveEdge(bot, sweep)
 	local state = getState(bot.userId)
+	bot.desired = computeDesires(bot, itemIds, ctx, state)
+	local edge = effectiveEdge(bot, sweep)
 	local actions: { string } = {}
 
-	-- position value + escrow-inclusive net worth (v2 bug fix)
+	-- position value + escrow-inclusive net worth
 	local invValue = 0
 	for itemId, count in state.inventory do
 		invValue += fair(itemId) * count
@@ -384,7 +421,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 	----------------------------------------------------------------------
 	local candidates: { { profit: number, tag: string, run: () -> boolean } } = {}
 
-	-- lift underpriced asks (only while not starved for gems)
 	if gemFrac > bot.targetGemFrac * 0.5 then
 		for _, l in book.sells do
 			if l.posterId ~= bot.userId and l.remainingCount > 0 then
@@ -399,7 +435,7 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 							run = function()
 								local res = TradeBoardService.botBuy(bot.userId, bot.name, l.id, count)
 								if res.ok then
-									l.remainingCount -= count -- local book decrement
+									l.remainingCount -= count
 								end
 								return res.ok == true
 							end,
@@ -409,7 +445,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 			end
 		end
 	end
-	-- fill overpaying bids
 	for _, l in book.bulks do
 		if l.posterId ~= bot.userId and l.remainingCount > 0 then
 			local owned = state.inventory[l.itemId] or 0
@@ -433,9 +468,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 			end
 		end
 	end
-	-- accept +EV auto swaps (private values on BOTH sides: the give side is
-	-- worth more to a bot that desires it, the want side costs less to one
-	-- that doesn't — opposite tastes are exactly when barter clears)
 	for _, l in book.swaps do
 		if l.posterId ~= bot.userId and l.status == "open" then
 			local receive = Tax.split(l.give.gems)
@@ -465,7 +497,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 			end
 		end
 	end
-	-- primary-market arb: NPC store stock under fair value
 	if gemFrac > bot.targetGemFrac * 0.5 then
 		for _, s in StoreService.shelfForBots() do
 			local pos = state.inventory[s.itemId] or 0
@@ -481,9 +512,7 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 			end
 		end
 	end
-	-- production arb: craft when output beats input cost; remember missing
-	-- inputs so the QUOTE phase can bid for them (need-based pricing)
-	local neededInputs: { [string]: number } = {} -- itemId -> justified bid price
+	local neededInputs: { [string]: number } = {}
 	local now = os.time()
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
@@ -509,7 +538,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 							end,
 						})
 					else
-						-- the recipe justifies paying up to fair for inputs
 						for itemId, count in recipe.inputs do
 							if (state.inventory[itemId] or 0) < count then
 								neededInputs[itemId] = math.floor(fair(itemId) + 0.5)
@@ -525,7 +553,7 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 		if a.profit ~= b.profit then
 			return a.profit > b.profit
 		end
-		return a.tag < b.tag -- deterministic tiebreak
+		return a.tag < b.tag
 	end)
 	local taken = 0
 	for _, c in candidates do
@@ -535,16 +563,14 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 		if c.run() then
 			taken += 1
 			table.insert(actions, c.tag)
-			bot.lastFillSweep = sweep -- fed: hunger resets, edge relaxes
-			state = getState(bot.userId)
+			bot.lastFillSweep = sweep
 			spendable = state.gems - BotConfig.MinGemsKept
 		end
 	end
 
 	----------------------------------------------------------------------
-	-- QUOTE: maintain ask+bid on specialization + desired items (+ inputs)
+	-- QUOTE: maintain ask+bid on focus + desired items (+ needed inputs)
 	----------------------------------------------------------------------
-	-- specialization: fixed slice of the item universe by bot index
 	local focus: { [string]: boolean } = {}
 	if #itemIds > 0 then
 		for k = 0, BotConfig.QuoteItemsPerBot - 1 do
@@ -552,25 +578,22 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 		end
 	end
 	for itemId in bot.desired do
-		focus[itemId] = true -- bid on what the bot actually wants right now
+		focus[itemId] = true
 	end
 	for itemId in neededInputs do
 		focus[itemId] = true
 	end
-	-- items the bot is overweight in are always quotable for selling
 	for itemId, count in state.inventory do
 		if count > BotConfig.MaxHoldPerItem then
 			focus[itemId] = true
 		end
 	end
-	-- hash iteration order is nondeterministic; sort for reproducibility
 	local focusList = {}
 	for itemId in focus do
 		table.insert(focusList, itemId)
 	end
 	table.sort(focusList)
 
-	-- index own open quotes by item
 	local ownSell: { [string]: any } = {}
 	local ownBulk: { [string]: any } = {}
 	local ownSwaps: { any } = {}
@@ -587,30 +610,27 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 	local quoted = 0
 	for _, itemId in focusList do
 		if quoted >= 2 then
-			break -- bounded board churn per pass
+			break
 		end
 		local value = EconomyService.valueOf(itemId)
 		local pos = state.inventory[itemId] or 0
 		local r = reservation(bot, itemId, pos)
 
-		-- ASK side: own a copy -> keep a sell quote near r*(1+edge)
 		if pos >= 1 then
 			local floorPrice = math.max(1, math.floor(math.max(r * (1 + edge / 2), value * BotConfig.MinSellVsValue) + 0.5))
 			local target = math.floor(r * (1 + edge) + 0.5)
 			local ask = book.bestAsk[itemId]
 			if ask and ask - 1 >= floorPrice and ask - 1 < target then
-				target = ask - 1 -- undercut inside our floor
+				target = ask - 1
 			end
 			target = math.max(target, floorPrice)
 			local existing = ownSell[itemId]
-			-- reprice only on real drift; age-based reposting was pure churn
 			local drifted = existing
 				and math.abs(existing.gemsPerCopy - target) > math.max(1, target * BotConfig.RepriceFrac)
 			if existing and drifted then
 				if TradeBoardService.botCancel(bot.userId, existing.id).ok then
 					table.insert(actions, "reprice_cancel")
 					existing = nil
-					state = getState(bot.userId)
 					pos = state.inventory[itemId] or 0
 				end
 			end
@@ -624,22 +644,20 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 				}).ok then
 					table.insert(actions, "post_sell")
 					quoted += 1
-					state = getState(bot.userId)
 				end
 			end
 		end
 
-		-- BID side: below target gem fraction we don't bid (shedding mode)
 		if gemFrac >= bot.targetGemFrac * 0.6 and pos < BotConfig.MaxHoldPerItem then
 			local ceiling = math.floor(math.min(r * (1 - edge / 2), value * BotConfig.MaxBidVsValue) + 0.5)
 			local target = math.floor(r * (1 - edge) + 0.5)
 			local need = neededInputs[itemId]
 			if need then
-				target = math.min(need, ceiling) -- recipe-justified bid
+				target = math.min(need, ceiling)
 			end
 			local bid = book.bestBid[itemId]
 			if bid and bid + 1 <= ceiling and bid + 1 > target then
-				target = bid + 1 -- outbid inside our ceiling
+				target = bid + 1
 			end
 			target = math.min(math.max(1, target), ceiling)
 			local count = BotConfig.QuoteCopies
@@ -650,7 +668,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 				if TradeBoardService.botCancel(bot.userId, existing.id).ok then
 					table.insert(actions, "reprice_cancel")
 					existing = nil
-					state = getState(bot.userId)
 					spendable = state.gems - BotConfig.MinGemsKept
 				end
 			end
@@ -663,7 +680,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 				}).ok then
 					table.insert(actions, "post_bulk")
 					quoted += 1
-					state = getState(bot.userId)
 				end
 			end
 		end
@@ -673,21 +689,18 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 	-- BARTER: keep one 1-for-1 auto-swap open (give non-desired, want
 	-- desired, comparable fair value). Opposite-taste bots accept it.
 	----------------------------------------------------------------------
-	-- drop swaps whose want-side the bot no longer desires (taste rotated)
 	local openSwap: any = nil
 	for _, l in ownSwaps do
 		local wantId = next(l.want.items)
 		if wantId == nil or not bot.desired[wantId] then
 			if TradeBoardService.botCancel(bot.userId, l.id).ok then
 				table.insert(actions, "swap_retire")
-				state = getState(bot.userId)
 			end
 		elseif openSwap == nil then
 			openSwap = l
 		end
 	end
-	if openSwap == nil then
-		-- give: the highest-fair non-desired item held (deterministic pick)
+	if openSwap == nil and next(bot.desired) ~= nil then
 		local giveId: string? = nil
 		for itemId, count in state.inventory do
 			if count >= 1 and not bot.desired[itemId] then
@@ -697,7 +710,6 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 			end
 		end
 		if giveId then
-			-- want: a desired item under target, fair value within the gap
 			local giveFair = fair(giveId)
 			local wantId: string? = nil
 			local wantIds = {}
@@ -728,6 +740,59 @@ local function pass(bot: any, book: any, itemIds: { string }, sweep: number): { 
 	end
 
 	return actions
+end
+
+--------------------------------------------------------------------------------
+-- Admin inspector snapshot (temporary; gated remote in Start)
+--------------------------------------------------------------------------------
+
+function BotService.debugSnapshot(): any
+	local rows = {}
+	local totalGems, totalWorth = 0, 0
+	local archCounts: { [string]: number } = {}
+	-- use valueOf (not the shared per-sweep fairCache) so an admin fetch never
+	-- clobbers an in-flight sweep's cached fair values
+	for _, bot in bots do
+		local s = getState(bot.userId)
+		local invValue, invCount = 0, 0
+		for itemId, count in s.inventory do
+			invValue += EconomyService.valueOf(itemId) * count
+			invCount += count
+		end
+		local worth = s.gems + invValue
+		totalGems += s.gems
+		totalWorth += worth
+		archCounts[bot.archetype] = (archCounts[bot.archetype] or 0) + 1
+		local desired = {}
+		if bot.desired then
+			for itemId in bot.desired do
+				local item = EconomyService.getItem(itemId)
+				table.insert(desired, item and item.name or itemId)
+			end
+			table.sort(desired)
+		end
+		table.insert(rows, {
+			name = bot.name,
+			archetype = bot.archetype,
+			gems = s.gems,
+			invCount = invCount,
+			invValue = math.floor(invValue + 0.5),
+			worth = math.floor(worth + 0.5),
+			earned = s.lifetime.earned,
+			spent = s.lifetime.spent,
+			desired = desired,
+		})
+	end
+	table.sort(rows, function(a, b)
+		return a.worth > b.worth
+	end)
+	return {
+		count = #bots,
+		totalGems = totalGems,
+		totalWorth = math.floor(totalWorth + 0.5),
+		archCounts = archCounts,
+		bots = rows,
+	}
 end
 
 --------------------------------------------------------------------------------
@@ -769,11 +834,20 @@ end
 
 function BotService.Init()
 	StoreAdapters.init()
-	botStore = StoreAdapters.dataStore("BotEconomy_v2")
 	lockMap = StoreAdapters.sortedMap("BotLeader_v1")
 end
 
 function BotService.Start()
+	-- admin-only inspector remote (temporary). Gated to DebugConfig.AdminUserIds.
+	local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
+	local Net = require(script.Parent.Parent.Net)
+	Net.bindFunction("GetBotData", function(player)
+		if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
+			return { ok = false, err = "not_admin" }
+		end
+		return { ok = true, data = BotService.debugSnapshot() }
+	end)
+
 	if not BotConfig.Enabled then
 		task.spawn(function()
 			task.wait(5)
@@ -787,21 +861,18 @@ function BotService.Start()
 		local sweep = 0
 		while true do
 			if tryAcquireLease() then
-				-- staggered seeding: spreads the CAS burst (StarterDraws+1
-				-- writes per bot) across real wall-clock time so DataStore's
-				-- write budget queues gracefully instead of erroring. The
-				-- MessagingService side is handled centrally now —
-				-- EconomyService.broadcastStats coalesces bursts on its own.
+				-- seeding is in-memory now (no DataStore) — fast; light yields
+				-- only to avoid a single-frame hitch across 500 bots.
 				for idx, bot in bots do
 					seedBot(bot)
-					if idx % 5 == 0 then
-						task.wait(0.3)
+					if idx % 50 == 0 then
+						task.wait()
 					end
 				end
 				while tryAcquireLease() do
 					sweep += 1
 					local sweepStart = os.clock()
-					table.clear(fairCache) -- fresh fair values each sweep
+					table.clear(fairCache)
 
 					local TradeBoardService = require(script.Parent.TradeBoardService) :: any
 					local book = buildBook(TradeBoardService.rawOpenListings())
@@ -814,29 +885,26 @@ function BotService.Start()
 					end
 					table.sort(itemIds)
 
+					local ctx = buildContext(itemIds, book)
+
 					local sweepActions = 0
 					for idx, bot in bots do
-						local ok, actions = pcall(pass, bot, book, itemIds, sweep)
+						local ok, actions = pcall(pass, bot, book, itemIds, ctx, sweep)
 						if ok then
 							sweepActions += #actions
 						else
 							warn("[Bots] pass failed for " .. bot.name .. ": " .. tostring(actions))
 						end
-						if idx % 5 == 0 then
-							task.wait(0.1) -- yield; spreads board ops across the sweep
+						if idx % 10 == 0 then
+							task.wait() -- yield each ~10 bots; spreads board ops
 						end
 					end
 
-					-- gem faucet: taxes/store/crafts only drain the population;
-					-- top up poor bots so the market never starves to death
 					if sweep % BotConfig.StipendEvery == 0 then
-						for idx, bot in bots do
+						for _, bot in bots do
 							local s = getState(bot.userId)
 							if s.gems < BotConfig.StipendBelowGems then
 								BotService.applyDelta(bot.userId, { gems = BotConfig.StipendGems }, "stipend")
-							end
-							if idx % 10 == 0 then
-								task.wait(0.1)
 							end
 						end
 					end

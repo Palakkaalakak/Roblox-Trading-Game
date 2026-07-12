@@ -64,6 +64,7 @@ local Enums = {
 		"SetStatus", -- (text) -> {ok, err} — filtered "looking for" text
 		"SetStatChips", -- (keys) -> {ok, err} — owner pins <=4 stats
 		"SetPrivacy", -- ({hideValue, hideShowcase}) -> {ok, err}
+		"GetBotData", -- () -> {ok, data} — admin-only bot inspector (temporary)
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)
@@ -73,6 +74,7 @@ local Enums = {
 		"TradeSettled", -- (tradeId, receivedItems, receivedGems)
 		"TradeAborted", -- (tradeId, reason)
 		"Notify", -- (text) — generic notification toast
+		"BoardActivity", -- ({text, t}) — live trade-feed line (fills/swaps)
 	},
 }
 

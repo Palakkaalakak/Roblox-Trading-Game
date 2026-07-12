@@ -19,12 +19,11 @@ return {
 	tests = {
 		["rarity threshold boundaries"] = function()
 			eq(Rarity.tierFor(20000), "Common")
-			eq(Rarity.tierFor(15000), "Common")
-			eq(Rarity.tierFor(14999), "Rare")
-			eq(Rarity.tierFor(6000), "Rare")
-			eq(Rarity.tierFor(5999), "Legendary")
-			eq(Rarity.tierFor(2000), "Legendary")
-			eq(Rarity.tierFor(1999), "Mythical")
+			eq(Rarity.tierFor(19999), "Rare")
+			eq(Rarity.tierFor(5000), "Rare")
+			eq(Rarity.tierFor(4999), "Legendary")
+			eq(Rarity.tierFor(800), "Legendary")
+			eq(Rarity.tierFor(799), "Mythical")
 			eq(Rarity.tierFor(1), "Mythical")
 		end,
 

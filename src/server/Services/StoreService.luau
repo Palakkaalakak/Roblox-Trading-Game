@@ -161,8 +161,11 @@ local function buyCore(userId: number, itemId: any)
 	if not charged then
 		return { ok = false, err = chargeErr }
 	end
-	-- ...then take a copy out of stock (atomic cross-server CAS)
-	local reserved = EconomyService.reserveOne(itemId)
+	-- ...then take a copy out of stock. Bots use the lazy in-memory reserve
+	-- (leader-local; no per-buy DataStore write) so 500 bots buying store
+	-- stock each sweep can't stall the shared request budget; real players
+	-- keep the strong cross-server CAS.
+	local reserved = if isBot then EconomyService.reserveOneLazy(itemId) else EconomyService.reserveOne(itemId)
 	if not reserved then
 		if isBot then
 			bots().applyDelta(userId, { gems = price }, Enums.GrantSource.Refund)
