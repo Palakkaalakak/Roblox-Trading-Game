@@ -278,8 +278,8 @@ end
 
 function PoolService.Init()
 	StoreAdapters.init()
-	poolStore = StoreAdapters.dataStore("PoolStore_v2")
-	lockMap = StoreAdapters.sortedMap("PoolLocks_v2")
+	poolStore = StoreAdapters.dataStore("PoolStore_v3")
+	lockMap = StoreAdapters.sortedMap("PoolLocks_v3")
 end
 
 function PoolService.Start()

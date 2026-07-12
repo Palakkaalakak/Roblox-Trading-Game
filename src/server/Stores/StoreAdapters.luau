@@ -97,13 +97,22 @@ local function mockSortedMap(name: string)
 	function api.RemoveAsync(_, key: string)
 		map[key] = nil
 	end
-	-- first `count` entries by key order: { {key=k, value=v}, ... }
-	function api.GetRangeAsync(_, _direction: any, count: number): { any }
+	-- `count` entries by key order (direction-aware), paged via `bound`
+	-- (exclusive: after it when Ascending, before it when Descending).
+	function api.GetRangeAsync(_, direction: any, count: number, bound: string?): { any }
+		local descending = direction == Enum.SortDirection.Descending
 		local keys = {}
 		for k in map do
-			table.insert(keys, k)
+			if bound == nil or (descending and k < bound) or (not descending and k > bound) then
+				table.insert(keys, k)
+			end
 		end
-		table.sort(keys)
+		table.sort(keys, function(a, b)
+			if descending then
+				return a > b
+			end
+			return a < b
+		end)
 		local out = {}
 		for i = 1, math.min(count, #keys) do
 			table.insert(out, { key = keys[i], value = deepCopy(map[keys[i]]) })
@@ -200,9 +209,14 @@ local function liveSortedMap(name: string)
 			return map:RemoveAsync(key)
 		end)
 	end
-	function api.GetRangeAsync(_, direction: any, count: number): { any }
+	-- `bound` pages: keys strictly AFTER it (Ascending) / BEFORE it (Descending).
+	function api.GetRangeAsync(_, direction: any, count: number, bound: string?): { any }
+		direction = direction or Enum.SortDirection.Ascending
 		local ok, page = withRetry("Map GetRangeAsync " .. name, 3, function()
-			return map:GetRangeAsync(direction or Enum.SortDirection.Ascending, math.min(count, 200))
+			if direction == Enum.SortDirection.Descending then
+				return map:GetRangeAsync(direction, math.min(count, 200), nil, bound)
+			end
+			return map:GetRangeAsync(direction, math.min(count, 200), bound, nil)
 		end)
 		if not ok or page == nil then
 			return {}

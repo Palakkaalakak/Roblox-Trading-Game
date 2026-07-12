@@ -212,7 +212,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				if not listing.mine and countBox.Visible then
 					local n = math.clamp(tonumber(countBox.Text) or 0, 0, remaining)
 					local net = Tax.split(n * listing.gemsPerCopy)
-					table.insert(lines, ("Give %d → you get %d 💎 (after tax)"):format(n, net))
+					table.insert(lines, ("Give %d → you get %d gems (after tax)"):format(n, net))
 				end
 				info.Text = table.concat(lines, "\n")
 			end
@@ -255,7 +255,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 					end)
 					if result then
 						if result.ok then
-							toast(("Contributed %d — earned %d 💎 (after tax)!"):format(result.count, result.payout), Theme.Good)
+							toast(("Contributed %d — earned %d gems (after tax)!"):format(result.count, result.payout), Theme.Good)
 						else
 							toast("Couldn't contribute: " .. tostring(result.err), Theme.Bad)
 						end
@@ -287,7 +287,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				}
 				if not listing.mine and countBox.Visible then
 					local n = math.clamp(tonumber(countBox.Text) or 0, 0, remaining)
-					table.insert(lines, ("Buy %d → costs %d 💎"):format(n, n * listing.gemsPerCopy))
+					table.insert(lines, ("Buy %d → costs %d gems"):format(n, n * listing.gemsPerCopy))
 				end
 				info.Text = table.concat(lines, "\n")
 			end
@@ -326,7 +326,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 					end)
 					if result then
 						if result.ok then
-							toast(("Bought %d for %d 💎!"):format(result.count, result.spent), Theme.Good)
+							toast(("Bought %d for %d gems!"):format(result.count, result.spent), Theme.Good)
 						elseif result.err == "insufficient_gems" then
 							toast("Not enough gems!", Theme.Bad)
 						else

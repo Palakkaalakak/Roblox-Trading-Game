@@ -1,57 +1,75 @@
 --!strict
--- Market bots: simulated traders whose ONLY goal is profit. They hold real
--- durable inventories + gems and act through the exact same escrowed, taxed
--- paths players use — trade board (sell/bulk/swap), the NPC gem store, and
--- event crafting/sacrifices. Their self-interested churn is what seeds
--- prices (RAP) and gets the market moving.
+-- Market bots v3: 100 independent, fully DETERMINISTIC trading agents.
+-- No randomness anywhere — every price and decision is a calculation from
+-- market state (fair value, order book, supply/demand) and the bot's own
+-- position. Strategies (adapted from real market microstructure):
 --
--- KILL SWITCH: set Enabled = false before publishing. Bots stop acting and
--- any listings they still have on the board are cancelled at next boot.
+--   1. INVENTORY-SKEWED MARKET MAKING (Avellaneda-Stoikov, simplified):
+--      each bot quotes a sell (ask) and a bulk buy (bid) around its
+--      reservation price r = fair * (1 - gamma * (position - target)/scale).
+--      Holding too much of an item lowers r (quote cheaper, shed inventory);
+--      holding none raises it (bid harder). Different positions + different
+--      gamma/edge per bot -> quotes structurally cross -> constant trade.
+--   2. STAT-ARB TAKING: lift any ask priced <= r*(1-edge); sell into any
+--      bid whose after-tax proceeds >= r*(1+edge). Pure threshold rules.
+--   3. PRODUCTION ARBITRAGE (events): craft when fair(output) beats total
+--      input cost by the bot's edge; when inputs are missing, BID for them
+--      (need-based pricing — the recipe's profitability sets what the bot
+--      will pay).
+--   4. PRIMARY-MARKET ARB (NPC store): buy stock priced under fair value.
+--
+-- Per-bot parameters derive from the bot index via fixed formulas (below),
+-- so the population is heterogeneous but reproducible run-to-run.
+--
+-- KILL SWITCH: Enabled = false stops all brains and cancels leftover bot
+-- listings at next boot.
 
 local BotConfig = {
 	Enabled = true,
 
-	-- negative userIds can never collide with real players
-	Bots = {
-		{ userId = -101, name = "Ada [bot]", margin = 0.05 }, -- scalper: tiny edges, high volume
-		{ userId = -102, name = "Brutus [bot]", margin = 0.12 }, -- holds out for big wins
-		{ userId = -103, name = "Cleo [bot]", margin = 0.08 },
-		{ userId = -104, name = "Dot [bot]", margin = 0.04 }, -- near-market, trades constantly
-		{ userId = -105, name = "Edgar [bot]", margin = 0.10 },
-	},
+	Count = 100, -- number of independent bots (userIds -101 .. -(100+Count))
 
-	StartGems = 500, -- one-time seed balance per bot
-	StarterDraws = 6, -- one-time seed items per bot (drawn from the live pool reserve)
+	StartGems = 300, -- one-time seed balance per bot
+	StarterDraws = 4, -- one-time seed items per bot (real reserve draws)
 
-	-- Pace: one brain pass per bot every ~TickSeconds (jittered ±50%). Each
-	-- pass may TAKE up to TakesPerTick deals (buy/fill/accept/store/craft)
-	-- and then place/refresh one listing of its own.
-	TickSeconds = 6,
-	TakesPerTick = 3,
-	MaxListingsPerBot = 3, -- board hard cap is 3/poster; use all of it
-	RepriceSeconds = 240, -- cancel + relist own quotes this old (keeps quotes near opinion)
+	-- Pace: one full sweep (every bot thinks once) per SweepSeconds.
+	SweepSeconds = 45,
+	TakesPerPass = 2, -- max deals a bot executes per pass
+	QuoteItemsPerBot = 2, -- how many items a bot actively quotes (specialization)
 
-	-- Opinions: each bot carries a persistent per-item price opinion that
-	-- random-walks each pass (bounded). Bots trade WITH EACH OTHER exactly
-	-- when their opinions disagree by more than their margins — a drifting
-	-- walk crosses far more often than memoryless noise.
-	OpinionWalkStep = 0.04, -- max drift per pass
-	OpinionBound = 0.20, -- opinion stays within ±20% of market value
-	DecisionNoise = 0.03, -- small extra per-decision jitter
+	-- Parameter formulas (index i, 1..Count). Deliberately co-prime strides
+	-- so the three traits decorrelate across the population.
+	--   edge_i   = EdgeMin  + EdgeSpan  * ((i * 7)  % Count) / (Count - 1)
+	--   gamma_i  = GammaMin + GammaSpan * ((i * 13) % Count) / (Count - 1)
+	--   target_i = TargetGemFracMin + TargetGemFracSpan * ((i * 29) % Count) / (Count - 1)
+	EdgeMin = 0.02,
+	EdgeSpan = 0.10,
+	GammaMin = 0.04,
+	GammaSpan = 0.16,
+	TargetGemFracMin = 0.30,
+	TargetGemFracSpan = 0.40,
 
-	-- Guard rails: quotes stay tethered to the market value so bot-bot churn
-	-- can't spiral prices to 0 or the moon no matter how opinions drift.
-	MinSellVsValue = 0.85, -- never quote a sell below 85% of value
-	MaxBidVsValue = 1.15, -- never bid above 115% of value
+	-- Reservation-price model
+	TargetHoldPerItem = 2, -- position target per item
+	SkewScale = 4, -- units of excess position per full gamma step
+	DemandTilt = 0.10, -- fair value tilt per unit of normalized demand
+	DemandRef = 5, -- demand EMA that counts as "fully hot"
 
-	MinGemsKept = 30, -- never spend below this reserve
-	MaxHoldPerItem = 8, -- stop buying an item you're already deep in
-	-- Portfolio pressure: below the low gem fraction the bot only sells;
-	-- above the high fraction it hunts purchases harder.
-	GemFractionLow = 0.25,
-	GemFractionHigh = 0.70,
+	-- Guard rails: quotes stay tethered to market value; deterministic churn
+	-- can't spiral prices.
+	MinSellVsValue = 0.85,
+	MaxBidVsValue = 1.15,
 
-	NetworthLogEvery = 8, -- log bot_networth every N passes per bot
+	-- Quote management: replace own quote when its price drifts off the
+	-- currently-computed one by more than RepriceFrac, or when stale.
+	RepriceFrac = 0.10,
+	RepriceSeconds = 300,
+
+	MinGemsKept = 25,
+	MaxHoldPerItem = 8,
+	QuoteCopies = 2, -- copies per sell quote / per bulk bid
+
+	NetworthLogEvery = 10, -- log bot_networth every N sweeps (aggregate)
 }
 
 return BotConfig

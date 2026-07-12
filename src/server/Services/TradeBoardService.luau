@@ -46,13 +46,27 @@ local EconomyService = require(script.Parent.EconomyService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 local NotificationService = require(script.Parent.NotificationService)
 
-local MAX_LISTINGS_PER_PLAYER = 3
 local MAX_BULK_COUNT = 1000
-local BOARD_PAGE = 100
+local BOARD_PAGE = 200 -- MemoryStore per-request ceiling
+local MAX_BOARD_LISTINGS = 100_000 -- global soft cap per the whole board
+local SCAN_CAP = 2_000 -- how deep routine scans page (newest-first)
 
+-- STORAGE SPLIT — MemoryStore's memory quota is EXPERIENCE-WIDE (~64KB in
+-- Studio, all sorted maps combined; sharding across maps changes nothing).
+-- 100 market bots holding several resting quotes each is >100KB of listings
+-- and can NEVER fit, so:
+--   * PLAYER listings -> MemoryStore map (cross-server + offline settlement;
+--     low volume, a handful per player).
+--   * BOT listings    -> plain server-memory table. Bots run leader-elected
+--     on ONE server, so their order book is inherently server-local; Luau is
+--     single-threaded and the mutate transforms never yield, so in-memory
+--     updates keep the exact CAS semantics MemoryStore gives us. Bot quotes
+--     are pure simulation — they need no durability (a fresh server just
+--     re-quotes) and no cross-server view.
 local TradeBoardService = {}
 
-local board: any -- MemoryStore map "TradeBoard_v1"
+local board: any -- MemoryStore map (player listings only)
+local memBoard: { [string]: any } = {} -- bot listings, id -> record
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -64,6 +78,18 @@ local function newId(): string
 end
 
 local function mutate(id: string, fn: (any) -> any?): (any?, string?)
+	-- bot listing: in-memory transform. Single Luau thread + no yields in fn
+	-- means this is atomic — same CAS guarantee as UpdateAsync.
+	local mem = memBoard[id]
+	if mem ~= nil then
+		local new, err = fn(mem)
+		if new == nil then
+			return nil, err or "cas_aborted"
+		end
+		memBoard[id] = new
+		return new, nil
+	end
+
 	local errOut: string? = nil
 	local result
 	local ok = pcall(function()
@@ -88,6 +114,26 @@ local function mutate(id: string, fn: (any) -> any?): (any?, string?)
 		return nil, errOut or "cas_aborted"
 	end
 	return result, nil
+end
+
+-- terminal cleanup + point read, routed to whichever store holds the id
+local function removeListing(id: string)
+	if memBoard[id] ~= nil then
+		memBoard[id] = nil
+		return
+	end
+	board:RemoveAsync(id)
+end
+
+local function getListing(id: string): any
+	if memBoard[id] ~= nil then
+		return memBoard[id]
+	end
+	local v
+	pcall(function()
+		v = board:GetAsync(id)
+	end)
+	return v
 end
 
 -- Market bots (negative userIds) are full inventory actors: their charges
@@ -178,19 +224,78 @@ function TradeBoardService.isCounterListing(mine: any, theirs: any): boolean
 		and TradeBoardService.offersEqual(mine.want, theirs.give)
 end
 
-local function activeListingCount(userId: number): number
-	local n = 0
-	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
-		local l = entry.value
-		if l and l.posterId == userId and l.status == "open" then
-			n += 1
+local cancelListing -- fwd decl (defined below; scan lazy-expires through it)
+
+-- Newest-first scan over the WHOLE board: in-memory bot listings merged with
+-- the paged MemoryStore player map (both key-sorted descending; ids are
+-- time-prefixed so this is newest-first). Lazy-expires stale listings as it
+-- walks. Every read path uses this, so a fresh post is ALWAYS visible
+-- immediately no matter how many listings exist.
+local lastKnownCount = 0 -- refreshed by every scan; gates the global cap
+local function scanListings(cap: number, fn: (l: any) -> boolean?)
+	local now = os.time()
+
+	-- snapshot bot keys descending (memBoard can shrink mid-walk via expiry)
+	local memKeys = {}
+	for k in memBoard do
+		table.insert(memKeys, k)
+	end
+	table.sort(memKeys, function(a, b)
+		return a > b
+	end)
+	local memIdx = 1
+
+	local storeBuf: { any } = {}
+	local storeIdx = 1
+	local storeBound: string? = nil
+	local storeDone = false
+	local function storePeek(): any
+		if storeIdx > #storeBuf and not storeDone then
+			storeBuf = board:GetRangeAsync(Enum.SortDirection.Descending, BOARD_PAGE, storeBound)
+			storeIdx = 1
+			if #storeBuf > 0 then
+				storeBound = storeBuf[#storeBuf].key
+			end
+			if #storeBuf < BOARD_PAGE then
+				storeDone = true
+			end
+		end
+		if storeIdx > #storeBuf then
+			return nil
+		end
+		return storeBuf[storeIdx]
+	end
+
+	local seen = 0
+	while seen < cap do
+		-- next record = larger key of the two stream heads
+		local memKey = memKeys[memIdx]
+		local storeEntry = storePeek()
+		local l
+		if memKey ~= nil and (storeEntry == nil or memKey > storeEntry.key) then
+			l = memBoard[memKey] -- may be nil if expired mid-walk; skip below
+			memIdx += 1
+		elseif storeEntry ~= nil then
+			l = storeEntry.value
+			storeIdx += 1
+		else
+			break -- both streams exhausted
+		end
+		seen += 1
+		if l and l.status == "open" then
+			if l.expiresAt and now > l.expiresAt then
+				task.spawn(cancelListing, l, "expired")
+			elseif fn(l) == false then
+				lastKnownCount = math.max(lastKnownCount, seen)
+				return
+			end
 		end
 	end
-	return n
+	lastKnownCount = seen
 end
 
 -- cancel + refund escrow (poster action or expiry). Any server may run this.
-local function cancelListing(listing: any, reason: string): boolean
+cancelListing = function(listing: any, reason: string): boolean
 	local committed = mutate(listing.id, function(l)
 		if l.status ~= "open" then
 			return nil, "not_open"
@@ -216,6 +321,12 @@ local function cancelListing(listing: any, reason: string): boolean
 		end
 	end
 	AnalyticsService.log("board_cancelled", { id = committed.id, reason = reason })
+	-- Terminal: drop the key entirely. The MemoryStore memory quota is
+	-- experience-wide and small — leaving cancelled/done rows in place
+	-- (relying on the multi-day TTL) fills it in minutes once posting is
+	-- frequent, and every subsequent SetAsync starts failing with
+	-- TotalMemoryOverLimit.
+	removeListing(committed.id)
 	return true
 end
 
@@ -269,19 +380,30 @@ local function describe(listing: any, viewerId: number): any
 	return out
 end
 
+local CLIENT_PAGE = 200 -- newest listings sent to a client per fetch
+local CLIENT_OWN_EXTRA = 50 -- viewer's own listings ride along even when older
+
 local function handleGetBoard(player: Player)
-	local now = os.time()
 	local listings = {}
-	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
-		local l = entry.value
-		if l and l.status == "open" then
-			if l.expiresAt and now > l.expiresAt then
-				task.spawn(cancelListing, l, "expired") -- lazy expiry, refunds escrow
-			else
-				table.insert(listings, describe(l, player.UserId))
-			end
+	local others = 0
+	local own = 0
+	-- newest-first scan: the viewer's own posts are ALWAYS included (up to
+	-- CLIENT_OWN_EXTRA) even past the page cut, so "I posted it but can't
+	-- see it" is structurally impossible.
+	scanListings(SCAN_CAP, function(l)
+		local mine = l.posterId == player.UserId
+		if mine and own < CLIENT_OWN_EXTRA then
+			own += 1
+			table.insert(listings, describe(l, player.UserId))
+		elseif not mine and others < CLIENT_PAGE then
+			others += 1
+			table.insert(listings, describe(l, player.UserId))
 		end
-	end
+		if others >= CLIENT_PAGE and own >= CLIENT_OWN_EXTRA then
+			return false -- both quotas filled: stop paging
+		end
+		return nil
+	end)
 	return { ok = true, listings = listings }
 end
 
@@ -293,8 +415,9 @@ local function postCore(userId: number, userName: string, payload: any)
 	if type(payload) ~= "table" then
 		return { ok = false, err = "bad_args" }
 	end
-	if activeListingCount(userId) >= MAX_LISTINGS_PER_PLAYER then
-		return { ok = false, err = "too_many_listings" }
+	-- no per-poster limits; only a global board cap (soft, from latest scan)
+	if lastKnownCount >= MAX_BOARD_LISTINGS then
+		return { ok = false, err = "board_full" }
 	end
 
 	local now = os.time()
@@ -426,9 +549,14 @@ local function postCore(userId: number, userName: string, payload: any)
 		return { ok = false, err = "bad_kind" }
 	end
 
-	local stored = pcall(function()
-		board:SetAsync(id, listing, EconomyConfig.BoardListingTTLSeconds + 24 * 3600)
-	end)
+	local stored = true
+	if userId < 0 then
+		memBoard[id] = listing -- bot: server-local order book, never fails
+	else
+		stored = pcall(function()
+			board:SetAsync(id, listing, EconomyConfig.BoardListingTTLSeconds + 24 * 3600)
+		end)
+	end
 	if not stored then
 		-- give the escrow back; posting failed
 		if listing.kind == "swap" then
@@ -455,13 +583,13 @@ end
 -- otherwise notify both posters that their match is on the board.
 function TradeBoardService.tryMatch(listing: any)
 	local match
-	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
-		local other = entry.value
-		if other and TradeBoardService.isCounterListing(listing, other) then
+	scanListings(SCAN_CAP, function(other)
+		if TradeBoardService.isCounterListing(listing, other) then
 			match = other
-			break
+			return false
 		end
-	end
+		return nil
+	end)
 	if match == nil then
 		return
 	end
@@ -519,10 +647,9 @@ function TradeBoardService.tryMatch(listing: any)
 			rec.v += 1
 			return rec
 		end)
+		removeListing(l.id) -- terminal: keep the quota-bound MemoryStore lean
 	end
 
-	NotificationService.notify(mine.posterId, "📌 Matched! Your board trade auto-completed with " .. theirs.posterName .. "!")
-	NotificationService.notify(theirs.posterId, "📌 Matched! Your board trade auto-completed with " .. mine.posterName .. "!")
 	AnalyticsService.log("board_matched", { a = mine.id, b = theirs.id })
 end
 
@@ -593,8 +720,8 @@ local function acceptCore(userId: number, userName: string, id: any)
 		l.v += 1
 		return l
 	end)
+	removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 
-	NotificationService.notify(claimed.posterId, ("📌 Your board trade was accepted by %s!"):format(userName))
 	AnalyticsService.log("board_accepted", { id = id, by = userId })
 	return { ok = true }
 end
@@ -701,7 +828,7 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 	EconomyService.recordSale(committed.itemId, committed.gemsPerCopy, taken)
 
 	if committed.status == "done" then
-		NotificationService.notify(committed.posterId, ("📌 Your bulk order for %dx %s is complete!"):format(committed.wantedCount, committed.itemId))
+		removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 	end
 	AnalyticsService.log("bulk_contributed", { id = id, by = userId, count = taken, net = net, tax = cut })
 	return { ok = true, payout = net, count = taken }
@@ -773,7 +900,7 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 	EconomyService.recordSale(committed.itemId, committed.gemsPerCopy, taken)
 
 	if committed.status == "done" then
-		NotificationService.notify(committed.posterId, ("📌 Your sale of %dx %s sold out!"):format(committed.wantedCount, committed.itemId))
+		removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 	end
 	AnalyticsService.log("sell_bought", { id = id, by = userId, count = taken, spent = spent })
 	return { ok = true, spent = spent, count = taken }
@@ -787,10 +914,7 @@ local function cancelCore(userId: number, id: any)
 	if not Guard.isString(id, 64) then
 		return { ok = false, err = "bad_args" }
 	end
-	local current
-	pcall(function()
-		current = board:GetAsync(id)
-	end)
+	local current = getListing(id)
 	if current == nil or current.posterId ~= userId then
 		return { ok = false, err = "not_yours" }
 	end
@@ -804,20 +928,13 @@ end
 -- Bot entry points + raw reads (BotService brains; no Player involved)
 --------------------------------------------------------------------------------
 
--- Raw open listing records (lazy-expiring, same as the player read path).
-function TradeBoardService.rawOpenListings(): { any }
-	local now = os.time()
+-- Raw open listing records, newest-first, paged (lazy-expiring).
+function TradeBoardService.rawOpenListings(cap: number?): { any }
 	local out = {}
-	for _, entry in board:GetRangeAsync(nil, BOARD_PAGE) do
-		local l = entry.value
-		if l and l.status == "open" then
-			if l.expiresAt and now > l.expiresAt then
-				task.spawn(cancelListing, l, "expired")
-			else
-				table.insert(out, l)
-			end
-		end
-	end
+	scanListings(cap or SCAN_CAP, function(l)
+		table.insert(out, l)
+		return nil
+	end)
 	return out
 end
 
@@ -851,7 +968,37 @@ end
 
 function TradeBoardService.Init()
 	StoreAdapters.init()
-	board = StoreAdapters.sortedMap("TradeBoard_v2")
+	board = StoreAdapters.sortedMap("TradeBoard_v6")
+
+	-- One-time purge of retired MemoryStore maps (old boards + the retired
+	-- EconomyHot mirror). Their entries persist on multi-day TTLs and count
+	-- against the EXPERIENCE-WIDE MemoryStore memory quota — without this,
+	-- writes to the new map keep failing with TotalMemoryOverLimit until the
+	-- old TTLs lapse (days). Cheap when clean: one empty GetRangeAsync per
+	-- retired map. Delete this block once the retired maps have aged out.
+	task.spawn(function()
+		local retired = { "TradeBoard_v3", "TradeBoard_v4", "EconomyHot_v3" }
+		for i = 1, 16 do
+			table.insert(retired, "TradeBoard_v5_" .. i)
+		end
+		local purged = 0
+		for _, name in retired do
+			local old = StoreAdapters.sortedMap(name)
+			while true do
+				local page = old:GetRangeAsync(Enum.SortDirection.Ascending, 200)
+				if #page == 0 then
+					break
+				end
+				for _, entry in page do
+					old:RemoveAsync(entry.key)
+					purged += 1
+				end
+			end
+		end
+		if purged > 0 then
+			print(("[Board] purged %d entries from retired board maps"):format(purged))
+		end
+	end)
 end
 
 function TradeBoardService.Start()

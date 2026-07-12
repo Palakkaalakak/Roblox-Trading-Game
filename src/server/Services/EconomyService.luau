@@ -2,11 +2,19 @@
 -- EconomyService: authoritative shared economy state.
 --   * Global Item Registry (durable; any server resolves any itemId ever made)
 --   * Per-item EconomyRecord: reserve/circulating/demand/RAP
---     - hot copy in MemoryStore sorted map (cross-server, atomic CAS)
---     - durable copy in DataStore (source of truth on cold start)
+--     - durable copy in DataStore (source of truth; atomic UpdateAsync CAS)
+--     - local cache per server, invalidated by MessagingService pings
 --   * value/demand/supply/RAP snapshots with explicit N/A (StatState)
---   * MessagingService invalidation pings -> every server refreshes + pushes
---     StatsUpdated to its clients.
+--
+-- NO MemoryStore here: its memory quota is EXPERIENCE-WIDE and tiny (~64KB
+-- in Studio) — a hot mirror of every item's record ate the entire quota by
+-- itself and starved every other MemoryStore consumer (the trade board).
+-- Consistency is split by what each mutation needs:
+--   * reserve/retire (correctness-critical counts) -> DataStore UpdateAsync,
+--     atomic cross-server, written through immediately
+--   * RAP/demand stats (high-frequency, statistical) -> local record + dirty
+--     flag, flushed durably every HotFlushIntervalSeconds (last-writer-wins
+--     by updatedAt); cross-server readers are at most one flush stale
 --
 -- Stat DAG: supply<-counts, demand<-events, value<-g(demand,supply), RAP<-trades.
 
@@ -28,11 +36,19 @@ local EconomyService = {}
 
 local registryStore: any -- DataStore "ItemRegistry_v1", key "all" -> {itemId -> Item}
 local econStore: any -- DataStore "EconomyStore_v1", key itemId -> EconomyRecord
-local hotMap: any -- MemoryStore map "EconomyHot_v1", key itemId -> EconomyRecord
 
 local registry: { [string]: any } = {} -- itemId -> Item (local cache)
 local hotCache: { [string]: any } = {} -- itemId -> EconomyRecord (local cache)
 local dirty: { [string]: boolean } = {} -- itemIds needing durable flush
+
+-- Cross-server broadcast coalescing: a burst of broadcastStats calls (bot
+-- seeding, a busy sweep, several trades in one tick) collapses into ONE
+-- MessagingService publish per BROADCAST_COALESCE_SECONDS instead of one per
+-- call — a topic's publish rate is tightly capped, and 100 bots trading
+-- concurrently blew through it in seconds without this.
+local pendingBroadcast: { [string]: boolean } = {}
+local broadcastScheduled = false
+local BROADCAST_COALESCE_SECONDS = 1.5
 
 --------------------------------------------------------------------------------
 -- Pure-ish math
@@ -264,68 +280,67 @@ end
 -- Hot record access + mutation
 --------------------------------------------------------------------------------
 
--- Read-through: local cache -> MemoryStore -> durable -> fresh.
+-- Read-through: local cache -> durable -> fresh.
 local function getRecord(itemId: string): any?
 	if hotCache[itemId] then
 		return hotCache[itemId]
 	end
 	local rec
 	pcall(function()
-		rec = hotMap:GetAsync(itemId)
+		rec = econStore:GetAsync(itemId)
 	end)
-	if rec == nil then
-		pcall(function()
-			rec = econStore:GetAsync(itemId)
-		end)
-		if rec ~= nil then
-			-- repopulate hot from durable, but never clobber a newer hot copy
-			pcall(function()
-				hotMap:UpdateAsync(itemId, function(old)
-					return old or rec
-				end)
-			end)
-		end
-	end
 	if rec == nil then
 		local item = EconomyService.getItem(itemId)
 		if item == nil then
 			return nil
 		end
 		rec = freshRecord(itemId, item.totalSupply, os.time())
-		pcall(function()
-			hotMap:UpdateAsync(itemId, function(old)
-				return old or rec
-			end)
-		end)
 	end
 	hotCache[itemId] = rec
 	return rec
 end
 
--- Atomic transform of the hot record (MemoryStore CAS). Marks dirty + caches.
--- CRITICAL: the transform passed to UpdateAsync must be PURE — no yields, no
--- store reads. MemoryStore may invoke it multiple times, and yielding inside
--- it double-applies mutations (this exact bug inflated circulating counts).
--- Missing records are seeded BEFORE the CAS, outside the transform.
+-- STRONG mutation: atomic durable CAS (DataStore UpdateAsync). For
+-- correctness-critical counts (reserve/circulating) that must never
+-- double-apply across servers.
+-- CRITICAL: the transform must be PURE — no yields, no store reads. The
+-- store may invoke it multiple times, and yielding inside it double-applies
+-- mutations (this exact bug inflated circulating counts). The item lookup
+-- happens BEFORE the CAS for the same reason.
 local function mutateRecord(itemId: string, transform: (any) -> any?): any?
-	if getRecord(itemId) == nil then
-		return nil -- unknown item; getRecord already tried durable + fresh seed
+	local item = EconomyService.getItem(itemId)
+	if item == nil then
+		return nil
 	end
 	local result
 	local ok = pcall(function()
-		result = hotMap:UpdateAsync(itemId, function(old)
-			if old == nil then
-				return nil -- key expired between seed and CAS; caller may retry
-			end
-			return transform(old)
+		result = econStore:UpdateAsync(itemId, function(old)
+			return transform(old or freshRecord(itemId, item.totalSupply, os.time()))
 		end)
 	end)
 	if not ok or result == nil then
 		return nil
 	end
 	hotCache[itemId] = result
-	dirty[itemId] = true
 	return result
+end
+
+-- LAZY mutation: local record + dirty flag, flushed durably on a timer.
+-- For high-frequency statistical updates (RAP samples, demand bumps) that a
+-- DataStore write-per-call would throttle into the ground. Cross-server
+-- merge is last-writer-wins by updatedAt at flush time.
+local function mutateRecordLazy(itemId: string, transform: (any) -> any?): any?
+	local rec = getRecord(itemId)
+	if rec == nil then
+		return nil
+	end
+	local new = transform(rec)
+	if new == nil then
+		return nil
+	end
+	hotCache[itemId] = new
+	dirty[itemId] = true
+	return new
 end
 
 --------------------------------------------------------------------------------
@@ -354,7 +369,7 @@ end
 
 -- Demand bump (offer inclusion or trade completion).
 function EconomyService.bumpDemand(itemId: string, amount: number, countAsSample: boolean)
-	mutateRecord(itemId, function(old)
+	mutateRecordLazy(itemId, function(old)
 		local now = os.time()
 		old.demandEMA = decayedDemand(old, now) + amount
 		old.demandT = now
@@ -383,7 +398,7 @@ end
 
 -- Record a closed-trade imputed price into RAP (+ demand sample).
 function EconomyService.recordTradePrice(itemId: string, imputedPrice: number)
-	mutateRecord(itemId, function(old)
+	mutateRecordLazy(itemId, function(old)
 		local now = os.time()
 		old.rapValue, old.rapCount = RollingAverage.push(old.rapValue or 0, old.rapCount or 0, imputedPrice)
 		old.demandEMA = decayedDemand(old, now) + EconomyConfig.DemandBumpOnTrade
@@ -401,7 +416,7 @@ end
 -- looping inside the transform is safe). Sample count capped to bound work.
 function EconomyService.recordSale(itemId: string, pricePerCopy: number, count: number)
 	local samples = math.clamp(count, 1, 50)
-	mutateRecord(itemId, function(old)
+	mutateRecordLazy(itemId, function(old)
 		local now = os.time()
 		local avg, n = old.rapValue or 0, old.rapCount or 0
 		for _ = 1, samples do
@@ -472,10 +487,30 @@ end
 
 -- Invalidation ping: other servers drop caches + everyone pushes fresh
 -- snapshots to clients. Payload = item ids only (MessagingService ~1KB cap).
+-- Local clients get pushStats immediately (unaffected by the coalesce below,
+-- so the acting player's own UI stays snappy); the cross-server publish is
+-- debounced.
 function EconomyService.broadcastStats(itemIds: { string })
-	StoreAdapters.publish(EconomyConfig.StatsBroadcastTopic, { items = itemIds })
-	-- local push (publisher's own clients)
 	EconomyService.pushStats(itemIds)
+
+	for _, itemId in itemIds do
+		pendingBroadcast[itemId] = true
+	end
+	if broadcastScheduled then
+		return
+	end
+	broadcastScheduled = true
+	task.delay(BROADCAST_COALESCE_SECONDS, function()
+		broadcastScheduled = false
+		local ids = {}
+		for itemId in pendingBroadcast do
+			table.insert(ids, itemId)
+		end
+		table.clear(pendingBroadcast)
+		if #ids > 0 then
+			StoreAdapters.publish(EconomyConfig.StatsBroadcastTopic, { items = ids })
+		end
+	end)
 end
 
 function EconomyService.pushStats(itemIds: { string })
@@ -515,9 +550,8 @@ end
 
 function EconomyService.Init()
 	StoreAdapters.init()
-	registryStore = StoreAdapters.dataStore("ItemRegistry_v2")
-	econStore = StoreAdapters.dataStore("EconomyStore_v2")
-	hotMap = StoreAdapters.sortedMap("EconomyHot_v2")
+	registryStore = StoreAdapters.dataStore("ItemRegistry_v3")
+	econStore = StoreAdapters.dataStore("EconomyStore_v3")
 	EconomyService.loadRegistry()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything
@@ -564,7 +598,7 @@ function EconomyService.Start()
 		end
 		for _, itemId in payload.items do
 			if type(itemId) == "string" then
-				hotCache[itemId] = nil -- refetch from MemoryStore on next read
+				hotCache[itemId] = nil -- refetch from durable on next read
 			end
 		end
 		EconomyService.pushStats(payload.items)

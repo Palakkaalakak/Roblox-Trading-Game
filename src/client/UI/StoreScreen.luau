@@ -52,7 +52,7 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local limitText = "Can buy " .. tostring(limit) .. " max";
 		(frame:WaitForChild("ItemName") :: TextLabel).Text = entry.name;
 		(frame:WaitForChild("StockLabel") :: TextLabel).Text = ("%d/%d left"):format(entry.remaining, entry.totalSupply);
-		(frame:WaitForChild("PriceLabel") :: TextLabel).Text = "💎 " .. tostring(entry.price);
+		(frame:WaitForChild("PriceLabel") :: TextLabel).Text = tostring(entry.price) .. " gems";
 		(frame:WaitForChild("LimitLabel") :: TextLabel).Text = limitText
 		Components.setIcon(frame:WaitForChild("Icon") :: ImageLabel, entry)
 
@@ -106,7 +106,7 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 					buying = false
 					buyBtn.Text = "Buy"
 					if buyResult.ok then
-						toast(("Bought %s for %d 💎!"):format(entry.name, buyResult.price), Theme.Good)
+						toast(("Bought %s for %d gems!"):format(entry.name, buyResult.price), Theme.Good)
 					elseif buyResult.err == "buy_limit" then
 						toast(("Max buy limit reached! Can buy %d max."):format(buyResult.limit or 1), Theme.Warn)
 					elseif buyResult.err == "out_of_stock" then

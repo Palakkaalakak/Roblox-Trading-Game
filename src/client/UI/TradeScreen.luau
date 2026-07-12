@@ -214,7 +214,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				unknown = true
 			end
 		end
-		return ("Total: ~%d 💎%s  (%d item%s + %d gems after tax)"):format(
+		return ("Total: ~%d gems%s  (%d item%s + %d gems after tax)"):format(
 			total,
 			unknown and " +?" or "",
 			copies,

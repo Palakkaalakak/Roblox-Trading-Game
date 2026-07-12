@@ -727,7 +727,7 @@ local function buildStorePanel(parent: Instance)
 	label("PriceLabel", {
 		Position = UDim2.fromOffset(6, 86),
 		Size = UDim2.new(1, -12, 0, 18),
-		Text = "💎 ?",
+		Text = "?",
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.Gem,
@@ -853,7 +853,7 @@ local function buildBoardPanel(parent: Instance)
 	end
 	tab("TabNormal", "🔁 Normal", 1)
 	tab("TabBulk", "📦 Bulk buy", 2)
-	tab("TabGem", "💎 Gem shop", 3)
+	tab("TabGem", "Gem shop", 3)
 
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",

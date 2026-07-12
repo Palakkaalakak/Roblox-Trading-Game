@@ -51,7 +51,6 @@ local EconomyConfig = {
 	TradeBroadcastTopic = "trade_signal",
 	MailboxBroadcastTopic = "mailbox_ping",
 	BoardBroadcastTopic = "board_delta",
-	NotifyBroadcastTopic = "notify_ping",
 }
 
 return EconomyConfig

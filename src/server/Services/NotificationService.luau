@@ -1,17 +1,18 @@
 --!strict
--- NotificationService: player notifications that survive being offline.
---   * notify(userId, text): online on this server -> instant toast;
---     online elsewhere -> cross-server ping; offline -> durable queue
---     (own DataStore, append-only like the mailbox) replayed at next login,
---     PLUS a real Roblox push (OS/app notification) via Open Cloud so an
---     opted-in player finds out even without opening the game.
+-- NotificationService: OFFLINE-only player notifications.
+--   * Players in game get NOTHING from here — the UI already shows live
+--     state, and toast spam for every board event was noise. Callers only
+--     use this for trade offers (someone wants a trade with you).
+--   * notify(userId, text): in game (this server) -> no-op; otherwise ->
+--     durable queue (own DataStore, append-only like the mailbox) replayed
+--     at next login, PLUS a real Roblox push (OS/app notification) via
+--     Open Cloud so an opted-in player finds out without opening the game.
 --   * Push requires one-time setup outside this codebase: see PushConfig.
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local PushConfig = require(ReplicatedStorage.Shared.Config.PushConfig)
 
 local Net = require(script.Parent.Parent.Net)
@@ -26,15 +27,6 @@ local queueStore: any -- DataStore "Notifications_v1", key n_<userId> -> {text..
 
 local function queueKey(userId: number): string
 	return "n_" .. tostring(userId)
-end
-
-local function pushLocal(userId: number, text: string): boolean
-	local player = Players:GetPlayerByUserId(userId)
-	if player then
-		Net.fireClient("Notify", player, text)
-		return true
-	end
-	return false
 end
 
 -- Real Roblox push (OS/app notification) via Open Cloud. Best-effort: a
@@ -82,13 +74,10 @@ function NotificationService.notify(userId: number, text: string)
 	if userId < 0 then
 		return -- market bot: no toasts, no queue, no push
 	end
-	if pushLocal(userId, text) then
-		return
+	if Players:GetPlayerByUserId(userId) ~= nil then
+		return -- in game: the UI shows live state, notifications are noise
 	end
-	-- not on this server: try other servers, queue durably in case they're
-	-- fully offline everywhere, AND fire a real push (harmless if they're
-	-- actually online on another server — just an extra ping they can ignore).
-	StoreAdapters.publish(EconomyConfig.NotifyBroadcastTopic, { userId = userId, text = text })
+	-- offline: durable queue (replayed at next login) + real push
 	sendPush(userId, text)
 	task.spawn(function()
 		pcall(function()
@@ -130,12 +119,6 @@ function NotificationService.Start()
 		end)
 	end)
 
-	-- notifications for players on OTHER servers
-	StoreAdapters.subscribe(EconomyConfig.NotifyBroadcastTopic, function(payload)
-		if type(payload) == "table" and type(payload.userId) == "number" and type(payload.text) == "string" then
-			pushLocal(payload.userId, payload.text)
-		end
-	end)
 end
 
 return NotificationService
