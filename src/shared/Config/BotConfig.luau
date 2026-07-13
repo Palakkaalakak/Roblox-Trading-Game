@@ -40,13 +40,16 @@ local BotConfig = {
 
 	Count = 500, -- number of independent bots (userIds -101 .. -(100+Count))
 
-	StartGems = 300, -- one-time seed balance per bot
+	StartGems = 50, -- one-time seed balance per bot
 	StarterDraws = 5, -- one-time seed items per bot (in-memory reserve draws)
 
-	-- Pace: one full sweep (every bot thinks once) per SweepSeconds. With 500
-	-- bots the per-bot work must stay tiny (all in-memory now — no DataStore).
-	SweepSeconds = 30,
-	TakesPerPass = 2, -- max deals a bot executes per pass
+	-- Pace: HFT. One full sweep (every bot thinks once) every SweepSeconds;
+	-- each bot executes up to TakesPerPass deals per pass. All state is
+	-- in-memory (no DataStore in the hot path), so a 500-bot sweep is
+	-- sub-second — a short interval + many takes yields hundreds of
+	-- settlements per minute.
+	SweepSeconds = 4,
+	TakesPerPass = 8, -- max deals a bot executes per pass
 	QuoteItemsPerBot = 2, -- how many items a bot actively quotes (specialization)
 
 	-- Numeric parameter formulas (index i, 1..Count). Co-prime strides so the
@@ -105,19 +108,20 @@ local BotConfig = {
 	-- freshly-computed one by more than RepriceFrac (no age-based churn).
 	RepriceFrac = 0.10,
 
-	MinGemsKept = 25,
+	MinGemsKept = 10, -- with 50 starting gems, keep the spendable buffer usable
 	MaxHoldPerItem = 8,
 	QuoteCopies = 2, -- copies per sell quote / per bulk bid
 
 	-- Gem faucet: taxes + store buys + craft costs only ever DRAIN bot gems
 	-- (bot-to-bot trade is zero-sum minus tax) — without income the population
-	-- starves. Every StipendEvery sweeps a bot below StipendBelowGems gets a
-	-- StipendGems top-up.
-	StipendEvery = 10,
-	StipendGems = 25,
-	StipendBelowGems = 150,
+	-- starves. A bot below StipendBelowGems gets a small StipendGems top-up
+	-- every StipendEvery sweeps. Kept modest so it's a floor, not an inflating
+	-- firehose (sweeps are 4s now, so this fires ~once a minute).
+	StipendEvery = 15,
+	StipendGems = 10,
+	StipendBelowGems = 40,
 
-	NetworthLogEvery = 10, -- log bot_sweep aggregate every N sweeps
+	NetworthLogEvery = 25, -- log bot_sweep aggregate every N sweeps (~100s)
 }
 
 return BotConfig

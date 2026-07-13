@@ -172,6 +172,16 @@ end
 -- Seeding: deterministic round-robin draws (in-memory reserve, no DataStore)
 --------------------------------------------------------------------------------
 
+-- Per-SESSION mint tally for bot seeding. Bots are ephemeral (their state is
+-- in-memory and resets each server start), so their seed inventory must NOT
+-- draw from the DURABLE player economy reserve — doing that permanently
+-- drained the reserve on the first run, and every run after, bots could no
+-- longer draw the scarce items (their reserve was already 0), so they only
+-- ever held cheap commons and net worth ceilinged. This tally resets with the
+-- bots and just caps how many of each item the bot population can hold at once
+-- to the item's real totalSupply, so supply scarcity is still respected.
+local botMinted: { [string]: number } = {}
+
 local function seedBot(bot: any)
 	local state = getState(bot.userId)
 	if state.seeded then
@@ -192,7 +202,10 @@ local function seedBot(bot: any)
 	end
 	for d = 1, BotConfig.StarterDraws do
 		local itemId = candidates[((bot.index + d * 3) % #candidates) + 1]
-		if EconomyService.reserveOneLazy(itemId) then
+		local item = EconomyService.getItem(itemId)
+		local cap = item and item.totalSupply or 0
+		if (botMinted[itemId] or 0) < cap then
+			botMinted[itemId] = (botMinted[itemId] or 0) + 1
 			state.inventory[itemId] = (state.inventory[itemId] or 0) + 1
 		end
 	end
@@ -750,15 +763,55 @@ function BotService.debugSnapshot(): any
 	local rows = {}
 	local totalGems, totalWorth = 0, 0
 	local archCounts: { [string]: number } = {}
+
+	-- ESCROW: gems/items locked in a bot's open listings have LEFT its
+	-- inventory but are still its wealth. Sum per-poster escrow from the board
+	-- so net worth is accurate — without this a bot with a 500-gem mythical
+	-- sitting in an unsold sell listing looks 500 poorer than it is (that was
+	-- the "net worth stuck at ~361" artifact).
+	local escrowByBot: { [number]: number } = {}
+	local escrowTotal = 0
+	local listingsSeen = 0
+	local okBoard, listings = pcall(function()
+		return (require(script.Parent.TradeBoardService) :: any).rawOpenListings(20000)
+	end)
+	if okBoard and listings then
+		listingsSeen = #listings
+		for _, l in listings do
+			if l.posterId < 0 then
+				local e = escrowByBot[l.posterId] or 0
+				if l.kind == "sell" then
+					e += EconomyService.valueOf(l.itemId) * (l.remainingCount or 0)
+				elseif l.kind == "bulk" then
+					e += (l.gemsPerCopy or 0) * (l.remainingCount or 0)
+				elseif l.kind == "swap" and l.give then
+					e += (l.give.gems or 0)
+					for itemId, count in l.give.items do
+						e += EconomyService.valueOf(itemId) * count
+					end
+				end
+				escrowByBot[l.posterId] = e
+			end
+		end
+		for _, e in escrowByBot do
+			escrowTotal += e
+		end
+	end
+
 	-- use valueOf (not the shared per-sweep fairCache) so an admin fetch never
 	-- clobbers an in-flight sweep's cached fair values
+	local mythHold = 0
 	for _, bot in bots do
 		local s = getState(bot.userId)
 		local invValue, invCount = 0, 0
 		for itemId, count in s.inventory do
 			invValue += EconomyService.valueOf(itemId) * count
 			invCount += count
+			if itemId == "itm_1_11_void_shard" or itemId == "itm_1_12_astral_prism" then
+				mythHold += count
+			end
 		end
+		invValue += escrowByBot[bot.userId] or 0
 		local worth = s.gems + invValue
 		totalGems += s.gems
 		totalWorth += worth
@@ -792,6 +845,12 @@ function BotService.debugSnapshot(): any
 		totalWorth = math.floor(totalWorth + 0.5),
 		archCounts = archCounts,
 		bots = rows,
+		_diag = {
+			escrowOk = okBoard,
+			listingsSeen = listingsSeen,
+			escrowTotal = math.floor(escrowTotal + 0.5),
+			mythicalHeldInInventory = mythHold,
+		},
 	}
 end
 
@@ -895,8 +954,8 @@ function BotService.Start()
 						else
 							warn("[Bots] pass failed for " .. bot.name .. ": " .. tostring(actions))
 						end
-						if idx % 10 == 0 then
-							task.wait() -- yield each ~10 bots; spreads board ops
+						if idx % 60 == 0 then
+							task.wait() -- yield sparingly; passes are in-memory + fast
 						end
 					end
 
@@ -929,7 +988,7 @@ function BotService.Start()
 					end
 
 					local elapsed = os.clock() - sweepStart
-					task.wait(math.max(BotConfig.SweepSeconds - elapsed, 5))
+					task.wait(math.max(BotConfig.SweepSeconds - elapsed, 0.5))
 				end
 			end
 			task.wait(LEASE_SECONDS / 2)

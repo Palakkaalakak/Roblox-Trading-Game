@@ -1,8 +1,8 @@
 --!strict
 -- AdminScreen: TEMPORARY admin-only bot inspector. Press F8 to toggle. Pulls
 -- per-bot data from the server (GetBotData, gated to DebugConfig.AdminUserIds)
--- and shows an aggregate header + a sortable-by-worth table of every bot:
--- archetype, gems, inventory value, net worth, and what it currently desires.
+-- and renders a real SPREADSHEET: a monospace grid with a fixed header, per-
+-- column auto-sized widths, and vertical dividers, sorted by net worth.
 -- Self-contained (builds its own ScreenGui); delete with the bot tooling for
 -- release.
 
@@ -22,6 +22,33 @@ local ARCH_COLOR: { [string]: Color3 } = {
 	collector = Color3.fromRGB(186, 104, 200),
 }
 
+-- monospace grid metrics
+local MONO = Enum.Font.Code
+local CELL_SIZE = 13
+local CHAR_W = 7.8 -- px per glyph at CELL_SIZE for Code font (approx)
+local ROW_H = 18
+local WANTS_CAP = 34
+
+-- column spec: title, key, right-aligned?
+local COLUMNS = {
+	{ title = "#", align = "r" },
+	{ title = "Bot", align = "l" },
+	{ title = "Archetype", align = "l" },
+	{ title = "Gems", align = "r" },
+	{ title = "InvVal", align = "r" },
+	{ title = "Worth", align = "r" },
+	{ title = "Wants", align = "l" },
+}
+
+local function pad(s: string, w: number, right: boolean): string
+	local n = w - #s
+	if n <= 0 then
+		return s
+	end
+	local fill = string.rep(" ", n)
+	return right and (fill .. s) or (s .. fill)
+end
+
 function AdminScreen.start(toast: ((text: string, color: Color3) -> ())?)
 	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 
@@ -36,7 +63,7 @@ function AdminScreen.start(toast: ((text: string, color: Color3) -> ())?)
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.fromOffset(640, 560)
+	panel.Size = UDim2.fromOffset(760, 580)
 	panel.BackgroundColor3 = Theme.Panel
 	panel.BorderSizePixel = 0
 	panel.Parent = gui
@@ -50,18 +77,18 @@ function AdminScreen.start(toast: ((text: string, color: Color3) -> ())?)
 	local title = Instance.new("TextLabel")
 	title.BackgroundTransparency = 1
 	title.Position = UDim2.fromOffset(14, 10)
-	title.Size = UDim2.fromOffset(400, 22)
+	title.Size = UDim2.fromOffset(420, 22)
 	title.Font = Theme.Font
 	title.TextSize = 16
 	title.TextColor3 = Theme.TextPrimary
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Text = "🤖 Bot Inspector (admin)"
+	title.Text = "🤖 Bot Inspector (admin · F8)"
 	title.Parent = panel
 
 	local agg = Instance.new("TextLabel")
 	agg.BackgroundTransparency = 1
 	agg.Position = UDim2.fromOffset(14, 34)
-	agg.Size = UDim2.new(1, -28, 0, 32)
+	agg.Size = UDim2.new(1, -28, 0, 30)
 	agg.Font = Theme.FontLight
 	agg.TextSize = 12
 	agg.TextColor3 = Theme.TextDim
@@ -99,29 +126,38 @@ function AdminScreen.start(toast: ((text: string, color: Color3) -> ())?)
 	rc.CornerRadius = Theme.CornerSmall
 	rc.Parent = refreshBtn
 
+	-- header (monospace, fixed) + a horizontal rule under it
 	local header = Instance.new("TextLabel")
 	header.BackgroundTransparency = 1
-	header.Position = UDim2.fromOffset(14, 70)
-	header.Size = UDim2.new(1, -28, 0, 16)
-	header.Font = Theme.Font
-	header.TextSize = 11
-	header.TextColor3 = Theme.TextDim
+	header.Position = UDim2.fromOffset(14, 66)
+	header.Size = UDim2.new(1, -28, 0, ROW_H)
+	header.Font = MONO
+	header.TextSize = CELL_SIZE
+	header.TextColor3 = Theme.TextPrimary
 	header.TextXAlignment = Enum.TextXAlignment.Left
-	header.Text = "  BOT            ARCH         GEMS   INVVAL   WORTH   WANTS"
+	header.Text = ""
 	header.Parent = panel
 
+	local rule = Instance.new("Frame")
+	rule.BackgroundColor3 = Theme.Stroke
+	rule.BorderSizePixel = 0
+	rule.Position = UDim2.fromOffset(14, 66 + ROW_H)
+	rule.Size = UDim2.new(1, -28, 0, 1)
+	rule.Parent = panel
+
 	local list = Instance.new("ScrollingFrame")
-	list.Position = UDim2.fromOffset(10, 90)
-	list.Size = UDim2.new(1, -20, 1, -100)
+	list.Position = UDim2.fromOffset(14, 66 + ROW_H + 3)
+	list.Size = UDim2.new(1, -28, 1, -(66 + ROW_H + 12))
 	list.BackgroundTransparency = 1
 	list.BorderSizePixel = 0
 	list.ScrollBarThickness = 6
 	list.CanvasSize = UDim2.new()
-	list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	list.AutomaticCanvasSize = Enum.AutomaticSize.XY
+	list.ScrollingDirection = Enum.ScrollingDirection.XY
 	list.Parent = panel
 	local ll = Instance.new("UIListLayout")
 	ll.SortOrder = Enum.SortOrder.LayoutOrder
-	ll.Padding = UDim.new(0, 2)
+	ll.Padding = UDim.new(0, 1)
 	ll.Parent = list
 
 	local rowsHolder: { Instance } = {}
@@ -133,29 +169,66 @@ function AdminScreen.start(toast: ((text: string, color: Color3) -> ())?)
 		end
 		table.sort(archParts)
 		agg.Text = ("%d bots · total gems %d · total net worth %d\n%s"):format(
-			data.count, data.totalGems, data.totalWorth, table.concat(archParts, "  ·  "))
+			data.count, data.totalGems, data.totalWorth, table.concat(archParts, "   "))
+
+		-- build cell strings for every row, then size each column to its widest
+		local grid = {}
+		for i, b in data.bots do
+			local shortName = (b.name:gsub(" %[bot%]", ""))
+			local wants = #b.desired > 0 and table.concat(b.desired, ", ") or "—"
+			if #wants > WANTS_CAP then
+				wants = wants:sub(1, WANTS_CAP - 1) .. "…"
+			end
+			grid[i] = {
+				tostring(i), shortName, b.archetype,
+				tostring(b.gems), tostring(b.invValue), tostring(b.worth), wants,
+				_color = ARCH_COLOR[b.archetype] or Theme.TextPrimary,
+			}
+		end
+
+		local widths = {}
+		for c, col in COLUMNS do
+			widths[c] = #col.title
+		end
+		for _, cells in grid do
+			for c = 1, #COLUMNS do
+				widths[c] = math.max(widths[c], #cells[c])
+			end
+		end
+
+		local function line(cells: { string }): string
+			local parts = {}
+			for c, col in COLUMNS do
+				parts[c] = pad(cells[c], widths[c], col.align == "r")
+			end
+			return table.concat(parts, " │ ")
+		end
+
+		local headerCells = {}
+		for c, col in COLUMNS do
+			headerCells[c] = col.title
+		end
+		header.Text = line(headerCells)
+		local totalChars = #header.Text
+		local rowWidthPx = math.ceil(totalChars * CHAR_W) + 8
 
 		for _, inst in rowsHolder do
 			inst:Destroy()
 		end
 		table.clear(rowsHolder)
 
-		for i, b in data.bots do
+		for i, cells in grid do
 			local row = Instance.new("TextLabel")
 			row.LayoutOrder = i
 			row.BackgroundColor3 = (i % 2 == 0) and Theme.Bg or Theme.BgLight
-			row.BackgroundTransparency = 0.3
+			row.BackgroundTransparency = 0.35
 			row.BorderSizePixel = 0
-			row.Size = UDim2.new(1, 0, 0, 18)
-			row.Font = Theme.FontLight
-			row.TextSize = 11
-			row.TextColor3 = ARCH_COLOR[b.archetype] or Theme.TextPrimary
+			row.Size = UDim2.fromOffset(rowWidthPx, ROW_H)
+			row.Font = MONO
+			row.TextSize = CELL_SIZE
+			row.TextColor3 = cells._color
 			row.TextXAlignment = Enum.TextXAlignment.Left
-			row.TextTruncate = Enum.TextTruncate.AtEnd
-			local shortName = b.name:gsub(" %[bot%]", "")
-			local wants = #b.desired > 0 and table.concat(b.desired, ", ") or "—"
-			row.Text = ("  %-14s %-12s %5d  %6d  %6d   %s"):format(
-				shortName:sub(1, 14), b.archetype, b.gems, b.invValue, b.worth, wants)
+			row.Text = line(cells)
 			row.Parent = list
 			table.insert(rowsHolder, row)
 		end
@@ -180,7 +253,6 @@ function AdminScreen.start(toast: ((text: string, color: Color3) -> ())?)
 	end)
 	refreshBtn.Activated:Connect(refresh)
 
-	-- auto-refresh while open
 	task.spawn(function()
 		while true do
 			task.wait(5)

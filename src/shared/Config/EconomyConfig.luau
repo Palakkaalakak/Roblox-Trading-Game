@@ -21,8 +21,8 @@ local EconomyConfig = {
 	ReferenceSupply = 500,
 	SupplyExponent = 0.6,
 	DemandCoefficient = 0.5,
-	ValueSeedWeight = 0.35, -- initial anchor weight (one whale trade can't 10x value)
-	ValueSeedHalfLife = 12, -- samples over which the anchor's pull roughly halves
+	ValueSeedWeight = 0.20, -- initial anchor weight (one whale trade still can't 10x value)
+	ValueSeedHalfLife = 5, -- samples over which the anchor's pull roughly halves
 	ValueSeedFloor = 0.04, -- anchor never fully disappears (residual stability)
 
 	-- "X/Y in existence" (X = held copies, Y = total ever distributable) vs
@@ -34,7 +34,7 @@ local EconomyConfig = {
 	MinSamples = {
 		Demand = 1, -- demandSamples >= 1
 		RAP = 1, -- rapCount >= 1 (at least one closed trade)
-		ValueRapBlend = 3, -- trades before market price starts moving Est. Value
+		ValueRapBlend = 1, -- market price starts moving Est. Value after 1 real sale
 	},
 
 	-- House cut on every player-to-player gem transfer (trades, board

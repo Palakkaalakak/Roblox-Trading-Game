@@ -633,7 +633,14 @@ function EconomyService.Start()
 			return
 		end
 		for _, itemId in payload.items do
-			if type(itemId) == "string" then
+			-- Only drop the cache for items we have NO unflushed local update
+			-- for. RAP/demand updates live in hotCache + dirty and are flushed
+			-- to durable only every HotFlushIntervalSeconds; a broadcast (incl.
+			-- our own, which MessagingService delivers back to the sender) that
+			-- nulls the cache would force a re-read of the STALE durable record,
+			-- making an actively-trading item's RAP flicker to N/A until the
+			-- next sale repopulates it. If it's dirty, our copy is the newest.
+			if type(itemId) == "string" and not dirty[itemId] then
 				hotCache[itemId] = nil -- refetch from durable on next read
 			end
 		end

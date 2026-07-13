@@ -39,7 +39,7 @@ local EventConfig = {
 			recipes = {
 				{
 					rid = "transmutation_stone",
-					inputs = { ["itm_1_1_stone_relic"] = 2, ["itm_1_2_amber_idol"] = 1 },
+					inputs = { ["itm_1_1_stone_relic"] = 2, ["itm_1_3_amber_idol"] = 1 },
 					gems = 30,
 					output = {
 						sku = "transmutation_stone",
@@ -58,7 +58,7 @@ local EventConfig = {
 			recipes = {
 				{
 					rid = "shadow_crown",
-					inputs = { ["itm_1_5_void_shard"] = 5 }, -- one item type, a lot of it
+					inputs = { ["itm_1_2_copper_coin"] = 5 }, -- one item type, a lot of it
 					gems = 60, -- sacrifice always costs more gems than crafting
 					output = {
 						sku = "shadow_crown",
@@ -77,7 +77,7 @@ local EventConfig = {
 			recipes = {
 				{
 					rid = "rune_protection",
-					inputs = { ["itm_1_3_jade_serpent"] = 1, ["itm_1_4_crimson_crown"] = 1 },
+					inputs = { ["itm_1_5_jade_serpent"] = 1, ["itm_1_6_sunstone_charm"] = 1 },
 					gems = 40,
 					output = {
 						sku = "rune_protection",
@@ -110,7 +110,7 @@ local EventConfig = {
 			},
 			{
 				rid = "gift_blue",
-				inputs = { ["itm_1_2_amber_idol"] = 1 },
+				inputs = { ["itm_1_3_amber_idol"] = 1 },
 				gems = 15,
 				output = {
 					sku = "azure_gift",
@@ -121,7 +121,7 @@ local EventConfig = {
 			},
 			{
 				rid = "gift_pile",
-				inputs = { ["itm_1_1_stone_relic"] = 1, ["itm_1_2_amber_idol"] = 1 },
+				inputs = { ["itm_1_1_stone_relic"] = 1, ["itm_1_3_amber_idol"] = 1 },
 				gems = 10,
 				output = {
 					sku = "gift_hoard",

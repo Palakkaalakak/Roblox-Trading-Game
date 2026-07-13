@@ -120,9 +120,12 @@ return {
 			local late = EconomyService.computeValue(100, 1000, blendAt + 500)
 			assert(late > early, "value must climb toward RAP with more samples")
 			assert(late > 950, "well-traded item's value ~ its RAP: " .. late)
-			-- smoothing: a single early sample barely moves value off nothing
-			-- (early is much closer to seed than a huge RAP would suggest)
-			assert((early - 100) < (1000 - 100) * 0.8, "early value must be anchored/smoothed")
+			-- smoothing: at the blend threshold the anchor still holds weight
+			-- ValueSeedWeight, so the first sample can move Value at most
+			-- (1 - ValueSeedWeight) of the way toward RAP (config-derived so
+			-- this tracks tuning of the convergence speed). +1 for rounding.
+			local w = EconomyConfig.ValueSeedWeight
+			assert((early - 100) <= (1000 - 100) * (1 - w) + 1, "early value must be anchored/smoothed")
 			-- never below 1
 			eq(EconomyService.computeValue(0, 0, 0), 1)
 		end,
