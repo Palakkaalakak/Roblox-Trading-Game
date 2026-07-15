@@ -48,9 +48,49 @@ for _, entry in StoreConfig.Catalog do
 	catalogPrice[itemId] = entry.price
 end
 
--- Fixed gem price of a store item (set in StoreConfig, never formula-derived).
+-- LIST gem price of a store item (set in StoreConfig, never formula-derived).
+-- This is the sticker price and ignores sales — see effectivePriceFor.
 function StoreService.priceFor(itemId: string): number
 	return catalogPrice[itemId] or 0
+end
+
+-- Which on-shelf items are ON SALE right now, and when the sale rotates.
+-- Deterministic from the clock, same as the shelf. Sales are drawn from the
+-- SHELF (not the whole catalog), so an off-shelf item is never advertised as
+-- discounted when you can't buy it.
+function StoreService.activeDiscounts(now: number): ({ [string]: number }, number?)
+	local disc = StoreConfig.Discounts
+	if not (disc and disc.enabled) then
+		return {}, nil
+	end
+	local shelf = StoreService.activeShelf(now)
+	local onShelf = {}
+	for _, itemId in catalogIds do -- catalogIds order keeps this deterministic
+		if shelf[itemId] then
+			table.insert(onShelf, itemId)
+		end
+	end
+	if #onShelf == 0 then
+		return {}, nil
+	end
+	local windowIdx = Rotation.windowIndex(now, disc.DiscountIntervalSeconds)
+	local out = {}
+	for _, i in Rotation.pick(windowIdx, #onShelf, disc.Count) do
+		out[onShelf[i]] = disc.PercentOff
+	end
+	return out, Rotation.windowEndsAt(now, disc.DiscountIntervalSeconds)
+end
+
+-- What you ACTUALLY pay right now: list price minus any live sale.
+-- Floors at 1 — a free item would be an infinite-profit exploit.
+function StoreService.effectivePriceFor(itemId: string, now: number): (number, number?)
+	local list = StoreService.priceFor(itemId)
+	local discounts = StoreService.activeDiscounts(now)
+	local pct = discounts[itemId]
+	if pct == nil or list <= 0 then
+		return list, nil
+	end
+	return math.max(1, math.floor(list * (1 - pct / 100) + 0.5)), pct
 end
 
 -- Which catalog itemIds are ON THE SHELF right now, plus when the shelf
@@ -92,9 +132,11 @@ local function purchasedCount(profile: any, itemId: string): number
 	return profile.StorePurchases[itemId] or 0
 end
 
-local function listing(player: Player): ({ any }, number?)
+local function listing(player: Player): ({ any }, number?, number?)
 	local profile = DataService.getProfile(player)
-	local shelf, rotatesAt = StoreService.activeShelf(os.time())
+	local now = os.time()
+	local shelf, rotatesAt = StoreService.activeShelf(now)
+	local _, saleEndsAt = StoreService.activeDiscounts(now)
 	local out = {}
 	for _, itemId in catalogIds do
 		if shelf[itemId] then
@@ -102,6 +144,8 @@ local function listing(player: Player): ({ any }, number?)
 			local snap = EconomyService.snapshot(itemId)
 			if item and snap then
 				local remaining = snap.reserveRemaining or 0
+				local effective, pct = StoreService.effectivePriceFor(itemId, now)
+				local list = StoreService.priceFor(itemId)
 				table.insert(out, {
 					itemId = itemId,
 					name = item.name,
@@ -109,14 +153,16 @@ local function listing(player: Player): ({ any }, number?)
 					imageId = item.imageId,
 					totalSupply = item.totalSupply,
 					remaining = remaining,
-					price = StoreService.priceFor(itemId),
+					price = effective, -- what you actually pay
+					listPrice = list, -- sticker price, for the struck-through label
+					discountPct = pct, -- nil when not on sale
 					limit = StoreService.buyLimitFor(player, itemId),
 					purchased = profile and purchasedCount(profile, itemId) or 0,
 				})
 			end
 		end
 	end
-	return out, rotatesAt
+	return out, rotatesAt, saleEndsAt
 end
 
 -- Market bots buy from the store too (same caps, same CAS stock draw);
@@ -156,7 +202,7 @@ local function buyCore(userId: number, itemId: any)
 		return { ok = false, err = "out_of_stock" }
 	end
 
-	local price = StoreService.priceFor(itemId)
+	local price = StoreService.effectivePriceFor(itemId, os.time())
 
 	-- charge first (validates funds atomically)...
 	local charged, chargeErr
@@ -209,15 +255,18 @@ function StoreService.botBuy(botId: number, itemId: string)
 end
 
 -- Bot-readable shelf: {itemId, price, remaining} for what's buyable now.
+-- `price` is the EFFECTIVE price, so bots see a sale exactly like a player does
+-- and pile into it — which is the point of a discount: it's a demand signal.
 function StoreService.shelfForBots(): { any }
-	local shelf = StoreService.activeShelf(os.time())
+	local now = os.time()
+	local shelf = StoreService.activeShelf(now)
 	local out = {}
 	for itemId in shelf do
 		local snap = EconomyService.snapshot(itemId)
 		if snap and (snap.reserveRemaining or 0) > 0 then
 			table.insert(out, {
 				itemId = itemId,
-				price = StoreService.priceFor(itemId),
+				price = (StoreService.effectivePriceFor(itemId, now)),
 				remaining = snap.reserveRemaining,
 			})
 		end

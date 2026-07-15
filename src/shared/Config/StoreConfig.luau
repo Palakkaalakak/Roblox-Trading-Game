@@ -34,6 +34,22 @@ local StoreConfig = {
 		ActiveCount = 6,
 	},
 
+	-- SALES. Every DiscountIntervalSeconds a deterministic slice of whatever is
+	-- on the shelf goes on sale at PercentOff. Same trick as the shelf itself:
+	-- a pure function of the clock, so every server agrees with no coordination.
+	--
+	-- This isn't decoration — a discount is a real demand signal. A sale price
+	-- under market Value is free profit, so traders pile in, that item's stock
+	-- drains, and it gets scarcer (which lifts its Value for everyone holding
+	-- one). Sales rotate faster than the shelf so there's always something
+	-- moving.
+	Discounts = {
+		enabled = true,
+		DiscountIntervalSeconds = 900, -- a fresh sale every 15 minutes
+		Count = 2, -- how many of the on-shelf items are on sale at once
+		PercentOff = 35,
+	},
+
 	-- Each item: fixed `price` (gems), `totalSupply` (stock), `imageId`.
 	Catalog = {
 		{ sku = "golden_rocket", name = "Golden Rocket", price = 20, totalSupply = 40, imageId = "rbxassetid://16670799841" },

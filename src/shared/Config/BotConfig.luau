@@ -144,15 +144,24 @@ local BotConfig = {
 	MinGemsKept = 10, -- with 50 starting gems, keep the spendable buffer usable
 	MaxHoldPerItem = 8,
 
-	-- NO GEM FAUCET. Bots get StartGems once; after that gems only ever move
-	-- between traders. There is deliberately no stipend/drip — an arbitrary
-	-- trickle of free currency isn't an economy, it's just printing money, and
-	-- it was making total gems climb on their own. A bot's gems come from
-	-- SELLING something someone wanted.
-	-- CONSEQUENCE, on purpose: rolls / store buys / craft fees burn gems, so the
-	-- gem pool is CLOSED and only shrinks. Rolling and shopping are therefore
-	-- self-limiting — when the pool drains, they stop until a real gem faucet
-	-- (i.e. gameplay) exists.
+	-- WORK — the gem faucet, and the only one. Every WorkIntervalSeconds a bot
+	-- clocks in: it earns WorkGems, but goes dark for WorkDurationSeconds and
+	-- cannot trade, roll, craft or buy while it does.
+	--
+	-- This is the bots' stand-in for the thing real players do to earn currency
+	-- (grinding/farming), and the idle time is the point — the gems are PAID FOR
+	-- with the opportunity cost of not being in the market. That's what makes it
+	-- a real faucet rather than a stipend: the old drip handed out free money for
+	-- nothing, which is why total gems climbed on their own.
+	--
+	-- It has to exist because rolls / store buys / craft fees BURN gems to NPCs,
+	-- so without a faucet the pool only ever shrinks (measured: 25,000 -> ~3,900
+	-- in minutes) and the whole economy winds down. Faucet + sink is the pair.
+	-- Shifts are staggered by bot index, so the market never all downs tools at
+	-- the same moment.
+	WorkIntervalSeconds = 600, -- clock in every 10 minutes
+	WorkGems = 10, -- earned per shift
+	WorkDurationSeconds = 15, -- time spent out of the market, per shift
 
 	NetworthLogEvery = 25, -- log bot_sweep aggregate every N sweeps (~100s)
 }

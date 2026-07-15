@@ -52,7 +52,17 @@ function StoreScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local limitText = "Can buy " .. tostring(limit) .. " max";
 		(frame:WaitForChild("ItemName") :: TextLabel).Text = entry.name;
 		(frame:WaitForChild("StockLabel") :: TextLabel).Text = ("%d/%d left"):format(entry.remaining, entry.totalSupply);
-		(frame:WaitForChild("PriceLabel") :: TextLabel).Text = tostring(entry.price) .. " gems";
+		-- on sale: show the old price struck through and shout the % off, so the
+		-- deal reads at a glance
+		local priceLabel = frame:WaitForChild("PriceLabel") :: TextLabel
+		if entry.discountPct then
+			priceLabel.RichText = true
+			priceLabel.Text = ('<s><font color="#9AA0A6">%d</font></s>  <b>%d gems</b>  <font color="#57D982">-%d%%</font>')
+				:format(entry.listPrice or entry.price, entry.price, entry.discountPct)
+		else
+			priceLabel.RichText = false
+			priceLabel.Text = tostring(entry.price) .. " gems"
+		end;
 		(frame:WaitForChild("LimitLabel") :: TextLabel).Text = limitText
 		Components.setIcon(frame:WaitForChild("Icon") :: ImageLabel, entry)
 

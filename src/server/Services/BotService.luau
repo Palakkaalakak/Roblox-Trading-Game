@@ -251,6 +251,29 @@ local function mintTo(state: any, itemId: string): boolean
 	return true
 end
 
+-- WORK: the economy's only gem faucet. A bot clocks in every
+-- WorkIntervalSeconds, earns WorkGems, and is OUT OF THE MARKET for
+-- WorkDurationSeconds — the gems are paid for with that lost trading time.
+-- Shifts are staggered by index (a fixed per-bot offset into the cycle) so the
+-- whole market never downs tools at once. Pure function of the clock: no timers,
+-- no RNG, and it survives a sweep being slow or skipped.
+-- Returns true if the bot is mid-shift and should do nothing this pass.
+local function atWork(bot: any, now: number): boolean
+	local interval = BotConfig.WorkIntervalSeconds
+	local offset = (bot.index * 7919) % interval -- staggered start
+	local elapsed = (now - offset) % interval
+	if elapsed >= BotConfig.WorkDurationSeconds then
+		return false
+	end
+	-- pay once per shift, on the first pass that lands inside it
+	local cycle = math.floor((now - offset) / interval)
+	if bot.paidCycle ~= cycle then
+		bot.paidCycle = cycle
+		BotService.applyDelta(bot.userId, { gems = BotConfig.WorkGems }, "work")
+	end
+	return true
+end
+
 -- ROLLING: the bot's reasoned way to acquire new goods. It costs gems, so the
 -- item was PAID for — no free items appearing on a timer. A bot rolls when it
 -- can afford a tier and the pull is worth more than the ticket (expected value
@@ -509,6 +532,13 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	local CraftingService = require(script.Parent.CraftingService) :: any
 
 	local state = getState(bot.userId)
+
+	-- On shift: earning gems, out of the market. Nothing else this pass — that
+	-- lost trading time is exactly what the gems cost.
+	if atWork(bot, os.time()) then
+		return { "work" }
+	end
+
 	bot.desired = computeDesires(bot, itemIds, ctx, state)
 	local edge = effectiveEdge(bot, sweep)
 	-- hunger also relaxes how big a Win a starved bot holds out for
