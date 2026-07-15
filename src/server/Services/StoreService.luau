@@ -30,15 +30,22 @@ local StoreService = {}
 local catalogIds: { string } = {} -- ordered itemIds
 local catalogSet: { [string]: boolean } = {}
 local catalogMeta: { [string]: { maxPerPlayer: number? } } = {} -- itemId -> catalog extras
+local catalogPrice: { [string]: number } = {}
 
 local function itemIdFor(sku: string): string
 	return "store_" .. sku
 end
 
--- Fixed price table, built once from config (Init-independent, testable).
-local catalogPrice: { [string]: number } = {}
+-- The catalog's IDENTITY (ids, prices, per-item limits) is a pure function of
+-- config, so it's built at load rather than in Init. That keeps activeShelf /
+-- priceFor Init-independent and testable — Init is only for the side effects
+-- (registering the items with the economy).
 for _, entry in StoreConfig.Catalog do
-	catalogPrice[itemIdFor(entry.sku)] = entry.price
+	local itemId = itemIdFor(entry.sku)
+	table.insert(catalogIds, itemId)
+	catalogSet[itemId] = true
+	catalogMeta[itemId] = { maxPerPlayer = entry.maxPerPlayer }
+	catalogPrice[itemId] = entry.price
 end
 
 -- Fixed gem price of a store item (set in StoreConfig, never formula-derived).
@@ -220,13 +227,11 @@ end
 
 function StoreService.Init()
 	-- register the whole catalog as real items (idempotent; new skus appear
-	-- after a config edit + reboot, sold-out old ones just stop being listed)
+	-- after a config edit + reboot, sold-out old ones just stop being listed).
+	-- The id/price/limit tables are already built at module load — see above.
 	local defs = {}
 	for _, entry in StoreConfig.Catalog do
 		local itemId = itemIdFor(entry.sku)
-		table.insert(catalogIds, itemId)
-		catalogSet[itemId] = true
-		catalogMeta[itemId] = { maxPerPlayer = entry.maxPerPlayer }
 		table.insert(defs, {
 			itemId = itemId,
 			poolId = "store",

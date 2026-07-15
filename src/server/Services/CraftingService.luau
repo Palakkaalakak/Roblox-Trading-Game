@@ -109,32 +109,51 @@ end
 
 local function describeRecipe(recipe: any, profile: any): any
 	local inputs = {}
+	local inputValue = 0
+	local craftable = true
 	for itemId, count in recipe.inputs do
 		local item = EconomyService.getItem(itemId)
+		local owned = profile and (profile.Inventory[itemId] or 0) or 0
+		if owned < count then
+			craftable = false
+		end
+		inputValue += EconomyService.valueOf(itemId) * count
 		table.insert(inputs, {
 			itemId = itemId,
 			name = item and item.name or itemId,
 			imageId = item and item.imageId or nil,
 			count = count,
-			owned = profile and (profile.Inventory[itemId] or 0) or 0,
+			owned = owned,
 		})
 	end
 	table.sort(inputs, function(a, b)
 		return a.itemId < b.itemId
 	end)
+	if profile and (recipe.gems or 0) > profile.Gems then
+		craftable = false
+	end
 
 	local outId = outputItemId(recipe.output.sku)
 	local snap = EconomyService.snapshot(outId)
+	local outValue = (snap and snap.value and snap.value.value) or EconomyService.valueOf(outId)
 	return {
 		rid = recipe.rid,
+		tier = recipe.tier or 1,
+		blurb = recipe.blurb,
 		inputs = inputs,
 		gems = recipe.gems or 0,
+		craftable = craftable,
+		-- what this recipe is WORTH doing: everything it eats vs what it mints.
+		-- The gap is the value the craft creates out of nothing (the premium),
+		-- which is the whole reason events exist.
+		costValue = math.floor(inputValue + (recipe.gems or 0) + 0.5),
 		output = {
 			itemId = outId,
 			name = recipe.output.name,
 			imageId = recipe.output.imageId,
 			remaining = snap and snap.reserveRemaining or 0,
 			total = recipe.output.totalSupply,
+			value = outValue,
 		},
 	}
 end

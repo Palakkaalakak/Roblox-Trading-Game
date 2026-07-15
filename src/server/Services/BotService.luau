@@ -542,7 +542,12 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	-- more than they were — real wealth creation, and a demand sink that
 	-- drains the common inputs' supply (so their value rises).
 	----------------------------------------------------------------------
-	local neededInputs: { [string]: boolean } = {}
+	-- itemId -> how many copies a profitable recipe needs me to be holding.
+	-- This is a COUNT, not a flag, because it has to raise my target hold for
+	-- that item: a recipe wanting 4x Stone Relic is unreachable if I stop
+	-- acquiring at TargetHoldPerItem (2), which is exactly why crafting was
+	-- firing a handful of times a minute across 500 bots.
+	local neededInputs: { [string]: number } = {}
 	local now = os.time()
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
@@ -569,12 +574,48 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 						})
 					else
 						-- a profitable recipe I'm short on: these inputs are now
-						-- things I want, so don't trade them away
+						-- things I want (don't trade them away), and I need to
+						-- stockpile up to the recipe's full count
 						for itemId, count in recipe.inputs do
 							if (state.inventory[itemId] or 0) < count then
-								neededInputs[itemId] = true
+								neededInputs[itemId] = math.max(neededInputs[itemId] or 0, count)
 							end
 						end
+					end
+				end
+			end
+		end
+	end
+
+	----------------------------------------------------------------------
+	-- BUY THE MISSING PIECES: a craft I can't fire yet is worth paying up to
+	-- ~value for the inputs I'm short of — the craft premium covers it. Without
+	-- this, crafting starves: trading up always chases the most VALUABLE
+	-- reachable item, so a bot needing 4 cheap Clay Totems goes after a Jade
+	-- Serpent instead and the recipe never fires.
+	----------------------------------------------------------------------
+	for _, l in book.sells do
+		if l.posterId ~= bot.userId and l.remainingCount > 0 then
+			local need = neededInputs[l.itemId]
+			if need then
+				local have = state.inventory[l.itemId] or 0
+				local short = need - have
+				local price = math.max(l.gemsPerCopy, 1)
+				if short > 0 and l.gemsPerCopy <= fair(l.itemId) * BotConfig.InputOverpayCap and price <= spendable then
+					local count = math.min(l.remainingCount, short, math.floor(spendable / price))
+					if count >= 1 then
+						table.insert(candidates, {
+							-- rank it by the craft it unlocks, not the item's own margin
+							profit = fair(l.itemId) * count * 0.75,
+							tag = "buy_input",
+							run = function()
+								local res = TradeBoardService.botBuy(bot.userId, bot.name, l.id, count)
+								if res.ok then
+									l.remainingCount -= count
+								end
+								return res.ok == true
+							end,
+						})
 					end
 				end
 			end
@@ -664,11 +705,16 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 		local targetVal = 0
 		local targetScore = 0
 		for _, itemId in itemIds do
-			if (state.inventory[itemId] or 0) < BotConfig.TargetHoldPerItem then
+			-- normally I only want a couple of any one thing, but if a
+			-- profitable recipe needs 4 of it, chase all 4
+			local wantUpTo = math.max(BotConfig.TargetHoldPerItem, neededInputs[itemId] or 0)
+			if (state.inventory[itemId] or 0) < wantUpTo then
 				local v = fair(itemId)
 				if v > 0 and v * (1 + bot.overpay) <= budgetCap then
 					-- reachable. Prefer what I want, but any rung up is progress.
-					local score = v * (bot.desired[itemId] and 1.25 or 1.0)
+					-- A recipe input I'm short of is the strongest pull there is:
+					-- it unlocks a craft, which is where new value comes from.
+					local score = v * (bot.desired[itemId] and 1.25 or 1.0) * (neededInputs[itemId] and 2.0 or 1.0)
 					if score > targetScore then
 						targetId, targetVal, targetScore = itemId, v, score
 					end

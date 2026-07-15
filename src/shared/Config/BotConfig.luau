@@ -57,7 +57,12 @@ local BotConfig = {
 	Count = 500, -- number of independent bots (userIds -101 .. -(100+Count))
 
 	StartGems = 50, -- one-time seed balance per bot
-	StarterDraws = 5, -- one-time seed items per bot (in-memory reserve draws)
+	-- One-time seed items per bot. This is the economy's raw material, and it
+	-- gates crafting: a recipe wanting 4x of ONE common is unreachable if the
+	-- whole population only holds ~1 of that common per bot, because it takes a
+	-- pile of trades to concentrate 4 into one pair of hands. Real traders hold
+	-- dozens of items, not five — keep this well above the largest recipe count.
+	StarterDraws = 14,
 
 	-- Pace: HFT. One full sweep (every bot thinks once) every SweepSeconds;
 	-- each bot executes up to TakesPerPass deals per pass. All state is
@@ -121,6 +126,11 @@ local BotConfig = {
 	AcceptEdgeSpan = 0.10,
 	MaxBundleItems = 6, -- most items a trade-up bundle may contain
 	UpgradeMinPremium = 0.04, -- don't post an upgrade offer worth less than this
+
+	-- Most a bot will pay (vs market value) for an item a profitable recipe
+	-- needs. Slightly over value is fine — the craft premium pays for it, and
+	-- this is what actually gets crafting fed.
+	InputOverpayCap = 1.12,
 
 	-- Gem-poor liquidation: bots need gems for the store + craft costs. Below
 	-- this, a bot lists ONE spare item for gems (a real reason to sell — not

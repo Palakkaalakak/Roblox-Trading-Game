@@ -149,11 +149,15 @@ return {
 			eq(StoreService.priceFor("store_nope"), 0)
 		end,
 
-		["gem tax: 5% cut, net+cut == gross, zero-safe"] = function()
+		["gem tax: cut matches config, net+cut == gross, zero-safe"] = function()
 			local Tax = require(ReplicatedStorage.Shared.Util.Tax)
+			local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+			-- config-derived so tuning the rate (incl. to 0) doesn't fail the suite;
+			-- the invariants below are what actually matter.
+			local pct = EconomyConfig.GemTaxPercent
 			local net, cut = Tax.split(100)
-			eq(net, 95)
-			eq(cut, 5)
+			eq(cut, math.floor(100 * pct / 100), "cut = GemTaxPercent of gross")
+			eq(net + cut, 100, "conservation")
 			local n2, c2 = Tax.split(7)
 			eq(n2 + c2, 7, "conservation")
 			assert(n2 >= 0 and c2 >= 0)

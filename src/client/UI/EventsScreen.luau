@@ -1,11 +1,20 @@
 --!strict
--- Events screen wiring (crafting / sacrifices / rotating recipes). Panel +
--- templates live in StarterGui. Renders one section per active event, one row
--- per recipe: inputs (with owned/required counts) → output (with stock).
--- CRAFT / SACRIFICE button per row; "Fully crafted!" overlay when output
--- stock hits 0. Cache-first paint so the first open isn't blank.
+-- Events screen (crafting / sacrifices / rotating recipes) — the value engine's
+-- front end. Panel + row templates live in StarterGui (GuiBuilder); the tab bar
+-- and the per-row extras (tier badge, blurb, value-created line) are built here
+-- so the shared builder stays untouched.
+--
+-- Three tabs, in the order a player actually thinks:
+--   ⚡ Can Craft — only what I can make RIGHT NOW (the default; no hunting)
+--   ⏳ Rotating — this window's recipes + a live countdown to the swap
+--   📋 All      — everything, grouped by event
+--
+-- Every row states the deal plainly: what it eats -> what it mints, how much
+-- stock is left, and the VALUE CREATED (output value minus everything it burns).
+-- That gap is why crafting exists — it's the only thing in the game that makes
+-- worth instead of moving it around.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
@@ -13,14 +22,27 @@ local EconomyController = require(script.Parent.Parent.Controllers.EconomyContro
 
 local EventsScreen = {}
 
+local TIER_COLOR: { [number]: Color3 } = {
+	[1] = Color3.fromRGB(154, 160, 166), -- refine (material)
+	[2] = Color3.fromRGB(79, 195, 247), -- artisan
+	[3] = Color3.fromRGB(255, 183, 77), -- grail
+}
+local TIER_NAME: { [number]: string } = { [1] = "REFINE", [2] = "CRAFT", [3] = "GRAIL" }
+
 local function timeText(untilUnix: number?): string
 	if untilUnix == nil then
 		return ""
 	end
 	local remaining = math.max(0, untilUnix - workspace:GetServerTimeNow())
 	local h = math.floor(remaining / 3600)
-	local m = math.ceil((remaining % 3600) / 60)
-	return h > 0 and ("%dh %dm"):format(h, m) or ("%dm"):format(m)
+	local m = math.floor((remaining % 3600) / 60)
+	local s = math.floor(remaining % 60)
+	if h > 0 then
+		return ("%dh %dm"):format(h, m)
+	elseif m > 0 then
+		return ("%dm %02ds"):format(m, s)
+	end
+	return ("%ds"):format(s)
 end
 
 function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, color: Color3) -> ())
@@ -35,16 +57,62 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		panel.Visible = false
 	end)
 
-	local spawned: { Instance } = {} -- cloned rows/headers (cleared each render)
+	----------------------------------------------------------------------
+	-- Tab bar (built here; make room by pushing the list down)
+	----------------------------------------------------------------------
+	list.Position = UDim2.fromOffset(12, 80)
+	list.Size = UDim2.new(1, -24, 1, -92)
+
+	local tabRow = Instance.new("Frame")
+	tabRow.Name = "TabRow"
+	tabRow.BackgroundTransparency = 1
+	tabRow.Position = UDim2.fromOffset(12, 42)
+	tabRow.Size = UDim2.new(1, -24, 0, 30)
+	tabRow.Parent = panel
+	local tabLayout = Instance.new("UIListLayout")
+	tabLayout.FillDirection = Enum.FillDirection.Horizontal
+	tabLayout.Padding = UDim.new(0, 6)
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Parent = tabRow
+
+	local TABS = {
+		{ id = "craft", text = "⚡ Can Craft" },
+		{ id = "rotating", text = "⏳ Rotating" },
+		{ id = "all", text = "📋 All" },
+	}
+	local activeTab = "craft"
+	local tabButtons: { [string]: TextButton } = {}
+	for i, spec in TABS do
+		local b = Instance.new("TextButton")
+		b.Name = "Tab_" .. spec.id
+		b.LayoutOrder = i
+		b.Size = UDim2.fromOffset(150, 30)
+		b.BackgroundColor3 = Theme.BgLight
+		b.Font = Theme.Font
+		b.TextSize = 13
+		b.TextColor3 = Theme.TextPrimary
+		b.Text = spec.text
+		b.Parent = tabRow
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = b
+		tabButtons[spec.id] = b
+	end
+
+	local spawned: { Instance } = {}
 	local lastEvents: { any }? = nil
 	local crafting = false
 	local refresh -- fwd decl
+	local renderEvents -- fwd decl
+	-- headers whose countdown ticks live: { label, untilUnix, prefix }
+	local ticking: { { label: TextLabel, at: number, prefix: string } } = {}
 
 	local function clearRendered()
 		for _, inst in spawned do
 			inst:Destroy()
 		end
 		table.clear(spawned)
+		table.clear(ticking)
 	end
 
 	local function renderChip(chip: Frame, input: any)
@@ -55,7 +123,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		countLabel.TextColor3 = enough and Theme.Good or Theme.Bad
 		EconomyController.ensure({ input.itemId })
 		tooltip.attach(chip, function()
-			-- full item data on hover (falls back to name/icon before stats load)
 			return EconomyController.get(input.itemId) or { name = input.name, imageId = input.imageId }, input.owned
 		end)
 	end
@@ -63,13 +130,12 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local function renderRow(row: Frame, event: any, recipe: any, order: number)
 		row.LayoutOrder = order
 		row.Visible = true
+		row.Size = UDim2.new(1, -8, 0, 112) -- taller than the template: room for the blurb
 
-		-- inputs (item chips only — the gem cost shows as the Cost: line below,
-		-- never as a fake "item" card)
+		-- inputs (item chips only — gems show on the Cost line, never as a fake item)
 		local holder = row:WaitForChild("InputsHolder") :: Frame
 		local gemInput = recipe.gems and recipe.gems > 0
 		local chipOrder = 0
-		local canAfford = true
 		for _, input in recipe.inputs do
 			chipOrder += 1
 			local chip = chipTemplate:Clone()
@@ -80,9 +146,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			renderChip(chip, input)
 			chip.Parent = holder
 			table.insert(spawned, chip)
-			if input.owned < input.count then
-				canAfford = false
-			end
 		end
 
 		-- output
@@ -96,13 +159,58 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		;(row:WaitForChild("CostIcon") :: ImageLabel).Visible = gemInput
 		;(row:WaitForChild("CostLabel") :: TextLabel).Text = gemInput and ("Cost: %d"):format(recipe.gems) or ""
 
+		-- tier badge, under the output icon
+		local badge = Instance.new("TextLabel")
+		badge.Name = "TierBadge"
+		badge.BackgroundTransparency = 1
+		badge.Position = UDim2.fromOffset(274, 76)
+		badge.Size = UDim2.fromOffset(56, 14)
+		badge.Font = Theme.Font
+		badge.TextSize = 10
+		badge.TextColor3 = TIER_COLOR[recipe.tier] or Theme.TextDim
+		badge.Text = TIER_NAME[recipe.tier] or ""
+		badge.Parent = row
+
+		-- VALUE CREATED: what it mints vs everything it burns. The whole point.
+		local gain = (recipe.output.value or 0) - (recipe.costValue or 0)
+		local gainLabel = Instance.new("TextLabel")
+		gainLabel.Name = "ValueLabel"
+		gainLabel.BackgroundTransparency = 1
+		gainLabel.Position = UDim2.fromOffset(340, 72)
+		gainLabel.Size = UDim2.fromOffset(190, 16)
+		gainLabel.Font = Theme.FontLight
+		gainLabel.TextSize = 11
+		gainLabel.TextXAlignment = Enum.TextXAlignment.Left
+		gainLabel.TextColor3 = gain > 0 and Theme.Good or Theme.TextDim
+		gainLabel.Text = gain > 0
+			and ("Worth %d  ·  +%d value created"):format(recipe.output.value or 0, gain)
+			or ("Worth %d"):format(recipe.output.value or 0)
+		gainLabel.Parent = row
+
+		-- blurb along the bottom
+		if recipe.blurb then
+			local blurb = Instance.new("TextLabel")
+			blurb.Name = "Blurb"
+			blurb.BackgroundTransparency = 1
+			blurb.Position = UDim2.fromOffset(10, 90)
+			blurb.Size = UDim2.new(1, -150, 0, 16)
+			blurb.Font = Theme.FontLight
+			blurb.TextSize = 11
+			blurb.TextXAlignment = Enum.TextXAlignment.Left
+			blurb.TextTruncate = Enum.TextTruncate.AtEnd
+			blurb.TextColor3 = Theme.TextDim
+			blurb.Text = recipe.blurb
+			blurb.Parent = row
+		end
+
 		local soldOut = recipe.output.remaining <= 0
 		;(row:WaitForChild("DoneOverlay") :: Frame).Visible = soldOut
 
 		local btn = row:WaitForChild("ActionButton") :: TextButton
 		btn.Text = event.kind == "sacrifice" and "SACRIFICE" or "CRAFT"
 		btn.Visible = not soldOut
-		btn.BackgroundColor3 = canAfford and Theme.Good or Theme.BgLight
+		btn.BackgroundColor3 = recipe.craftable and Theme.Good or Theme.BgLight
+		btn.AutoButtonColor = recipe.craftable
 		btn.Activated:Connect(function()
 			if crafting then
 				return
@@ -115,6 +223,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				toast(("Made %s!"):format(result.output.name), Theme.Good)
 			elseif result.err == "recipe_soldout" then
 				toast(recipe.output.name .. " is fully crafted!", Theme.Warn)
+			elseif result.err == "recipe_not_active" then
+				toast("That recipe just rotated out!", Theme.Warn)
 			elseif result.err and result.err:match("^insufficient") then
 				toast("You don't have the required items!", Theme.Bad)
 			else
@@ -130,47 +240,96 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end)
 	end
 
-	local function renderEvents(events: { any })
+	-- which recipes survive the active tab
+	local function visibleRecipes(event: any): { any }
+		local out = {}
+		for _, recipe in event.recipes do
+			local keep
+			if activeTab == "craft" then
+				keep = recipe.craftable and recipe.output.remaining > 0
+			elseif activeTab == "rotating" then
+				keep = event.rotatesAt ~= nil
+			else
+				keep = true
+			end
+			if keep then
+				table.insert(out, recipe)
+			end
+		end
+		return out
+	end
+
+	local function emptyMessage(): string
+		if activeTab == "craft" then
+			return "Nothing you can craft yet — trade for the inputs, then come back!"
+		elseif activeTab == "rotating" then
+			return "No rotating recipes right now, check back soon!"
+		end
+		return "No events right now, come back later!"
+	end
+
+	renderEvents = function(events: { any })
 		clearRendered()
 		local order = 0
-		if #events == 0 then
+		local shown = 0
+		for _, event in events do
+			local recipes = visibleRecipes(event)
+			if #recipes > 0 then
+				order += 1
+				local header = headerTemplate:Clone()
+				header.Name = "header_" .. event.id
+				header.Visible = true
+				header.LayoutOrder = order
+				local suffix = event.kind == "sacrifice" and "  (sacrifice)" or ""
+				;(header:WaitForChild("EventName") :: TextLabel).Text = event.name .. suffix
+				local tl = header:WaitForChild("TimeLabel") :: TextLabel
+				if event.rotatesAt then
+					tl.Text = "rotates in " .. timeText(event.rotatesAt)
+					table.insert(ticking, { label = tl, at = event.rotatesAt, prefix = "rotates in " })
+				elseif event.endsAt then
+					tl.Text = "ends in " .. timeText(event.endsAt)
+					table.insert(ticking, { label = tl, at = event.endsAt, prefix = "ends in " })
+				else
+					tl.Text = ""
+				end
+				header.Parent = list
+				table.insert(spawned, header)
+
+				for _, recipe in recipes do
+					order += 1
+					shown += 1
+					local row = rowTemplate:Clone()
+					row.Name = "row_" .. event.id .. "_" .. recipe.rid
+					row.Parent = list
+					table.insert(spawned, row)
+					renderRow(row, event, recipe, order)
+				end
+			end
+		end
+		if shown == 0 then
 			local none = headerTemplate:Clone()
 			none.Visible = true
-			;(none:WaitForChild("EventName") :: TextLabel).Text = "No events right now, come back later!"
+			;(none:WaitForChild("EventName") :: TextLabel).Text = emptyMessage()
+			;(none:WaitForChild("EventName") :: TextLabel).TextColor3 = Theme.TextDim
 			;(none:WaitForChild("TimeLabel") :: TextLabel).Text = ""
 			none.Parent = list
 			table.insert(spawned, none)
-			return
 		end
-		for _, event in events do
-			order += 1
-			local header = headerTemplate:Clone()
-			header.Name = "header_" .. event.id
-			header.Visible = true
-			header.LayoutOrder = order
-			;(header:WaitForChild("EventName") :: TextLabel).Text = event.name
-			local suffix = event.kind == "sacrifice" and "  (sacrifice)" or ""
-			;(header:WaitForChild("EventName") :: TextLabel).Text = event.name .. suffix
-			local tl = header:WaitForChild("TimeLabel") :: TextLabel
-			if event.rotatesAt then
-				tl.Text = "rotates in " .. timeText(event.rotatesAt)
-			elseif event.endsAt then
-				tl.Text = "ends in " .. timeText(event.endsAt)
-			else
-				tl.Text = ""
-			end
-			header.Parent = list
-			table.insert(spawned, header)
+	end
 
-			for _, recipe in event.recipes do
-				order += 1
-				local row = rowTemplate:Clone()
-				row.Name = "row_" .. event.id .. "_" .. recipe.rid
-				row.Parent = list
-				table.insert(spawned, row)
-				renderRow(row, event, recipe, order)
-			end
+	local function selectTab(tab: string)
+		activeTab = tab
+		for id, b in tabButtons do
+			b.BackgroundColor3 = (id == tab) and Theme.Accent or Theme.BgLight
 		end
+		if lastEvents then
+			renderEvents(lastEvents)
+		end
+	end
+	for _, spec in TABS do
+		tabButtons[spec.id].Activated:Connect(function()
+			selectTab(spec.id)
+		end)
 	end
 
 	refresh = function()
@@ -184,6 +343,32 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			end
 		end)
 	end
+
+	-- live countdowns; also re-pull when a rotation window lapses so the new
+	-- set appears without the player reopening the panel
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if not panel.Visible then
+			return
+		end
+		acc += dt
+		if acc < 1 then
+			return
+		end
+		acc = 0
+		local lapsed = false
+		for _, t in ticking do
+			if t.label.Parent then
+				t.label.Text = t.prefix .. timeText(t.at)
+				if workspace:GetServerTimeNow() >= t.at then
+					lapsed = true
+				end
+			end
+		end
+		if lapsed then
+			refresh()
+		end
+	end)
 
 	function EventsScreen.open()
 		Components.closeOtherPanels(panel)
@@ -201,6 +386,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			EventsScreen.open()
 		end
 	end
+
+	selectTab("craft")
 
 	-- prefetch after join so first open paints instantly
 	task.spawn(function()
