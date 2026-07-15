@@ -62,36 +62,38 @@ local function decayedDemand(record: any, now: number): number
 end
 
 -- Est. Value is GEM-DENOMINATED and ALWAYS DEFINED (never N/A) — every player
--- sees the same number for the same item, everywhere. It is a SMOOTHED,
--- market-anchored version of RAP:
---   * seed: the item's fixed store cost; event items (no store cost) seed
---     from supply scarcity instead
---   * as real sales accumulate, the seed anchor DECAYS and Value converges
---     onto RAP — so Value is smooth/stable early (sticker-anchored, immune to
---     one lucky trade) and grows precise as genuine gem-priced sales build
---     up. Gem-only shop sales feed RAP directly (exact prices), so this
---     converges fast and true once the shop is used.
+-- sees the same number for the same item, everywhere, and it is a pure
+-- function of FUNDAMENTALS: what the thing anchors at, how much of it has been
+-- destroyed, and how badly people want it. See the EconomyConfig header for
+-- the formula and why it is built this way.
+--
+-- Value deliberately does NOT read RAP. It used to blend a seed with RAP, with
+-- the seed's weight decaying to a 0.04 floor — so Value asymptotically BECAME
+-- RAP, and RAP is just the average of prices that were themselves set off
+-- Value. That loop had no anchor: Value only ever told you where Value had
+-- already been, and no amount of burning or demand could move it. RAP is still
+-- computed and displayed, purely as an OBSERVED statistic.
 -- Deterministic from (registry, economy record): no per-client divergence.
 
--- seed price in gems for an item with no store cost (event items)
+-- Anchor price in gems for an event item with no recipe to cost out.
 function EconomyService.scarcitySeed(totalSupply: number): number
 	local scarcity = (EconomyConfig.ReferenceSupply / math.max(totalSupply, 1)) ^ EconomyConfig.SupplyExponent
 	return math.max(1, math.floor(EconomyConfig.ValueBase * scarcity + 0.5))
 end
 
-function EconomyService.computeValue(seedGems: number, rapValue: number, rapCount: number): number
-	local blendAt = EconomyConfig.MinSamples.ValueRapBlend
-	if rapCount < blendAt then
-		return math.max(1, math.floor(seedGems + 0.5)) -- not enough data: sticker price
-	end
-	-- seed weight decays with sample count: w = w0 * H/(H + extraSamples),
-	-- floored so Value never fully abandons the anchor. Early trades barely
-	-- move Value (smooth); a well-traded item's Value ≈ its RAP (precise).
-	local extra = rapCount - blendAt
-	local w = EconomyConfig.ValueSeedWeight * EconomyConfig.ValueSeedHalfLife
-		/ (EconomyConfig.ValueSeedHalfLife + extra)
-	w = math.max(w, EconomyConfig.ValueSeedFloor)
-	return math.max(1, math.floor(w * seedGems + (1 - w) * rapValue + 0.5))
+-- value = base * scarcity(burned) * demandFactor
+--   `circulating` copies exist right now; `burned` have been destroyed forever
+--   (crafting/sacrifice inputs). Scarcity is the ratio of everything ever
+--   distributed to what survives, so a sink lifts every holder at once, while
+--   fresh production pushes it back toward 1.0x and grows the economy by COUNT
+--   rather than by inflating the unit price.
+function EconomyService.computeValue(base: number, circulating: number, burned: number, demand: number): number
+	local alive = math.max(circulating, 1)
+	local everMade = alive + math.max(burned, 0)
+	local scarcity = (everMade / alive) ^ EconomyConfig.SupplyExponent
+	scarcity = math.clamp(scarcity, 1, EconomyConfig.ScarcityMax)
+	local demandFactor = 1 + EconomyConfig.DemandCoefficient * math.min(demand / EconomyConfig.DemandRef, 1)
+	return math.max(1, math.floor(base * scarcity * demandFactor + 0.5))
 end
 
 -- Live rarity->gems lookup against the CURRENT config — never frozen into
@@ -167,6 +169,7 @@ local function freshRecord(itemId: string, totalSupply: number, now: number)
 		itemId = itemId,
 		reserveRemaining = totalSupply,
 		circulating = 0,
+		burned = 0, -- copies destroyed forever (craft/sacrifice inputs) -> scarcity
 		demandEMA = 0,
 		demandT = now,
 		demandSamples = 0,
@@ -346,9 +349,42 @@ local function mutateRecordLazy(itemId: string, transform: (any) -> any?): any?
 	return new
 end
 
+-- SESSION-LOCAL mutation: in-memory only, deliberately never marked dirty and
+-- so never flushed to the durable record. This is the market bots' lane: their
+-- own gems/inventory are in-memory and wiped on every server start, so anything
+-- they do to the shared economy MUST reset with them. Persisting it desyncs the
+-- durable record from a bot population that no longer exists — exactly the bug
+-- that once drained every scarce item's reserve to 0 permanently.
+local function mutateRecordLocal(itemId: string, transform: (any) -> any?): any?
+	local rec = getRecord(itemId)
+	if rec == nil then
+		return nil
+	end
+	local new = transform(rec)
+	if new == nil then
+		return nil
+	end
+	hotCache[itemId] = new -- NOT dirty: dies with the session, by design
+	return new
+end
+
 --------------------------------------------------------------------------------
 -- Public mutations
 --------------------------------------------------------------------------------
+
+-- Bot PRODUCTION: new goods enter circulation (session-local). Growing the
+-- count of goods is the only thing that genuinely grows total worth — trading
+-- just moves it and crafting only converts it.
+function EconomyService.addCirculatingLocal(itemId: string, count: number)
+	if count <= 0 then
+		return
+	end
+	mutateRecordLocal(itemId, function(old)
+		old.circulating = (old.circulating or 0) + count
+		old.updatedAt = os.time()
+		return old
+	end)
+end
 
 -- Reserve one undistributed copy (starter draw). Atomic cross-server.
 -- Returns (reserved, remainingAfter). Success derived from the committed CAS
@@ -378,7 +414,7 @@ end
 -- flush persists circulating/reserve within the minute. Real players still
 -- use the strong reserveOne (cross-server atomic).
 function EconomyService.reserveOneLazy(itemId: string): boolean
-	local rec = mutateRecordLazy(itemId, function(old)
+	local rec = mutateRecordLocal(itemId, function(old)
 		if (old.reserveRemaining or 0) <= 0 then
 			return nil
 		end
@@ -412,7 +448,11 @@ function EconomyService.retireCopies(itemId: string, count: number)
 		return
 	end
 	mutateRecord(itemId, function(old)
+		local gone = math.min(count, old.circulating or 0)
 		old.circulating = math.max(0, (old.circulating or 0) - count)
+		-- destroyed copies are what make the survivors scarcer, and thus what
+		-- lifts every holder's Est. Value. Without this the sink is invisible.
+		old.burned = (old.burned or 0) + gone
 		old.updatedAt = os.time()
 		return old
 	end)
@@ -427,8 +467,12 @@ function EconomyService.retireCopiesLazy(itemId: string, count: number)
 	if count <= 0 then
 		return
 	end
-	mutateRecordLazy(itemId, function(old)
+	mutateRecordLocal(itemId, function(old)
+		local gone = math.min(count, old.circulating or 0)
 		old.circulating = math.max(0, (old.circulating or 0) - count)
+		-- destroyed copies are what make the survivors scarcer, and thus what
+		-- lifts every holder's Est. Value. Without this the sink is invisible.
+		old.burned = (old.burned or 0) + gone
 		old.updatedAt = os.time()
 		return old
 	end)
@@ -492,7 +536,7 @@ function EconomyService.snapshot(itemId: string): any?
 	local now = os.time()
 	local demand = decayedDemand(rec, now)
 	local circulating = rec.circulating or 0
-	local value = EconomyService.computeValue(seedFor(item, itemId), rec.rapValue or 0, rec.rapCount or 0)
+	local value = EconomyService.computeValue(seedFor(item, itemId), circulating, rec.burned or 0, demand)
 
 	return {
 		itemId = itemId,
@@ -517,7 +561,12 @@ function EconomyService.valueOf(itemId: string): number
 	if item == nil then
 		return 1
 	end
-	return EconomyService.computeValue(seedFor(item, itemId), rec and rec.rapValue or 0, rec and rec.rapCount or 0)
+	return EconomyService.computeValue(
+		seedFor(item, itemId),
+		rec and rec.circulating or 0,
+		rec and rec.burned or 0,
+		rec and decayedDemand(rec, os.time()) or 0
+	)
 end
 
 --------------------------------------------------------------------------------

@@ -194,6 +194,63 @@ end
 -- to the item's real totalSupply, so supply scarcity is still respected.
 local botMinted: { [string]: number } = {}
 
+-- Weighted draw table over the tradeable pool, rebuilt when the catalog does.
+-- Uniform picking would hand out Mythicals as often as Commons, which is
+-- nonsense and wrecks both scarcity and net worth. assignmentWeight is already
+-- ~supply^0.75, so weighting by it makes commons common and grails rare.
+local drawIds: { string } = {}
+local drawCum: { number } = {}
+local drawTotal = 0
+local function buildDrawTable()
+	table.clear(drawIds)
+	table.clear(drawCum)
+	drawTotal = 0
+	local ids = {}
+	for itemId, item in EconomyService.allItems() do
+		if (item.assignmentWeight or 0) > 0 then
+			table.insert(ids, itemId)
+		end
+	end
+	table.sort(ids) -- stable order -> reproducible draws
+	for _, itemId in ids do
+		local item = EconomyService.getItem(itemId)
+		drawTotal += math.max(item and item.assignmentWeight or 0, 0)
+		table.insert(drawIds, itemId)
+		table.insert(drawCum, drawTotal)
+	end
+end
+
+-- Deterministic weighted pick: `ticket` is any integer, hashed into [0,total).
+-- No RNG anywhere — same inputs, same roster, same economy, every run.
+local function drawItem(ticket: number): string?
+	if drawTotal <= 0 then
+		return nil
+	end
+	local h = (ticket * 2654435761) % 4294967296
+	local point = (h / 4294967296) * drawTotal
+	for i, cum in drawCum do
+		if point < cum then
+			return drawIds[i]
+		end
+	end
+	return drawIds[#drawIds]
+end
+
+-- Hand one drawn copy to a bot, if the population hasn't already got as many as
+-- can exist. Bumps circulating SESSION-LOCALLY so Est. Value's scarcity term
+-- sees the real goods supply (and resets with the bots).
+local function mintTo(state: any, itemId: string): boolean
+	local item = EconomyService.getItem(itemId)
+	local cap = item and item.totalSupply or 0
+	if (botMinted[itemId] or 0) >= cap then
+		return false
+	end
+	botMinted[itemId] = (botMinted[itemId] or 0) + 1
+	state.inventory[itemId] = (state.inventory[itemId] or 0) + 1
+	EconomyService.addCirculatingLocal(itemId, 1)
+	return true
+end
+
 local function seedBot(bot: any)
 	local state = getState(bot.userId)
 	if state.seeded then
@@ -201,24 +258,30 @@ local function seedBot(bot: any)
 	end
 	state.seeded = true
 	state.gems += BotConfig.StartGems
-
-	local candidates = {}
-	for itemId, item in EconomyService.allItems() do
-		if (item.assignmentWeight or 0) > 0 then
-			table.insert(candidates, itemId)
-		end
-	end
-	table.sort(candidates) -- stable order -> deterministic draws
-	if #candidates == 0 then
-		return
+	if drawTotal <= 0 then
+		buildDrawTable()
 	end
 	for d = 1, BotConfig.StarterDraws do
-		local itemId = candidates[((bot.index + d * 3) % #candidates) + 1]
-		local item = EconomyService.getItem(itemId)
-		local cap = item and item.totalSupply or 0
-		if (botMinted[itemId] or 0) < cap then
-			botMinted[itemId] = (botMinted[itemId] or 0) + 1
-			state.inventory[itemId] = (state.inventory[itemId] or 0) + 1
+		local itemId = drawItem(bot.index * 31 + d)
+		if itemId then
+			mintTo(state, itemId)
+		end
+	end
+end
+
+-- PRODUCTION — bots "work", and new goods enter the economy.
+-- This is the ONLY thing that actually grows total worth: trading is zero-sum
+-- (it just moves worth between bots) and crafting only converts one good into
+-- another. An economy grows when the quantity of GOODS grows. This is the bots'
+-- stand-in for what real players do — grinding, hatching, farming — which is
+-- what mints new items in any Roblox economy.
+local function produce(bot: any)
+	local state = getState(bot.userId)
+	for k = 1, BotConfig.ProduceCount do
+		bot.produced = (bot.produced or 0) + 1
+		local itemId = drawItem(bot.index * 7919 + bot.produced * 104729)
+		if itemId then
+			mintTo(state, itemId)
 		end
 	end
 end
@@ -959,6 +1022,8 @@ function BotService.Start()
 		local sweep = 0
 		while true do
 			if tryAcquireLease() then
+				-- weighted draw table needs the catalog registered first
+				buildDrawTable()
 				-- seeding is in-memory now (no DataStore) — fast; light yields
 				-- only to avoid a single-frame hitch across 500 bots.
 				for idx, bot in bots do
@@ -995,6 +1060,17 @@ function BotService.Start()
 						end
 						if idx % 60 == 0 then
 							task.wait() -- yield sparingly; passes are in-memory + fast
+						end
+					end
+
+					-- PRODUCTION tick: bots work, goods enter the world. This is
+					-- the economy's only real growth engine — see `produce`.
+					if sweep % BotConfig.ProduceEvery == 0 then
+						for idx, bot in bots do
+							produce(bot)
+							if idx % 100 == 0 then
+								task.wait()
+							end
 						end
 					end
 

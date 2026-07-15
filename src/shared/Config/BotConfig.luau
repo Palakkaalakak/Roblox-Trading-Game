@@ -144,6 +144,17 @@ local BotConfig = {
 	MinGemsKept = 10, -- with 50 starting gems, keep the spendable buffer usable
 	MaxHoldPerItem = 8,
 
+	-- PRODUCTION — the economy's goods faucet, and the only reason total worth
+	-- can rise at all. Trading is zero-sum; crafting only converts. An economy
+	-- grows when GOODS grow, so bots "work": every ProduceEvery sweeps each bot
+	-- produces ProduceCount item(s) drawn from the pool. This is the bots'
+	-- stand-in for the thing real players do — grinding/hatching/farming, which
+	-- is what mints new items in any Roblox economy.
+	-- Bounded by each item's totalSupply (via the per-session mint tally), so
+	-- production is finite and scarcity still means something.
+	ProduceEvery = 6, -- sweeps between a bot's production ticks (~24s at 4s sweeps)
+	ProduceCount = 1,
+
 	-- Gem faucet: taxes + store buys + craft costs only ever DRAIN bot gems
 	-- (bot-to-bot trade is zero-sum minus tax) — without income the population
 	-- starves. A bot below StipendBelowGems gets a small StipendGems top-up

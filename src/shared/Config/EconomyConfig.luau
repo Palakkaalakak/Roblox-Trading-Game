@@ -1,10 +1,18 @@
 --!strict
 -- Economy config: value/demand/RAP constants and minimum-data (N/A) thresholds.
 -- Stat dependency DAG (no cycles):
---   supply  <- distribution counts
+--   supply  <- distribution counts (circulating) and burned counts
 --   demand  <- decayed interest events (EMA)
 --   value   <- g(demand, supply)           (never reads RAP)
 --   RAP     <- rolling avg of imputed gem prices of closed trades (reads value)
+--
+-- That DAG is now actually enforced. Value used to blend a seed with RAP, with
+-- the seed's weight decaying to ValueSeedFloor — so Value asymptotically BECAME
+-- RAP. That's circular and it made Value meaningless: bots price off Value ->
+-- trade at that price -> RAP records it -> Value follows RAP. A feedback loop
+-- with no anchor, drifting wherever it had already been.
+-- Value is now computed from fundamentals only (scarcity x demand), and RAP is
+-- kept as a separate OBSERVED statistic that never feeds back in.
 
 local EconomyConfig = {
 	-- Demand EMA: decays toward 0 with a half-life, bumped by trade activity.
@@ -12,24 +20,38 @@ local EconomyConfig = {
 	DemandBumpOnTrade = 1.0, -- per closed trade containing the item
 	DemandBumpOnOfferInclude = 0.2, -- when an item is placed into a live offer
 
-	-- Value formula: value = max(1, round(Base * scarcity * demandFactor))
-	-- Est. Value (gems, always defined):
-	--   seed  = storeCost, or for event items: ValueBase * (ReferenceSupply/totalSupply)^SupplyExponent
-	--   final = seed until RAP has ValueRapBlend samples, then
-	--           ValueSeedWeight*seed + (1-ValueSeedWeight)*RAP (market takes over)
+	-- EST. VALUE = base * scarcity * demandFactor. Fundamentals only.
+	--   base       the item's anchor: its store price, or its rarity's price
+	--              (Items.StoreCostByRarity), or for crafted items what it cost
+	--              to make. This is the ladder (8 / 35 / 130 / 500).
+	--   scarcity   ((circulating + burned) / circulating) ^ SupplyExponent
+	--              i.e. how much of everything ever handed out has since been
+	--              DESTROYED. Nothing burned = 1.0x. Half burned = ~1.5x.
+	--   demand     1 + DemandCoefficient * min(demandEMA / DemandRef, 1)
+	--
+	-- Why scarcity is measured against BURNED and not against totalSupply:
+	-- totalSupply is a theoretical cap nobody approaches (a Common may allow
+	-- 52k copies while 800 exist), so circulating/totalSupply says nothing about
+	-- real scarcity and would price Commons above Mythicals. What actually makes
+	-- a held item rarer is copies leaving existence.
+	--
+	-- The two properties this buys, which are the whole economy:
+	--   * A SINK lifts EVERY holder. Burn copies -> scarcity up -> every holder
+	--     of that item gets richer without trading. Non-zero-sum.
+	--   * PRODUCTION grows the economy. New copies drive scarcity back toward
+	--     1.0x, so unit value settles at base while COUNT rises: total worth
+	--     (count * value) grows roughly linearly with goods produced. More
+	--     stuff = a bigger economy, exactly as it should be.
 	ValueBase = 10,
-	ReferenceSupply = 500,
+	ReferenceSupply = 500, -- used by scarcitySeed for event items with no recipe
 	SupplyExponent = 0.6,
-	DemandCoefficient = 0.5,
-	-- Crafted/event items seed at (input value + input gems) * this. The >1
-	-- premium is the economy's main VALUE FAUCET: crafting burns the inputs and
-	-- mints something worth more, so crafting genuinely creates net worth
-	-- (item-for-item trading is zero-sum minus tax).
+	DemandCoefficient = 0.5, -- a red-hot item is worth up to 1.5x its base
+	DemandRef = 5, -- demand EMA that counts as "fully hot"
+	ScarcityMax = 6, -- ceiling: burning can't 100x an item
+	-- Crafted/event items anchor at (input value + input gems) * this. The >1
+	-- premium is real value-add: the craft destroys the inputs and mints
+	-- something worth more than they were.
 	CraftValuePremium = 1.10,
-
-	ValueSeedWeight = 0.20, -- initial anchor weight (one whale trade still can't 10x value)
-	ValueSeedHalfLife = 5, -- samples over which the anchor's pull roughly halves
-	ValueSeedFloor = 0.04, -- anchor never fully disappears (residual stability)
 
 	-- "X/Y in existence" (X = held copies, Y = total ever distributable) vs
 	-- just "X in existence". Toggle without touching UI code.
@@ -40,7 +62,6 @@ local EconomyConfig = {
 	MinSamples = {
 		Demand = 1, -- demandSamples >= 1
 		RAP = 1, -- rapCount >= 1 (at least one closed trade)
-		ValueRapBlend = 1, -- market price starts moving Est. Value after 1 real sale
 	},
 
 	-- House cut on every player-to-player gem transfer (trades, board

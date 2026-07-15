@@ -108,26 +108,42 @@ return {
 			assert(not Guard.checkOfferShape({ items = { itm_a = 10 }, gems = 0 }), "copy cap not enforced")
 		end,
 
-		["value: seed early, converges to RAP as samples grow (smoothed)"] = function()
+		["value: fundamentals only — base, scarcity(burned), demand"] = function()
 			local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
-			local blendAt = EconomyConfig.MinSamples.ValueRapBlend
-			-- below threshold: pure seed (sticker price)
-			eq(EconomyService.computeValue(100, 999, blendAt - 1), 100)
-			-- at threshold: between seed and market, anchor still strong
-			local early = EconomyService.computeValue(100, 1000, blendAt)
-			assert(early > 100 and early < 1000, "early blend off: " .. early)
-			-- MANY samples: anchor decays, Value converges toward RAP (precise)
-			local late = EconomyService.computeValue(100, 1000, blendAt + 500)
-			assert(late > early, "value must climb toward RAP with more samples")
-			assert(late > 950, "well-traded item's value ~ its RAP: " .. late)
-			-- smoothing: at the blend threshold the anchor still holds weight
-			-- ValueSeedWeight, so the first sample can move Value at most
-			-- (1 - ValueSeedWeight) of the way toward RAP (config-derived so
-			-- this tracks tuning of the convergence speed). +1 for rounding.
-			local w = EconomyConfig.ValueSeedWeight
-			assert((early - 100) <= (1000 - 100) * (1 - w) + 1, "early value must be anchored/smoothed")
+			-- computeValue(base, circulating, burned, demand)
+			-- nothing burned, no demand -> sits exactly on its anchor
+			eq(EconomyService.computeValue(100, 500, 0, 0), 100, "unburned, cold = base")
+
+			-- A SINK LIFTS EVERY HOLDER: destroy half the copies ever made and
+			-- the survivors are worth strictly more, with nobody having traded.
+			local burnt = EconomyService.computeValue(100, 500, 500, 0)
+			assert(burnt > 100, "burning must raise value: " .. burnt)
+			local burntHarder = EconomyService.computeValue(100, 100, 900, 0)
+			assert(burntHarder > burnt, "more burned = scarcer = worth more")
+
+			-- PRODUCTION doesn't inflate the unit price: minting more copies
+			-- pushes scarcity back toward 1.0x, so value settles at base while
+			-- COUNT (and thus total worth) is what grows.
+			local flooded = EconomyService.computeValue(100, 5000, 500, 0)
+			assert(flooded < burnt, "abundance must not price above scarcity")
+			assert(flooded >= 100, "value floors at its anchor, never below")
+
+			-- demand lifts value, and is capped by DemandCoefficient
+			local hot = EconomyService.computeValue(100, 500, 0, EconomyConfig.DemandRef * 10)
+			eq(hot, math.floor(100 * (1 + EconomyConfig.DemandCoefficient) + 0.5), "demand caps at DemandCoefficient")
+			assert(hot > EconomyService.computeValue(100, 500, 0, 0), "demand must raise value")
+
+			-- scarcity is clamped: burning can't 100x an item
+			local absurd = EconomyService.computeValue(100, 1, 1000000, 0)
+			assert(absurd <= 100 * EconomyConfig.ScarcityMax, "scarcity clamped to ScarcityMax")
+
+			-- Value NEVER reads RAP: it isn't even an argument any more. That
+			-- feedback loop (Value -> price -> RAP -> Value) is what made Value
+			-- meaningless. Guard the signature so it can't creep back in.
+			eq(debug.info(EconomyService.computeValue, "a"), 4, "computeValue takes exactly (base, circulating, burned, demand)")
+
 			-- never below 1
-			eq(EconomyService.computeValue(0, 0, 0), 1)
+			eq(EconomyService.computeValue(0, 0, 0, 0), 1)
 		end,
 
 		["value: event-item scarcity seed — scarcer cap worth more"] = function()
