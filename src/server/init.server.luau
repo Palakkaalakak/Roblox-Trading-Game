@@ -20,6 +20,7 @@ local ordered = {
 	{ "Notification", require(Services.NotificationService) },
 	{ "Store", require(Services.StoreService) },
 	{ "Crafting", require(Services.CraftingService) },
+	{ "Roll", require(Services.RollService) },
 	{ "Product", require(Services.ProductService) },
 	{ "TradeBoard", require(Services.TradeBoardService) },
 	{ "Trade", require(Services.TradeService) },

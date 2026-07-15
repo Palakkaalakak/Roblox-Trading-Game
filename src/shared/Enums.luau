@@ -33,6 +33,7 @@ local Enums = {
 		Purchase = "purchase", -- Robux gamepass/devproduct token grants
 		Board = "board", -- trade-board settlements
 		Bulk = "bulk", -- bulk-order contributions/payouts
+		Roll = "roll", -- gem-paid gacha pulls (the main goods faucet)
 	},
 
 	-- Remote names, single registry. Functions = request/response, Events = server pushes.
@@ -65,6 +66,8 @@ local Enums = {
 		"SetStatChips", -- (keys) -> {ok, err} — owner pins <=4 stats
 		"SetPrivacy", -- ({hideValue, hideShowcase}) -> {ok, err}
 		"GetBotData", -- () -> {ok, data} — admin-only bot inspector (temporary)
+		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
+		"RollItem", -- (tierId) -> {ok, item?, spent?, err?} — spend gems, get an item
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)

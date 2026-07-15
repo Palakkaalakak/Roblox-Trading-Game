@@ -251,6 +251,44 @@ local function mintTo(state: any, itemId: string): boolean
 	return true
 end
 
+-- ROLLING: the bot's reasoned way to acquire new goods. It costs gems, so the
+-- item was PAID for — no free items appearing on a timer. A bot rolls when it
+-- can afford a tier and the pull is worth more than the ticket (expected value
+-- of the tier's live odds vs its price), preferring the richest tier it can
+-- justify. Deterministic ticket: no RNG in the simulation.
+local function tryRoll(bot: any, state: any, sweep: number): string?
+	local RollService = require(script.Parent.RollService) :: any
+	local RollConfig = require(ReplicatedStorage.Shared.Config.RollConfig)
+	if not RollConfig.Enabled then
+		return nil
+	end
+	local spendable = state.gems - BotConfig.MinGemsKept
+	local best, bestEV = nil, 0
+	for _, tier in RollConfig.Tiers do
+		if tier.gems <= spendable then
+			-- expected value of this tier right now, straight off the live odds
+			local ev = 0
+			for _, o in RollService.oddsFor(tier) do
+				ev += (o.pct / 100) * EconomyService.valueOf(o.itemId)
+			end
+			local margin = ev - tier.gems
+			if margin > bestEV then
+				best, bestEV = tier, margin
+			end
+		end
+	end
+	if best == nil then
+		return nil -- nothing is worth rolling at these prices
+	end
+	bot.rolls = (bot.rolls or 0) + 1
+	local res = RollService.botRoll(bot.userId, best.id, bot.index * 7919 + bot.rolls * 104729 + sweep)
+	if res.ok then
+		botMinted[res.item.itemId] = (botMinted[res.item.itemId] or 0) + 1
+		return "roll_" .. best.id
+	end
+	return nil
+end
+
 local function seedBot(bot: any)
 	local state = getState(bot.userId)
 	if state.seeded then
@@ -269,22 +307,6 @@ local function seedBot(bot: any)
 	end
 end
 
--- PRODUCTION — bots "work", and new goods enter the economy.
--- This is the ONLY thing that actually grows total worth: trading is zero-sum
--- (it just moves worth between bots) and crafting only converts one good into
--- another. An economy grows when the quantity of GOODS grows. This is the bots'
--- stand-in for what real players do — grinding, hatching, farming — which is
--- what mints new items in any Roblox economy.
-local function produce(bot: any)
-	local state = getState(bot.userId)
-	for k = 1, BotConfig.ProduceCount do
-		bot.produced = (bot.produced or 0) + 1
-		local itemId = drawItem(bot.index * 7919 + bot.produced * 104729)
-		if itemId then
-			mintTo(state, itemId)
-		end
-	end
-end
 
 --------------------------------------------------------------------------------
 -- Market model (shared per sweep)
@@ -827,8 +849,22 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	end
 
 	----------------------------------------------------------------------
+	-- ROLL: spend gems on the gacha when the live odds say the pull is worth
+	-- more than the ticket. This is where new goods come from — paid for, not
+	-- handed out. Rolling is gated behind having gems, and gems only come from
+	-- selling something someone wanted, so production is earned all the way down.
+	----------------------------------------------------------------------
+	if state.gems - BotConfig.MinGemsKept > 0 then
+		local rolled = tryRoll(bot, state, sweep)
+		if rolled then
+			table.insert(actions, rolled)
+			spendable = state.gems - BotConfig.MinGemsKept
+		end
+	end
+
+	----------------------------------------------------------------------
 	-- LIQUIDATE: gem-poor -> list ONE spare item for gems. A real reason to
-	-- sell (store + craft cost gems), not market-maker churn.
+	-- sell (store + craft + rolls all cost gems), not market-maker churn.
 	----------------------------------------------------------------------
 	if state.gems < BotConfig.GemPoorThreshold and #myOpenSells == 0 then
 		local sellId: string? = nil
@@ -1060,26 +1096,6 @@ function BotService.Start()
 						end
 						if idx % 60 == 0 then
 							task.wait() -- yield sparingly; passes are in-memory + fast
-						end
-					end
-
-					-- PRODUCTION tick: bots work, goods enter the world. This is
-					-- the economy's only real growth engine — see `produce`.
-					if sweep % BotConfig.ProduceEvery == 0 then
-						for idx, bot in bots do
-							produce(bot)
-							if idx % 100 == 0 then
-								task.wait()
-							end
-						end
-					end
-
-					if sweep % BotConfig.StipendEvery == 0 then
-						for _, bot in bots do
-							local s = getState(bot.userId)
-							if s.gems < BotConfig.StipendBelowGems then
-								BotService.applyDelta(bot.userId, { gems = BotConfig.StipendGems }, "stipend")
-							end
 						end
 					end
 

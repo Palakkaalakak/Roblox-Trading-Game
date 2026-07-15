@@ -1014,7 +1014,7 @@ end
 
 function TradeBoardService.Init()
 	StoreAdapters.init()
-	board = StoreAdapters.sortedMap("TradeBoard_v7")
+	board = StoreAdapters.sortedMap("TradeBoard_v8")
 
 	-- One-time purge of retired MemoryStore maps (old boards + the retired
 	-- EconomyHot mirror). Their entries persist on multi-day TTLs and count
@@ -1023,7 +1023,7 @@ function TradeBoardService.Init()
 	-- old TTLs lapse (days). Cheap when clean: one empty GetRangeAsync per
 	-- retired map. Delete this block once the retired maps have aged out.
 	task.spawn(function()
-		local retired = { "TradeBoard_v3", "TradeBoard_v4", "TradeBoard_v6", "EconomyHot_v3" }
+		local retired = { "TradeBoard_v3", "TradeBoard_v4", "TradeBoard_v6", "TradeBoard_v7", "EconomyHot_v3" }
 		for i = 1, 16 do
 			table.insert(retired, "TradeBoard_v5_" .. i)
 		end

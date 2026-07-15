@@ -40,6 +40,10 @@ local econStore: any -- DataStore "EconomyStore_v1", key itemId -> EconomyRecord
 local registry: { [string]: any } = {} -- itemId -> Item (local cache)
 local hotCache: { [string]: any } = {} -- itemId -> EconomyRecord (local cache)
 local dirty: { [string]: boolean } = {} -- itemIds needing durable flush
+-- itemIds carrying SESSION-LOCAL edits (bot sim supply). Never flushed, and
+-- never invalidated either: the durable record doesn't have these edits, so
+-- dropping the cache would silently revert them.
+local localOnly: { [string]: boolean } = {}
 
 -- Cross-server broadcast coalescing: a burst of broadcastStats calls (bot
 -- seeding, a busy sweep, several trades in one tick) collapses into ONE
@@ -365,6 +369,12 @@ local function mutateRecordLocal(itemId: string, transform: (any) -> any?): any?
 		return nil
 	end
 	hotCache[itemId] = new -- NOT dirty: dies with the session, by design
+	-- ...but it must survive cache INVALIDATION, which is a different thing.
+	-- The durable record has never heard of these edits, so re-reading it would
+	-- silently revert them. (This bit hard: every broadcast reset the bots'
+	-- entire goods supply back to 0 while they were visibly holding 200k of
+	-- items, and Value's scarcity term was reading that zero.)
+	localOnly[itemId] = true
 	return new
 end
 
@@ -379,8 +389,13 @@ function EconomyService.addCirculatingLocal(itemId: string, count: number)
 	if count <= 0 then
 		return
 	end
+	local item = EconomyService.getItem(itemId)
+	local cap = item and item.totalSupply or math.huge
 	mutateRecordLocal(itemId, function(old)
-		old.circulating = (old.circulating or 0) + count
+		-- Hard clamp: circulating can NEVER exceed how many can ever exist.
+		-- ("X in existence" showing more than the cap is nonsense, and it made
+		-- the scarcity term lie.)
+		old.circulating = math.min((old.circulating or 0) + count, cap)
 		old.updatedAt = os.time()
 		return old
 	end)
@@ -638,8 +653,8 @@ end
 
 function EconomyService.Init()
 	StoreAdapters.init()
-	registryStore = StoreAdapters.dataStore("ItemRegistry_v4")
-	econStore = StoreAdapters.dataStore("EconomyStore_v4")
+	registryStore = StoreAdapters.dataStore("ItemRegistry_v5")
+	econStore = StoreAdapters.dataStore("EconomyStore_v5")
 	EconomyService.loadRegistry()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything
@@ -692,7 +707,7 @@ function EconomyService.Start()
 			-- nulls the cache would force a re-read of the STALE durable record,
 			-- making an actively-trading item's RAP flicker to N/A until the
 			-- next sale repopulates it. If it's dirty, our copy is the newest.
-			if type(itemId) == "string" and not dirty[itemId] then
+			if type(itemId) == "string" and not dirty[itemId] and not localOnly[itemId] then
 				hotCache[itemId] = nil -- refetch from durable on next read
 			end
 		end

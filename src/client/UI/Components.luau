@@ -51,19 +51,15 @@ function Components.storeCostText(snapshot: any?): string
 	return "N/A (Event Item)"
 end
 
--- "X/Y in existence" (X = copies in players' hands, Y = total that can ever
--- be distributed) or just "X in existence" — EconomyConfig.ShowExistenceCap.
+-- "N in existence" — N is totalSupply: how many of this item can EVER exist.
+-- That fixed cap is the rarity signal a trader actually cares about ("only 90
+-- exist"), and it never moves. We deliberately do NOT show the live circulating
+-- count: it churns constantly and means little on its own.
 function Components.existenceText(snapshot: any?): string
-	if snapshot == nil then
-		return EconomyConfig.ShowExistenceCap and "?/? in existence" or "? in existence"
+	if snapshot == nil or snapshot.totalSupply == nil then
+		return "? in existence"
 	end
-	local supply = snapshot.supply
-	local x = (supply and supply.state == "Known" and supply.value ~= nil) and tostring(supply.value) or "N/A"
-	if not EconomyConfig.ShowExistenceCap then
-		return x .. " in existence"
-	end
-	local y = snapshot.totalSupply and tostring(snapshot.totalSupply) or "?"
-	return x .. "/" .. y .. " in existence"
+	return tostring(snapshot.totalSupply) .. " in existence"
 end
 
 -- Fill an ItemTile (template clone) from a snapshot + owned count.

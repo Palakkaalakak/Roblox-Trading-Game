@@ -53,10 +53,6 @@ local EconomyConfig = {
 	-- something worth more than they were.
 	CraftValuePremium = 1.10,
 
-	-- "X/Y in existence" (X = held copies, Y = total ever distributable) vs
-	-- just "X in existence". Toggle without touching UI code.
-	ShowExistenceCap = false,
-
 	-- Minimum-data thresholds. Below these a stat is StatState.NA and the UI
 	-- must render "N/A" (never 0/blank/null).
 	MinSamples = {

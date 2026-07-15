@@ -144,25 +144,15 @@ local BotConfig = {
 	MinGemsKept = 10, -- with 50 starting gems, keep the spendable buffer usable
 	MaxHoldPerItem = 8,
 
-	-- PRODUCTION — the economy's goods faucet, and the only reason total worth
-	-- can rise at all. Trading is zero-sum; crafting only converts. An economy
-	-- grows when GOODS grow, so bots "work": every ProduceEvery sweeps each bot
-	-- produces ProduceCount item(s) drawn from the pool. This is the bots'
-	-- stand-in for the thing real players do — grinding/hatching/farming, which
-	-- is what mints new items in any Roblox economy.
-	-- Bounded by each item's totalSupply (via the per-session mint tally), so
-	-- production is finite and scarcity still means something.
-	ProduceEvery = 6, -- sweeps between a bot's production ticks (~24s at 4s sweeps)
-	ProduceCount = 1,
-
-	-- Gem faucet: taxes + store buys + craft costs only ever DRAIN bot gems
-	-- (bot-to-bot trade is zero-sum minus tax) — without income the population
-	-- starves. A bot below StipendBelowGems gets a small StipendGems top-up
-	-- every StipendEvery sweeps. Kept modest so it's a floor, not an inflating
-	-- firehose (sweeps are 4s now, so this fires ~once a minute).
-	StipendEvery = 15,
-	StipendGems = 10,
-	StipendBelowGems = 40,
+	-- NO GEM FAUCET. Bots get StartGems once; after that gems only ever move
+	-- between traders. There is deliberately no stipend/drip — an arbitrary
+	-- trickle of free currency isn't an economy, it's just printing money, and
+	-- it was making total gems climb on their own. A bot's gems come from
+	-- SELLING something someone wanted.
+	-- CONSEQUENCE, on purpose: rolls / store buys / craft fees burn gems, so the
+	-- gem pool is CLOSED and only shrinks. Rolling and shopping are therefore
+	-- self-limiting — when the pool drains, they stop until a real gem faucet
+	-- (i.e. gameplay) exists.
 
 	NetworthLogEvery = 25, -- log bot_sweep aggregate every N sweeps (~100s)
 }
