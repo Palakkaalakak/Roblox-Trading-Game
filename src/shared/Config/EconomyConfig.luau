@@ -21,6 +21,12 @@ local EconomyConfig = {
 	ReferenceSupply = 500,
 	SupplyExponent = 0.6,
 	DemandCoefficient = 0.5,
+	-- Crafted/event items seed at (input value + input gems) * this. The >1
+	-- premium is the economy's main VALUE FAUCET: crafting burns the inputs and
+	-- mints something worth more, so crafting genuinely creates net worth
+	-- (item-for-item trading is zero-sum minus tax).
+	CraftValuePremium = 1.10,
+
 	ValueSeedWeight = 0.20, -- initial anchor weight (one whale trade still can't 10x value)
 	ValueSeedHalfLife = 5, -- samples over which the anchor's pull roughly halves
 	ValueSeedFloor = 0.04, -- anchor never fully disappears (residual stability)

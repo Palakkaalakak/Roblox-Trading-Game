@@ -23,11 +23,20 @@
 -- scales to 500. Bots are simulation: a fresh server re-seeds them, no
 -- durability needed.
 --
--- Strategy per pass: TAKE (profit-ranked deals: lift cheap asks / fill rich
--- bids / accept +EV swaps / buy underpriced store stock / craft +EV recipes;
--- edge tightens with hunger) -> QUOTE (ask+bid on focus+desired items around
--- the inventory-skewed private reservation price) -> BARTER (one 1-for-1
--- auto-swap: give a non-desired item, want a desired one).
+-- Strategy per pass — they trade like Roblox players, not market makers:
+--   TRADE DOWN   accept an open upgrade offer: hand over the one high item,
+--                take the bundle worth more. That Win is how worth compounds.
+--   SNIPE        buy a gem listing priced under what the item is worth.
+--   FILL BULK    supply copies to someone paying over the odds in gems.
+--   STORE        buy fixed-price stock under market value (supply faucet).
+--   CRAFT        burn cheap inputs -> mint an output worth +10% (VALUE faucet:
+--                the only way aggregate wealth actually grows, since barter is
+--                zero-sum minus tax; also a demand sink on the inputs).
+--   TRADE UP     bundle my cheapest spare items + a gem sweetener and offer
+--                them for ONE item I want, overpaying a premium — the premium
+--                is what makes a holder willing to part with it.
+--   LIQUIDATE    if gem-poor, list ONE spare item for gems (store/craft money).
+-- Hunger tightens a starved bot's required margin so the book never freezes.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -79,8 +88,11 @@ do
 			name = ("%s %s [bot]"):format(FIRST[((i - 1) % #FIRST) + 1], LAST[(math.floor((i - 1) / #FIRST) % #LAST) + 1]),
 			archetype = BUCKET_ARCH[((i * 41) % 100) + 1],
 			edge = BotConfig.EdgeMin + BotConfig.EdgeSpan * ((i * 7) % n) / denom,
-			gamma = BotConfig.GammaMin + BotConfig.GammaSpan * ((i * 13) % n) / denom,
-			targetGemFrac = BotConfig.TargetGemFracMin + BotConfig.TargetGemFracSpan * ((i * 29) % n) / denom,
+			-- trading-up premium this bot offers, and the minimum Win it demands
+			-- before trading down. Trades clear where one bot's overpay exceeds
+			-- another's acceptEdge.
+			overpay = BotConfig.OverpayMin + BotConfig.OverpaySpan * ((i * 17) % n) / denom,
+			acceptEdge = BotConfig.AcceptEdgeMin + BotConfig.AcceptEdgeSpan * ((i * 23) % n) / denom,
 			index = i,
 			lastFillSweep = 0,
 		}
@@ -345,12 +357,6 @@ local function pref(bot: any, itemId: string): number
 	return 1 - BotConfig.PrefTrim
 end
 
--- Reservation price: PRIVATE value (fair x pref) skewed against position.
-local function reservation(bot: any, itemId: string, position: number): number
-	local excess = (position - BotConfig.TargetHoldPerItem) / BotConfig.SkewScale
-	return fair(itemId) * pref(bot, itemId) * (1 - bot.gamma * excess)
-end
-
 -- Hunger: edge tightens every sweep without a fill, so a frozen book unfreezes.
 local function effectiveEdge(bot: any, sweep: number): number
 	local starved = sweep - (bot.lastFillSweep or 0)
@@ -394,8 +400,23 @@ local function buildBook(listings: { any })
 end
 
 --------------------------------------------------------------------------------
--- One bot pass (pure decisions -> real board/store/craft calls)
+-- One bot pass: trade the way a Roblox player trades
 --------------------------------------------------------------------------------
+
+-- This bot's PRIVATE valuation of an item (taste-adjusted). Two bots wanting
+-- different things is exactly what lets one swap be a Win on both their books.
+local function myVal(bot: any, itemId: string): number
+	return fair(itemId) * pref(bot, itemId)
+end
+
+-- Total value of one side of an offer, from this bot's perspective.
+local function offerValue(bot: any, offer: any): number
+	local v = offer.gems or 0
+	for itemId, count in offer.items do
+		v += myVal(bot, itemId) * count
+	end
+	return v
+end
 
 local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: number): { string }
 	local TradeBoardService = require(script.Parent.TradeBoardService) :: any
@@ -405,69 +426,83 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	local state = getState(bot.userId)
 	bot.desired = computeDesires(bot, itemIds, ctx, state)
 	local edge = effectiveEdge(bot, sweep)
+	-- hunger also relaxes how big a Win a starved bot holds out for
+	local starved = sweep - (bot.lastFillSweep or 0)
+	local acceptEdge = math.max(0, bot.acceptEdge / (1 + BotConfig.HungerEdgeDecay * starved))
 	local actions: { string } = {}
+	local spendable = state.gems - BotConfig.MinGemsKept
 
-	-- position value + escrow-inclusive net worth
-	local invValue = 0
-	for itemId, count in state.inventory do
-		invValue += fair(itemId) * count
-	end
-	local escrowValue = 0
-	for _, l in book.ownOpen[bot.userId] or {} do
-		if l.kind == "sell" then
-			escrowValue += fair(l.itemId) * l.remainingCount
-		elseif l.kind == "bulk" then
-			escrowValue += l.gemsPerCopy * l.remainingCount
-		elseif l.kind == "swap" then
-			escrowValue += l.give.gems
-			for itemId, count in l.give.items do
-				escrowValue += fair(itemId) * count
+	local candidates: { { profit: number, tag: string, run: () -> boolean } } = {}
+
+	----------------------------------------------------------------------
+	-- TRADE DOWN: accept an upgrade offer — hand over the single high item,
+	-- take the bundle worth more. This Win is how net worth compounds.
+	----------------------------------------------------------------------
+	for _, l in book.swaps do
+		if l.posterId ~= bot.userId and l.status == "open" then
+			local receive = offerValue(bot, l.give)
+			local pay = offerValue(bot, l.want)
+			local canPay = (l.want.gems or 0) <= spendable
+			for itemId, count in l.want.items do
+				if (state.inventory[itemId] or 0) < count then
+					canPay = false
+				end
+			end
+			if canPay and pay > 0 and receive >= pay * (1 + acceptEdge) then
+				table.insert(candidates, {
+					profit = receive - pay,
+					tag = "trade_down",
+					run = function()
+						local res = TradeBoardService.botAccept(bot.userId, bot.name, l.id)
+						if res.ok then
+							l.status = "claimed"
+						end
+						return res.ok == true
+					end,
+				})
 			end
 		end
 	end
-	local worth = state.gems + invValue + escrowValue
-	local gemFrac = worth > 0 and (state.gems / worth) or 1
-	local spendable = state.gems - BotConfig.MinGemsKept
 
 	----------------------------------------------------------------------
-	-- TAKE: expected-profit-ranked executable deals
+	-- SNIPE: someone listed an item for gems well under what it's worth.
 	----------------------------------------------------------------------
-	local candidates: { { profit: number, tag: string, run: () -> boolean } } = {}
-
-	if gemFrac > bot.targetGemFrac * 0.5 then
-		for _, l in book.sells do
-			if l.posterId ~= bot.userId and l.remainingCount > 0 then
-				local pos = state.inventory[l.itemId] or 0
-				local r = reservation(bot, l.itemId, pos)
-				if l.gemsPerCopy <= r * (1 - edge) and pos < BotConfig.MaxHoldPerItem and l.gemsPerCopy <= spendable then
-					local count = math.min(l.remainingCount, math.floor(spendable / l.gemsPerCopy), BotConfig.QuoteCopies)
-					if count >= 1 then
-						table.insert(candidates, {
-							profit = (r - l.gemsPerCopy) * count,
-							tag = "buy_sell_listing",
-							run = function()
-								local res = TradeBoardService.botBuy(bot.userId, bot.name, l.id, count)
-								if res.ok then
-									l.remainingCount -= count
-								end
-								return res.ok == true
-							end,
-						})
-					end
+	for _, l in book.sells do
+		if l.posterId ~= bot.userId and l.remainingCount > 0 then
+			local pos = state.inventory[l.itemId] or 0
+			local v = myVal(bot, l.itemId)
+			if l.gemsPerCopy <= v * (1 - edge) and pos < BotConfig.MaxHoldPerItem and l.gemsPerCopy <= spendable then
+				local count = math.min(l.remainingCount, math.floor(spendable / math.max(l.gemsPerCopy, 1)), 2)
+				if count >= 1 then
+					table.insert(candidates, {
+						profit = (v - l.gemsPerCopy) * count,
+						tag = "snipe_listing",
+						run = function()
+							local res = TradeBoardService.botBuy(bot.userId, bot.name, l.id, count)
+							if res.ok then
+								l.remainingCount -= count
+							end
+							return res.ok == true
+						end,
+					})
 				end
 			end
 		end
 	end
+
+	----------------------------------------------------------------------
+	-- SUPPLY a bulk order: someone is paying over the odds in gems for copies.
+	----------------------------------------------------------------------
 	for _, l in book.bulks do
 		if l.posterId ~= bot.userId and l.remainingCount > 0 then
 			local owned = state.inventory[l.itemId] or 0
-			if owned >= 1 then
-				local r = reservation(bot, l.itemId, owned)
+			if owned >= 1 and not bot.desired[l.itemId] then
+				local v = myVal(bot, l.itemId)
 				local net = Tax.split(l.gemsPerCopy)
-				if net >= r * (1 + edge) then
+				if net >= v * (1 + edge) then
 					local count = math.min(owned, l.remainingCount)
 					table.insert(candidates, {
-						profit = (net - r) * count,
+						profit = (net - v) * count,
 						tag = "fill_bulk",
 						run = function()
 							local res = TradeBoardService.botContribute(bot.userId, bot.name, l.id, count)
@@ -481,42 +516,18 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 			end
 		end
 	end
-	for _, l in book.swaps do
-		if l.posterId ~= bot.userId and l.status == "open" then
-			local receive = Tax.split(l.give.gems)
-			for itemId, count in l.give.items do
-				receive += fair(itemId) * pref(bot, itemId) * count
-			end
-			local pay = l.want.gems
-			local canPay = l.want.gems <= spendable
-			for itemId, count in l.want.items do
-				pay += reservation(bot, itemId, state.inventory[itemId] or 0) * count
-				if (state.inventory[itemId] or 0) < count then
-					canPay = false
-				end
-			end
-			if canPay and pay > 0 and receive - pay >= edge * pay then
+
+	----------------------------------------------------------------------
+	-- GEM STORE: fixed-price stock under market value is free profit, and it
+	-- is what injects fresh supply into the economy.
+	----------------------------------------------------------------------
+	for _, s in StoreService.shelfForBots() do
+		local pos = state.inventory[s.itemId] or 0
+		if s.price <= spendable and pos < BotConfig.MaxHoldPerItem then
+			local v = myVal(bot, s.itemId)
+			if s.price <= v * (1 - edge) then
 				table.insert(candidates, {
-					profit = receive - pay,
-					tag = "accept_swap",
-					run = function()
-						local res = TradeBoardService.botAccept(bot.userId, bot.name, l.id)
-						if res.ok then
-							l.status = "claimed"
-						end
-						return res.ok == true
-					end,
-				})
-			end
-		end
-	end
-	if gemFrac > bot.targetGemFrac * 0.5 then
-		for _, s in StoreService.shelfForBots() do
-			local pos = state.inventory[s.itemId] or 0
-			local r = reservation(bot, s.itemId, pos)
-			if s.price <= r * (1 - edge) and s.price <= spendable and pos < BotConfig.MaxHoldPerItem then
-				table.insert(candidates, {
-					profit = r - s.price,
+					profit = v - s.price,
 					tag = "store_buy",
 					run = function()
 						return StoreService.botBuy(bot.userId, s.itemId).ok == true
@@ -525,7 +536,13 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 			end
 		end
 	end
-	local neededInputs: { [string]: number } = {}
+
+	----------------------------------------------------------------------
+	-- EVENT CRAFT: the value faucet. Burn cheap inputs, mint an output worth
+	-- more than they were — real wealth creation, and a demand sink that
+	-- drains the common inputs' supply (so their value rises).
+	----------------------------------------------------------------------
+	local neededInputs: { [string]: boolean } = {}
 	local now = os.time()
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
@@ -551,9 +568,11 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 							end,
 						})
 					else
+						-- a profitable recipe I'm short on: these inputs are now
+						-- things I want, so don't trade them away
 						for itemId, count in recipe.inputs do
 							if (state.inventory[itemId] or 0) < count then
-								neededInputs[itemId] = math.floor(fair(itemId) + 0.5)
+								neededInputs[itemId] = true
 							end
 						end
 					end
@@ -582,172 +601,146 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	end
 
 	----------------------------------------------------------------------
-	-- QUOTE: maintain ask+bid on focus + desired items (+ needed inputs)
+	-- TRADE UP: bundle my cheapest spare items (+ a gem sweetener) and offer
+	-- them for ONE item I want, overpaying a premium — that premium is what
+	-- makes a holder willing to give the item up.
 	----------------------------------------------------------------------
-	local focus: { [string]: boolean } = {}
-	if #itemIds > 0 then
-		for k = 0, BotConfig.QuoteItemsPerBot - 1 do
-			focus[itemIds[((bot.index * 3 + k * 41) % #itemIds) + 1]] = true
-		end
-	end
-	for itemId in bot.desired do
-		focus[itemId] = true
-	end
-	for itemId in neededInputs do
-		focus[itemId] = true
-	end
-	for itemId, count in state.inventory do
-		if count > BotConfig.MaxHoldPerItem then
-			focus[itemId] = true
-		end
-	end
-	local focusList = {}
-	for itemId in focus do
-		table.insert(focusList, itemId)
-	end
-	table.sort(focusList)
-
-	local ownSell: { [string]: any } = {}
-	local ownBulk: { [string]: any } = {}
-	local ownSwaps: { any } = {}
+	local myOpenSwaps: { any } = {}
+	local myOpenSells: { any } = {}
 	for _, l in book.ownOpen[bot.userId] or {} do
-		if l.kind == "sell" then
-			ownSell[l.itemId] = l
-		elseif l.kind == "bulk" then
-			ownBulk[l.itemId] = l
-		elseif l.kind == "swap" then
-			table.insert(ownSwaps, l)
+		if l.kind == "swap" then
+			table.insert(myOpenSwaps, l)
+		elseif l.kind == "sell" then
+			table.insert(myOpenSells, l)
 		end
 	end
 
-	local quoted = 0
-	for _, itemId in focusList do
-		if quoted >= 2 then
-			break
-		end
-		local value = EconomyService.valueOf(itemId)
-		local pos = state.inventory[itemId] or 0
-		local r = reservation(bot, itemId, pos)
-
-		if pos >= 1 then
-			local floorPrice = math.max(1, math.floor(math.max(r * (1 + edge / 2), value * BotConfig.MinSellVsValue) + 0.5))
-			local target = math.floor(r * (1 + edge) + 0.5)
-			local ask = book.bestAsk[itemId]
-			if ask and ask - 1 >= floorPrice and ask - 1 < target then
-				target = ask - 1
-			end
-			target = math.max(target, floorPrice)
-			local existing = ownSell[itemId]
-			local drifted = existing
-				and math.abs(existing.gemsPerCopy - target) > math.max(1, target * BotConfig.RepriceFrac)
-			if existing and drifted then
-				if TradeBoardService.botCancel(bot.userId, existing.id).ok then
-					table.insert(actions, "reprice_cancel")
-					existing = nil
-					pos = state.inventory[itemId] or 0
-				end
-			end
-			if existing == nil and pos >= 1 then
-				local count = math.min(pos, BotConfig.QuoteCopies)
-				if TradeBoardService.botPost(bot.userId, bot.name, {
-					kind = "sell",
-					itemId = itemId,
-					count = count,
-					gemsPerCopy = target,
-				}).ok then
-					table.insert(actions, "post_sell")
-					quoted += 1
-				end
-			end
-		end
-
-		if gemFrac >= bot.targetGemFrac * 0.6 and pos < BotConfig.MaxHoldPerItem then
-			local ceiling = math.floor(math.min(r * (1 - edge / 2), value * BotConfig.MaxBidVsValue) + 0.5)
-			local target = math.floor(r * (1 - edge) + 0.5)
-			local need = neededInputs[itemId]
-			if need then
-				target = math.min(need, ceiling)
-			end
-			local bid = book.bestBid[itemId]
-			if bid and bid + 1 <= ceiling and bid + 1 > target then
-				target = bid + 1
-			end
-			target = math.min(math.max(1, target), ceiling)
-			local count = BotConfig.QuoteCopies
-			local existing = ownBulk[itemId]
-			local drifted = existing
-				and math.abs(existing.gemsPerCopy - target) > math.max(1, target * BotConfig.RepriceFrac)
-			if existing and drifted then
-				if TradeBoardService.botCancel(bot.userId, existing.id).ok then
-					table.insert(actions, "reprice_cancel")
-					existing = nil
-					spendable = state.gems - BotConfig.MinGemsKept
-				end
-			end
-			if existing == nil and target >= 1 and target * count <= spendable then
-				if TradeBoardService.botPost(bot.userId, bot.name, {
-					kind = "bulk",
-					itemId = itemId,
-					count = count,
-					gems = target * count,
-				}).ok then
-					table.insert(actions, "post_bulk")
-					quoted += 1
-				end
-			end
-		end
-	end
-
-	----------------------------------------------------------------------
-	-- BARTER: keep one 1-for-1 auto-swap open (give non-desired, want
-	-- desired, comparable fair value). Opposite-taste bots accept it.
-	----------------------------------------------------------------------
-	local openSwap: any = nil
-	for _, l in ownSwaps do
+	-- keep exactly one live offer, and only for something I still want
+	local liveSwap: any = nil
+	for _, l in myOpenSwaps do
 		local wantId = next(l.want.items)
-		if wantId == nil or not bot.desired[wantId] then
-			if TradeBoardService.botCancel(bot.userId, l.id).ok then
-				table.insert(actions, "swap_retire")
-			end
-		elseif openSwap == nil then
-			openSwap = l
+		if wantId ~= nil and bot.desired[wantId] and liveSwap == nil then
+			liveSwap = l
+		elseif TradeBoardService.botCancel(bot.userId, l.id).ok then
+			table.insert(actions, "offer_retire")
 		end
 	end
-	if openSwap == nil and next(bot.desired) ~= nil then
-		local giveId: string? = nil
+
+	if liveSwap == nil then
+		-- What can I actually put on the table? My cheapest spare items (the
+		-- chaff) plus spendable gems. Trading up is INCREMENTAL — you climb one
+		-- rung at a time, you don't leap straight to the grail. So the target is
+		-- the best rung this budget can genuinely reach, preferring what I want.
+		local spare = {}
 		for itemId, count in state.inventory do
-			if count >= 1 and not bot.desired[itemId] then
-				if giveId == nil or fair(itemId) > fair(giveId) or (fair(itemId) == fair(giveId) and itemId < giveId) then
-					giveId = itemId
-				end
+			if not bot.desired[itemId] and not neededInputs[itemId] then
+				table.insert(spare, { id = itemId, count = count, val = fair(itemId) })
 			end
 		end
-		if giveId then
-			local giveFair = fair(giveId)
-			local wantId: string? = nil
-			local wantIds = {}
-			for itemId in bot.desired do
-				table.insert(wantIds, itemId)
+		-- cheapest first: trade away the chaff, keep the good stuff
+		table.sort(spare, function(a, b)
+			if a.val ~= b.val then
+				return a.val < b.val
 			end
-			table.sort(wantIds)
-			for _, itemId in wantIds do
-				if (state.inventory[itemId] or 0) < BotConfig.TargetHoldPerItem then
-					local gap = math.abs(fair(itemId) - giveFair) / math.max(giveFair, 1)
-					if gap <= BotConfig.SwapMaxValueGap then
-						wantId = itemId
-						break
+			return a.id < b.id
+		end)
+
+		local maxBundleVal, units = 0, 0
+		for _, e in spare do
+			if units >= BotConfig.MaxBundleItems then
+				break
+			end
+			for _ = 1, e.count do
+				if units >= BotConfig.MaxBundleItems then
+					break
+				end
+				maxBundleVal += e.val
+				units += 1
+			end
+		end
+		local budgetCap = maxBundleVal + math.max(0, spendable)
+
+		local targetId: string? = nil
+		local targetVal = 0
+		local targetScore = 0
+		for _, itemId in itemIds do
+			if (state.inventory[itemId] or 0) < BotConfig.TargetHoldPerItem then
+				local v = fair(itemId)
+				if v > 0 and v * (1 + bot.overpay) <= budgetCap then
+					-- reachable. Prefer what I want, but any rung up is progress.
+					local score = v * (bot.desired[itemId] and 1.25 or 1.0)
+					if score > targetScore then
+						targetId, targetVal, targetScore = itemId, v, score
 					end
 				end
 			end
-			if wantId then
+		end
+
+		if targetId then
+			local budget = targetVal * (1 + bot.overpay)
+			local giveItems: { [string]: number } = {}
+			local giveVal = 0
+			local n = 0
+			for _, e in spare do
+				-- only bundle things CHEAPER than the target — that's what makes
+				-- this an upgrade rather than a sideways shuffle
+				if e.val >= targetVal or n >= BotConfig.MaxBundleItems or giveVal >= budget then
+					break
+				end
+				for _ = 1, e.count do
+					if n >= BotConfig.MaxBundleItems or giveVal + e.val > budget then
+						break
+					end
+					giveItems[e.id] = (giveItems[e.id] or 0) + 1
+					giveVal += e.val
+					n += 1
+				end
+			end
+
+			-- top up with gems so the offer actually clears the target's value
+			local wantTotal = targetVal * (1 + bot.overpay)
+			local gemAdd = 0
+			if giveVal < wantTotal then
+				gemAdd = math.min(math.ceil(wantTotal - giveVal), math.max(0, spendable))
+			end
+
+			if n > 0 and (giveVal + gemAdd) >= targetVal * (1 + BotConfig.UpgradeMinPremium) then
 				if TradeBoardService.botPost(bot.userId, bot.name, {
 					kind = "swap",
-					give = { items = { [giveId] = 1 }, gems = 0 },
-					want = { items = { [wantId] = 1 }, gems = 0 },
+					give = { items = giveItems, gems = gemAdd },
+					want = { items = { [targetId] = 1 }, gems = 0 },
 					autoTrade = true,
 				}).ok then
-					table.insert(actions, "post_swap")
+					table.insert(actions, "trade_up_offer")
 				end
+			end
+		end
+	end
+
+	----------------------------------------------------------------------
+	-- LIQUIDATE: gem-poor -> list ONE spare item for gems. A real reason to
+	-- sell (store + craft cost gems), not market-maker churn.
+	----------------------------------------------------------------------
+	if state.gems < BotConfig.GemPoorThreshold and #myOpenSells == 0 then
+		local sellId: string? = nil
+		local sellVal = 0
+		for itemId, count in state.inventory do
+			if count >= 1 and not bot.desired[itemId] and not neededInputs[itemId] then
+				local v = fair(itemId)
+				if v > sellVal then
+					sellId, sellVal = itemId, v
+				end
+			end
+		end
+		if sellId then
+			local price = math.max(1, math.floor(sellVal * BotConfig.MinSellVsValue + 0.5))
+			if TradeBoardService.botPost(bot.userId, bot.name, {
+				kind = "sell",
+				itemId = sellId,
+				count = 1,
+				gemsPerCopy = price,
+			}).ok then
+				table.insert(actions, "liquidate")
 			end
 		end
 	end

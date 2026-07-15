@@ -112,8 +112,11 @@ function EconomyService.displayStoreCost(item: any): number?
 end
 
 -- Event/crafted items have no store cost. Seed their Est. Value from what it
--- COST to make one: sum of input item values + input gems, +5% (the crafting
--- premium). Built once from EventConfig; falls back to scarcity if a recipe
+-- COST to make one: sum of input item values + input gems, +10% (the crafting
+-- premium). That premium is also the economy's main VALUE FAUCET — crafting
+-- destroys the inputs and mints an output worth more than they were, so a
+-- bot/player who crafts genuinely grows net worth (trading alone is zero-sum
+-- minus tax). Built once from EventConfig; falls back to scarcity if a recipe
 -- is missing. `evt_<sku>` matches CraftingService.outputItemId.
 local eventRecipeIndex: { [string]: { inputs: { [string]: number }, gems: number } }? = nil
 local function buildEventRecipeIndex()
@@ -146,7 +149,7 @@ local function eventSeed(itemId: string): number?
 	for inId, count in recipe.inputs do
 		total += EconomyService.valueOf(inId) * count
 	end
-	return math.max(1, math.floor(total * 1.05 + 0.5))
+	return math.max(1, math.floor(total * EconomyConfig.CraftValuePremium + 0.5))
 end
 
 local function seedFor(item: any, itemId: string?): number
