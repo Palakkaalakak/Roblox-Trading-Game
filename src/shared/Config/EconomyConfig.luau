@@ -45,7 +45,7 @@ local EconomyConfig = {
 
 	-- House cut on every player-to-player gem transfer (trades, board
 	-- settlements, bulk payouts). The cut is burned — a real gem sink.
-	GemTaxPercent = 5,
+	GemTaxPercent = 0, -- temp 0: was bleeding pop faster than craft faucet minted
 
 	-- Trade-board listings expire after this long (escrow auto-refunded).
 	BoardListingTTLSeconds = 7 * 24 * 3600,
