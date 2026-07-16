@@ -5,8 +5,10 @@
 -- beyond state colors (rarity tints, ready-green etc).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 local Theme = require(script.Parent.Theme)
-local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 
 local Components = {}
 
@@ -168,14 +170,90 @@ function Components.wireTooltip(gui: ScreenGui)
 		card.Visible = false
 	end
 
+	-- The tooltip is driven by a real hit test, NOT by MouseEnter/MouseLeave.
+	-- Why: every screen rebuilds its rows wholesale on refresh (board refresh,
+	-- a stats push, an event re-pull — and with 500 bots trading those fire
+	-- constantly). The hovered row gets destroyed and its replacement is created
+	-- UNDER a stationary cursor, and Roblox only fires MouseEnter on actual
+	-- movement — so the tooltip vanished mid-hover and could not come back until
+	-- you moved off and on again. Hit-testing each tick is immune to that: the
+	-- new row registers itself and is found straight away.
+	local registry: { [GuiObject]: () -> (any?, number?) } = {}
+	local current: GuiObject? = nil
+
+	-- Mouse in the same space as GuiObject.AbsolutePosition.
+	local function mousePoint(): Vector2
+		local m = UserInputService:GetMouseLocation()
+		if gui.IgnoreGuiInset then
+			return Vector2.new(m.X, m.Y)
+		end
+		local inset = GuiService:GetGuiInset()
+		return Vector2.new(m.X - inset.X, m.Y - inset.Y)
+	end
+
+	-- Visible AND every ancestor visible — a row inside a closed panel keeps its
+	-- own Visible = true and its absolute rect, so checking the object alone
+	-- would keep showing tooltips for a panel you closed.
+	local function isShown(obj: Instance): boolean
+		local node: Instance? = obj
+		while node and node ~= gui do
+			if node:IsA("GuiObject") and not node.Visible then
+				return false
+			end
+			node = node.Parent
+		end
+		return node == gui and gui.Enabled
+	end
+
+	local function contains(obj: GuiObject, p: Vector2): boolean
+		local pos, size = obj.AbsolutePosition, obj.AbsoluteSize
+		return p.X >= pos.X and p.X <= pos.X + size.X and p.Y >= pos.Y and p.Y <= pos.Y + size.Y
+	end
+
+	local function alive(obj: GuiObject): boolean
+		return obj.Parent ~= nil and isShown(obj)
+	end
+
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc < 0.05 then -- 20Hz is plenty for a tooltip
+			return
+		end
+		acc = 0
+		local p = mousePoint()
+
+		-- still on the same thing? keep it up, and keep it FRESH (values move
+		-- constantly, so a held tooltip should track them rather than go stale)
+		if current and alive(current) and contains(current, p) and registry[current] then
+			local snapshot, count = registry[current]()
+			show(snapshot, count, current)
+			return
+		end
+
+		-- otherwise find whatever is under the pointer now (this is what
+		-- survives a rebuild under a still cursor)
+		for obj, get in registry do
+			if alive(obj) and contains(obj, p) then
+				current = obj
+				local snapshot, count = get()
+				show(snapshot, count, obj)
+				return
+			end
+		end
+		current = nil
+		hide()
+	end)
+
 	return {
 		attach = function(obj: GuiObject, getSnapshot: () -> (any?, number?))
-			obj.MouseEnter:Connect(function()
-				local snapshot, count = getSnapshot()
-				show(snapshot, count, obj)
+			registry[obj] = getSnapshot
+			obj.Destroying:Connect(function()
+				registry[obj] = nil
+				if current == obj then
+					current = nil -- next tick re-resolves; don't hide, the row may be replaced
+				end
 			end)
-			obj.MouseLeave:Connect(hide)
-			obj.Destroying:Connect(hide)
 		end,
 		hide = hide,
 	}

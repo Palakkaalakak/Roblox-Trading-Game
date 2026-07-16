@@ -171,22 +171,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		badge.Text = TIER_NAME[recipe.tier] or ""
 		badge.Parent = row
 
-		-- VALUE CREATED: what it mints vs everything it burns. The whole point.
-		local gain = (recipe.output.value or 0) - (recipe.costValue or 0)
-		local gainLabel = Instance.new("TextLabel")
-		gainLabel.Name = "ValueLabel"
-		gainLabel.BackgroundTransparency = 1
-		gainLabel.Position = UDim2.fromOffset(340, 72)
-		gainLabel.Size = UDim2.fromOffset(190, 16)
-		gainLabel.Font = Theme.FontLight
-		gainLabel.TextSize = 11
-		gainLabel.TextXAlignment = Enum.TextXAlignment.Left
-		gainLabel.TextColor3 = gain > 0 and Theme.Good or Theme.TextDim
-		gainLabel.Text = gain > 0
-			and ("Worth %d  ·  +%d value created"):format(recipe.output.value or 0, gain)
-			or ("Worth %d"):format(recipe.output.value or 0)
-		gainLabel.Parent = row
-
 		-- blurb along the bottom
 		if recipe.blurb then
 			local blurb = Instance.new("TextLabel")
