@@ -9,6 +9,10 @@
 --   * autoTrade = false: accepting registers INTEREST — the poster gets a
 --     notification (online: toast, offline: queued for next login) and sees
 --     interested traders on their listing to invite for a normal trade
+--   * the want side may hold TRADE-AD TOKENS (WildcardConfig: Any/Upgrade/…)
+--     instead of concrete items; any token forces the listing to ask-first,
+--     because a fuzzy want can't auto-settle. Tokens never appear on the give
+--     side and are never items.
 --   * cancel/expiry refunds the escrow
 --
 -- BULK listings — gems-only buy orders for many copies of ONE item:
@@ -35,11 +39,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 
 local Net = require(script.Parent.Parent.Net)
 local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
+local BookIndex = require(script.Parent.BookIndex)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
@@ -67,6 +73,13 @@ local TradeBoardService = {}
 
 local board: any -- MemoryStore map (player listings only)
 local memBoard: { [string]: any } = {} -- bot listings, id -> record
+
+-- Per-item order-book index (sell = asks, bulk = bids) serving the Market
+-- tab's reads without touching MemoryStore. Updated incrementally on every
+-- local post/cancel/fill; rebuilt from a full scan periodically so listings
+-- posted on OTHER servers appear within a rebuild interval.
+local bookIndex = BookIndex.new()
+local BOOK_REBUILD_SECONDS = 60
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -255,6 +268,42 @@ function TradeBoardService.offersEqual(a: any, b: any): boolean
 	return true
 end
 
+-- Pure validation for a swap payload's two offers (shape, non-empty, item
+-- existence, trade-ad token rules). Tokens are legal ONLY on the want side;
+-- a tokened want makes the listing fuzzy, so the caller must force ask-first.
+-- Returns ok, err?, wantsWildcard.
+function TradeBoardService.checkSwapOffers(give: any, want: any): (boolean, string?, boolean)
+	if not Guard.checkOfferShape(give) or not Guard.checkOfferShape(want) then
+		return false, "bad_offer", false
+	end
+	local function empty(offer)
+		if offer.gems > 0 then
+			return false
+		end
+		for _ in offer.items do
+			return false
+		end
+		return true
+	end
+	if empty(give) or empty(want) then
+		return false, "empty_side", false
+	end
+	local wantsWildcard = false
+	for itemId in give.items do
+		if WildcardConfig.isWildcard(itemId) then
+			return false, "bad_offer", false
+		end
+	end
+	for itemId in want.items do
+		if WildcardConfig.isWildcard(itemId) then
+			wantsWildcard = true
+		elseif EconomyService.getItem(itemId) == nil then
+			return false, "unknown_item", false
+		end
+	end
+	return true, nil, wantsWildcard
+end
+
 -- two swap listings mirror each other when what one GIVES is exactly what
 -- the other WANTS, both ways
 function TradeBoardService.isCounterListing(mine: any, theirs: any): boolean
@@ -348,6 +397,7 @@ cancelListing = function(listing: any, reason: string): boolean
 	if committed == nil then
 		return false
 	end
+	BookIndex.apply(bookIndex, committed)
 	if committed.kind == "swap" then
 		deliver(committed.posterId, committed.give.items, committed.give.gems, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
 	elseif committed.kind == "sell" then
@@ -376,9 +426,14 @@ end
 --------------------------------------------------------------------------------
 
 local function describe(listing: any, viewerId: number): any
-	local function itemInfo(itemId: string)
+	-- trade-ad tokens resolve from WildcardConfig (they're not registry items)
+	local function itemInfo(itemId: string): (string, string?, boolean)
+		local token = WildcardConfig.byId(itemId)
+		if token then
+			return token.label, token.imageId, true
+		end
 		local item = EconomyService.getItem(itemId)
-		return item and item.name or itemId, item and item.imageId or nil
+		return item and item.name or itemId, item and item.imageId or nil, false
 	end
 	local out = {
 		id = listing.id,
@@ -387,14 +442,21 @@ local function describe(listing: any, viewerId: number): any
 		posterName = listing.posterName,
 		mine = listing.posterId == viewerId,
 		expiresAt = listing.expiresAt,
+		boostTier = listing.boostTier or 0,
 	}
 	if listing.kind == "swap" then
 		out.autoTrade = listing.autoTrade
 		local function describeOffer(offer)
 			local items = {}
 			for itemId, count in offer.items do
-				local name, imageId = itemInfo(itemId)
-				table.insert(items, { itemId = itemId, name = name, imageId = imageId, count = count })
+				local name, imageId, wildcard = itemInfo(itemId)
+				table.insert(items, {
+					itemId = itemId,
+					name = name,
+					imageId = imageId,
+					count = count,
+					wildcard = wildcard or nil,
+				})
 			end
 			table.sort(items, function(a, b)
 				return a.itemId < b.itemId
@@ -424,8 +486,24 @@ end
 local CLIENT_PAGE = 200 -- newest listings sent to a client per fetch
 local CLIENT_OWN_EXTRA = 50 -- viewer's own listings ride along even when older
 
+-- Display order: boosted listings first (perk scaffolding — all 0 today),
+-- then most recently bumped/created. Ids are time-prefixed so id order is
+-- creation order.
+local function listingOrder(a: any, b: any): boolean
+	local aBoost, bBoost = a.boostTier or 0, b.boostTier or 0
+	if aBoost ~= bBoost then
+		return aBoost > bBoost
+	end
+	local aBump, bBump = a.bumpedAt or a.createdAt or 0, b.bumpedAt or b.createdAt or 0
+	if aBump ~= bBump then
+		return aBump > bBump
+	end
+	return a.id > b.id
+end
+TradeBoardService.listingOrder = listingOrder
+
 local function handleGetBoard(player: Player)
-	local listings = {}
+	local raw = {}
 	local others = 0
 	local own = 0
 	-- newest-first scan: the viewer's own posts are ALWAYS included (up to
@@ -435,17 +513,76 @@ local function handleGetBoard(player: Player)
 		local mine = l.posterId == player.UserId
 		if mine and own < CLIENT_OWN_EXTRA then
 			own += 1
-			table.insert(listings, describe(l, player.UserId))
+			table.insert(raw, l)
 		elseif not mine and others < CLIENT_PAGE then
 			others += 1
-			table.insert(listings, describe(l, player.UserId))
+			table.insert(raw, l)
 		end
 		if others >= CLIENT_PAGE and own >= CLIENT_OWN_EXTRA then
 			return false -- both quotas filled: stop paging
 		end
 		return nil
 	end)
+	table.sort(raw, listingOrder)
+	local listings = {}
+	for _, l in raw do
+		table.insert(listings, describe(l, player.UserId))
+	end
 	return { ok = true, listings = listings }
+end
+
+--------------------------------------------------------------------------------
+-- Market reads (per-item order book, served from the in-memory index)
+--------------------------------------------------------------------------------
+
+-- Directory: one row per registered item — live stats + best prices. The
+-- whole payload is a few dozen small rows; no MemoryStore touched.
+local function handleGetMarketSummary(player: Player)
+	local now = os.time()
+	local books = BookIndex.summary(bookIndex, now)
+	local items = {}
+	for itemId in EconomyService.allItems() do
+		local snap = EconomyService.snapshot(itemId)
+		if snap then
+			local book = books[itemId]
+			snap.bestAsk = book and book.bestAsk or nil
+			snap.bestBid = book and book.bestBid or nil
+			snap.askUnits = book and book.askUnits or 0
+			snap.bidUnits = book and book.bidUnits or 0
+			table.insert(items, snap)
+		end
+	end
+	return { ok = true, items = items, now = now }
+end
+
+-- One item's live book: asks cheapest-first, bids highest-first.
+local function handleGetItemBook(player: Player, itemId: any)
+	if not Guard.isString(itemId, 64) then
+		return { ok = false, err = "bad_args" }
+	end
+	if EconomyService.getItem(itemId) == nil then
+		return { ok = false, err = "unknown_item" }
+	end
+	local asks, bids = BookIndex.book(bookIndex, itemId :: string, os.time())
+	local function describeAll(list)
+		local out = {}
+		for _, l in list do
+			table.insert(out, describe(l, player.UserId))
+		end
+		return out
+	end
+	return { ok = true, asks = describeAll(asks), bids = describeAll(bids) }
+end
+
+-- Rebuild the index from a full board walk: picks up listings posted on other
+-- servers and self-heals any drift. Cheap — one paged scan per interval.
+local function rebuildBookIndex()
+	local fresh = BookIndex.new()
+	scanListings(SCAN_CAP, function(l)
+		BookIndex.apply(fresh, l)
+		return nil
+	end)
+	bookIndex = fresh
 end
 
 --------------------------------------------------------------------------------
@@ -466,27 +603,9 @@ local function postCore(userId: number, userName: string, payload: any)
 	local listing: any
 
 	if payload.kind == "swap" then
-		local giveOk = Guard.checkOfferShape(payload.give)
-		local wantOk = Guard.checkOfferShape(payload.want)
-		if not giveOk or not wantOk then
-			return { ok = false, err = "bad_offer" }
-		end
-		local function empty(offer)
-			if offer.gems > 0 then
-				return false
-			end
-			for _ in offer.items do
-				return false
-			end
-			return true
-		end
-		if empty(payload.give) or empty(payload.want) then
-			return { ok = false, err = "empty_side" }
-		end
-		for itemId in payload.want.items do
-			if EconomyService.getItem(itemId) == nil then
-				return { ok = false, err = "unknown_item" }
-			end
+		local offersOk, offersErr, wantsWildcard = TradeBoardService.checkSwapOffers(payload.give, payload.want)
+		if not offersOk then
+			return { ok = false, err = offersErr }
 		end
 
 		-- escrow the give side NOW (this is what makes offline auto-trade safe)
@@ -510,11 +629,10 @@ local function postCore(userId: number, userName: string, payload: any)
 			posterName = userName,
 			give = payload.give,
 			want = payload.want,
-			autoTrade = payload.autoTrade == true,
+			autoTrade = payload.autoTrade == true and not wantsWildcard,
 			interested = {},
 			status = "open",
 			createdAt = now,
-			expiresAt = now + EconomyConfig.BoardListingTTLSeconds,
 			v = 1,
 		}
 	elseif payload.kind == "bulk" then
@@ -548,7 +666,6 @@ local function postCore(userId: number, userName: string, payload: any)
 			gemsPerCopy = perCopy,
 			status = "open",
 			createdAt = now,
-			expiresAt = now + EconomyConfig.BoardListingTTLSeconds,
 			v = 1,
 		}
 	elseif payload.kind == "sell" then
@@ -583,12 +700,18 @@ local function postCore(userId: number, userName: string, payload: any)
 			gemsPerCopy = payload.gemsPerCopy,
 			status = "open",
 			createdAt = now,
-			expiresAt = now + EconomyConfig.BoardListingTTLSeconds,
 			v = 1,
 		}
 	else
 		return { ok = false, err = "bad_kind" }
 	end
+
+	-- Perk scaffolding: every listing carries boost/bump/TTL fields so future
+	-- paid perks (featured placement, bump-to-top, longer uptime) are a field
+	-- write away (see boostListing). Defaults preserve today's behavior.
+	listing.boostTier = 0
+	listing.bumpedAt = now
+	listing.expiresAt = now + (listing.ttlSeconds or EconomyConfig.BoardListingTTLSeconds)
 
 	local stored = true
 	if userId < 0 then
@@ -597,6 +720,9 @@ local function postCore(userId: number, userName: string, payload: any)
 		stored = pcall(function()
 			board:SetAsync(id, listing, EconomyConfig.BoardListingTTLSeconds + 24 * 3600)
 		end)
+	end
+	if stored then
+		BookIndex.apply(bookIndex, listing)
 	end
 	if not stored then
 		-- give the escrow back; posting failed
@@ -835,6 +961,7 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 	if committed == nil then
 		return { ok = false, err = err }
 	end
+	BookIndex.apply(bookIndex, committed)
 
 	-- charge the contributor the copies
 	local paid, payErr = actorDelta(
@@ -843,7 +970,7 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 		Enums.GrantSource.Bulk
 	)
 	if not paid then
-		mutate(id, function(l)
+		local reverted = mutate(id, function(l)
 			l.remainingCount += taken
 			if l.status == "done" then
 				l.status = "open"
@@ -851,6 +978,9 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 			l.v += 1
 			return l
 		end)
+		if reverted then
+			BookIndex.apply(bookIndex, reverted)
+		end
 		return { ok = false, err = payErr }
 	end
 
@@ -911,13 +1041,14 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 	if committed == nil then
 		return { ok = false, err = err }
 	end
+	BookIndex.apply(bookIndex, committed)
 
 	-- charge the buyer gems for the copies
 	local spent = taken * committed.gemsPerCopy
 	local paid, payErr = actorDelta(userId, { gems = -spent }, Enums.GrantSource.Board)
 	if not paid then
 		-- put the copies back on sale
-		mutate(id, function(l)
+		local reverted = mutate(id, function(l)
 			l.remainingCount += taken
 			if l.status == "done" then
 				l.status = "open"
@@ -925,6 +1056,9 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 			l.v += 1
 			return l
 		end)
+		if reverted then
+			BookIndex.apply(bookIndex, reverted)
+		end
 		return { ok = false, err = payErr }
 	end
 
@@ -967,6 +1101,30 @@ local function cancelCore(userId: number, id: any)
 	if not cancelListing(current, "cancelled_by_poster") then
 		return { ok = false, err = "gone" }
 	end
+	return { ok = true }
+end
+
+-- Perk scaffold (no purchase flow yet): promote a listing — higher boostTier
+-- sorts first (see listingOrder), extendSeconds buys extra uptime, and the
+-- bump refreshes recency. A future paid-perk flow validates payment and calls
+-- this; nothing in the game calls it today.
+function TradeBoardService.boostListing(id: string, tier: number, extendSeconds: number?)
+	local committed = mutate(id, function(l)
+		if l.status ~= "open" then
+			return nil, "gone"
+		end
+		l.boostTier = math.max(l.boostTier or 0, tier)
+		l.bumpedAt = os.time()
+		if extendSeconds and extendSeconds > 0 then
+			l.expiresAt = (l.expiresAt or os.time()) + extendSeconds
+		end
+		l.v += 1
+		return l
+	end)
+	if committed == nil then
+		return { ok = false, err = "gone" }
+	end
+	BookIndex.apply(bookIndex, committed)
 	return { ok = true }
 end
 
@@ -1048,7 +1206,19 @@ function TradeBoardService.Init()
 end
 
 function TradeBoardService.Start()
+	-- keep the market index fresh: initial fill + periodic full-scan rebuild
+	-- (picks up cross-server posts; local ops update it inline). pcall'd —
+	-- a throttled MemoryStore page must never kill the loop.
+	task.spawn(function()
+		while true do
+			pcall(rebuildBookIndex)
+			task.wait(BOOK_REBUILD_SECONDS)
+		end
+	end)
+
 	Net.bindFunction("GetBoard", handleGetBoard)
+	Net.bindFunction("GetMarketSummary", handleGetMarketSummary)
+	Net.bindFunction("GetItemBook", handleGetItemBook)
 	Net.bindFunction("PostListing", function(player, payload)
 		if not loadedGate(player) then
 			return { ok = false, err = "loading" }

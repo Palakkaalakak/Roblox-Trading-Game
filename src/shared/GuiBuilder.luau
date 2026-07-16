@@ -463,17 +463,6 @@ local function buildTradePanel(parent: Instance)
 		Text = "Trading",
 		TextSize = 18,
 	}, tradePanel)
-	label("Hint", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -16, 0, 14),
-		Size = UDim2.fromOffset(320, 16),
-		Text = "changing an offer resets both READYs",
-		Font = FONT_LIGHT,
-		TextSize = 11,
-		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	}, tradePanel)
-
 	buildSide("YourSide", true, UDim2.fromOffset(14, 64), tradePanel)
 	buildSide("TheirSide", false, UDim2.new(1, -(SIDE_W + 14), 0, 64), tradePanel)
 
@@ -554,7 +543,7 @@ local function buildTradePanel(parent: Instance)
 	local picker = panel("ItemPicker", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.fromOffset(380, 320),
+		Size = UDim2.fromOffset(380, 360),
 		Visible = false,
 		ZIndex = 10,
 		BackgroundColor3 = C.Panel,
@@ -574,10 +563,25 @@ local function buildTradePanel(parent: Instance)
 		BackgroundColor3 = C.Bad,
 		ZIndex = 11,
 	}, picker)
+	local pickerSearch = new("TextBox", {
+		Name = "SearchBox",
+		Position = UDim2.fromOffset(12, 38),
+		Size = UDim2.new(1, -24, 0, 28),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT_LIGHT,
+		TextColor3 = C.Text,
+		TextSize = 13,
+		PlaceholderText = "Search by name…",
+		Text = "",
+		ClearTextOnFocus = false,
+		ZIndex = 11,
+	}, picker)
+	corner(pickerSearch, 6)
 	local pickerGrid = new("ScrollingFrame", {
 		Name = "PickerGrid",
-		Position = UDim2.fromOffset(12, 40),
-		Size = UDim2.new(1, -24, 1, -52),
+		Position = UDim2.fromOffset(12, 74),
+		Size = UDim2.new(1, -24, 1, -86),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
@@ -585,10 +589,12 @@ local function buildTradePanel(parent: Instance)
 		CanvasSize = UDim2.new(),
 		ZIndex = 11,
 	}, picker)
+	-- LayoutOrder (assigned by TradeScreen), not Name: trade-ad tokens pin to
+	-- the front of the want-side picker, ahead of the alphabetical items
 	new("UIGridLayout", {
 		CellSize = UDim2.fromOffset(80, 96),
 		CellPadding = UDim2.fromOffset(8, 8),
-		SortOrder = Enum.SortOrder.Name,
+		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, pickerGrid)
 	local pickerTile = new("ImageButton", {
 		Name = "PickerTile",
@@ -829,7 +835,8 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Good,
 	}, boardPanel)
 
-	-- three tabs: Normal (swaps) · Bulk (buy orders) · Gem-Only (item shop)
+	-- two tabs: Trades (item-for-item swaps) · Market (per-item order book —
+	-- every buy order and sell listing, priced in gems)
 	local tabRow = new("Frame", {
 		Name = "TabRow",
 		BackgroundTransparency = 1,
@@ -851,9 +858,8 @@ local function buildBoardPanel(parent: Instance)
 		}, tabRow)
 		return b
 	end
-	tab("TabNormal", "🔁 Normal", 1)
-	tab("TabBulk", "📦 Bulk buy", 2)
-	tab("TabGem", "Gem shop", 3)
+	tab("TabTrades", "🔁 Trades", 1)
+	tab("TabMarket", "📈 Market", 2)
 
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
@@ -1040,19 +1046,306 @@ local function buildBoardPanel(parent: Instance)
 	}, row)
 
 	--------------------------------------------------------------------------
-	-- Post modal
+	-- Market tab, view 1: the DIRECTORY. Search any item, scan its live
+	-- stats and best prices at a glance, click through to its order book.
+	--------------------------------------------------------------------------
+	local home = new("Frame", {
+		Name = "MarketHome",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 78),
+		Size = UDim2.new(1, -24, 1, -90),
+		Visible = false,
+	}, boardPanel)
+	local homeSearch = new("TextBox", {
+		Name = "SearchBox",
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT_LIGHT,
+		TextColor3 = C.Text,
+		TextSize = 13,
+		PlaceholderText = "Search items by name…",
+		Text = "",
+		ClearTextOnFocus = false,
+	}, home)
+	corner(homeSearch, 6)
+
+	-- column headers (offsets mirror MarketRow's fields)
+	local COL = { name = 50, value = 330, rap = 430, buy = 530, sell = 630 }
+	local header = new("Frame", {
+		Name = "ColumnHeader",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 36),
+		Size = UDim2.new(1, 0, 0, 16),
+	}, home)
+	local function colLabel(name: string, text: string, x: number)
+		label(name, {
+			Position = UDim2.fromOffset(x, 0),
+			Size = UDim2.fromOffset(96, 16),
+			Text = text,
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextColor3 = C.TextDim,
+		}, header)
+	end
+	colLabel("ItemCol", "ITEM", COL.name)
+	colLabel("ValueCol", "VALUE", COL.value)
+	colLabel("RapCol", "RAP", COL.rap)
+	colLabel("BuyCol", "BUY FOR", COL.buy)
+	colLabel("SellCol", "SELL FOR", COL.sell)
+
+	local marketList = new("ScrollingFrame", {
+		Name = "MarketList",
+		Position = UDim2.fromOffset(0, 56),
+		Size = UDim2.new(1, 0, 1, -56),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, home)
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, marketList)
+
+	-- one directory row (whole row clicks through to the item's book)
+	local mrow = new("TextButton", {
+		Name = "MarketRow",
+		Text = "",
+		AutoButtonColor = true,
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -8, 0, 48),
+		Visible = false,
+	}, marketList)
+	corner(mrow, 6)
+	stroke(mrow, C.Stroke, 1)
+	new("Frame", {
+		Name = "Stripe",
+		BackgroundColor3 = C.TextDim,
+		BorderSizePixel = 0,
+		Size = UDim2.new(0, 4, 1, 0),
+	}, mrow)
+	local mrowIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(10, 6),
+		Size = UDim2.fromOffset(36, 36),
+		ScaleType = Enum.ScaleType.Fit,
+	}, mrow)
+	corner(mrowIcon, 6)
+	label("ItemName", {
+		Position = UDim2.fromOffset(COL.name, 6),
+		Size = UDim2.fromOffset(270, 18),
+		Text = "Item",
+		TextSize = 14,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, mrow)
+	label("Rarity", {
+		Position = UDim2.fromOffset(COL.name, 26),
+		Size = UDim2.fromOffset(270, 13),
+		Text = "Common",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextColor3 = C.TextDim,
+	}, mrow)
+	local function numLabel(name: string, x: number, color: Color3)
+		label(name, {
+			Position = UDim2.fromOffset(x, 0),
+			Size = UDim2.new(0, 96, 1, 0),
+			Text = "—",
+			TextSize = 13,
+			TextColor3 = color,
+		}, mrow)
+	end
+	numLabel("ValueLabel", COL.value, C.Text)
+	numLabel("RapLabel", COL.rap, C.TextDim)
+	numLabel("BuyLabel", COL.buy, C.Gem)
+	numLabel("SellLabel", COL.sell, C.Gem)
+
+	label("HomeEmptyLabel", {
+		Position = UDim2.fromOffset(0, 80),
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = "No items match that search.",
+		TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+		Visible = false,
+	}, home)
+
+	--------------------------------------------------------------------------
+	-- Market tab, view 2: one item's ORDER BOOK. Sellers left (buy from
+	-- them), buyers right (sell to them), post buttons top-right.
+	--------------------------------------------------------------------------
+	local book = new("Frame", {
+		Name = "MarketBook",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 78),
+		Size = UDim2.new(1, -24, 1, -90),
+		Visible = false,
+	}, boardPanel)
+	button("BackButton", {
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.fromOffset(90, 26),
+		Text = "← Market",
+		TextSize = 12,
+		BackgroundColor3 = C.BgLight,
+	}, book)
+	local bookIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 34),
+		Size = UDim2.fromOffset(44, 44),
+		ScaleType = Enum.ScaleType.Fit,
+	}, book)
+	corner(bookIcon, 6)
+	label("ItemName", {
+		Position = UDim2.fromOffset(54, 34),
+		Size = UDim2.fromOffset(330, 22),
+		Text = "Item",
+		TextSize = 17,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, book)
+	label("StatsLine", {
+		Position = UDim2.fromOffset(54, 58),
+		Size = UDim2.fromOffset(400, 15),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, book)
+	button("PostSellButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -160, 0, 44),
+		Size = UDim2.fromOffset(150, 30),
+		Text = "+ Sell yours",
+		TextSize = 12,
+		BackgroundColor3 = C.Good,
+	}, book)
+	button("PostBuyButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 44),
+		Size = UDim2.fromOffset(150, 30),
+		Text = "+ Post buy order",
+		TextSize = 12,
+		BackgroundColor3 = C.Accent,
+	}, book)
+
+	-- two half-width panels: sellers (asks) and buyers (bids)
+	local function bookSide(name: string, headerText: string, x: UDim2)
+		local sidePanel = new("Frame", {
+			Name = name,
+			BackgroundColor3 = C.Bg,
+			BorderSizePixel = 0,
+			Position = x,
+			Size = UDim2.new(0.5, -6, 1, -86),
+		}, book)
+		corner(sidePanel, 6)
+		stroke(sidePanel, C.Stroke, 1)
+		label("Header", {
+			Position = UDim2.fromOffset(10, 6),
+			Size = UDim2.new(1, -20, 0, 18),
+			Text = headerText,
+			TextSize = 12,
+			TextColor3 = C.TextDim,
+		}, sidePanel)
+		local sideList = new("ScrollingFrame", {
+			Name = "BookList",
+			Position = UDim2.fromOffset(8, 30),
+			Size = UDim2.new(1, -16, 1, -38),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 6,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new(),
+		}, sidePanel)
+		new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, sideList)
+		label("EmptyLabel", {
+			Position = UDim2.fromOffset(0, 40),
+			Size = UDim2.new(1, 0, 0, 20),
+			Text = "None yet.",
+			TextSize = 12,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextColor3 = C.TextDim,
+			Visible = false,
+		}, sidePanel)
+
+		-- one order row
+		local brow = new("Frame", {
+			Name = "BookRow",
+			BackgroundColor3 = C.BgLight,
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, -6, 0, 62),
+			Visible = false,
+		}, sideList)
+		corner(brow, 6)
+		label("PosterLabel", {
+			Position = UDim2.fromOffset(8, 4),
+			Size = UDim2.new(1, -16, 0, 14),
+			Text = "Poster",
+			Font = FONT_LIGHT,
+			TextSize = 10,
+			TextColor3 = C.TextDim,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		}, brow)
+		label("PriceLabel", {
+			Position = UDim2.fromOffset(8, 19),
+			Size = UDim2.new(1, -16, 0, 18),
+			Text = "? gems each",
+			TextSize = 14,
+			TextColor3 = C.Gem,
+		}, brow)
+		label("StockLabel", {
+			Position = UDim2.fromOffset(8, 40),
+			Size = UDim2.new(1, -150, 0, 14),
+			Text = "? available",
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextColor3 = C.TextDim,
+		}, brow)
+		local bcount = new("TextBox", {
+			Name = "CountBox",
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -92, 1, -6),
+			Size = UDim2.fromOffset(44, 26),
+			BackgroundColor3 = C.Bg,
+			BorderSizePixel = 0,
+			Font = FONT,
+			TextColor3 = C.Text,
+			TextSize = 12,
+			Text = "1",
+			ClearTextOnFocus = false,
+		}, brow)
+		corner(bcount, 6)
+		button("ActionButton", {
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -6, 1, -6),
+			Size = UDim2.fromOffset(80, 28),
+			Text = "Buy",
+			TextSize = 12,
+			BackgroundColor3 = C.Good,
+		}, brow)
+		return sidePanel
+	end
+	bookSide("SellersPanel", "FOR SALE — cheapest first", UDim2.fromOffset(0, 86))
+	bookSide("BuyersPanel", "BUY ORDERS — best price first", UDim2.new(0.5, 6, 0, 86))
+
+	--------------------------------------------------------------------------
+	-- Post modal (Market only: sell listing / buy order for ONE known item —
+	-- opened from an item's book with the item prefilled)
 	--------------------------------------------------------------------------
 	local post = panel("PostPanel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.fromOffset(500, 420),
+		Size = UDim2.fromOffset(500, 240),
 		Visible = false,
 		ZIndex = 10,
 		BackgroundColor3 = C.Panel,
 	}, boardPanel)
 	label("Title", {
 		Position = UDim2.fromOffset(12, 8),
-		Size = UDim2.fromOffset(200, 22),
+		Size = UDim2.fromOffset(320, 22),
 		Text = "Post a trade",
 		TextSize = 16,
 		ZIndex = 11,
@@ -1063,15 +1356,6 @@ local function buildBoardPanel(parent: Instance)
 		Size = UDim2.fromOffset(26, 26),
 		Text = "✕",
 		BackgroundColor3 = C.Bad,
-		ZIndex = 11,
-	}, post)
-	button("ModeButton", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -44, 0, 8),
-		Size = UDim2.fromOffset(130, 26),
-		Text = "Mode: Swap",
-		TextSize = 12,
-		BackgroundColor3 = C.Accent,
 		ZIndex = 11,
 	}, post)
 
@@ -1163,27 +1447,8 @@ local function buildBoardPanel(parent: Instance)
 		return holder
 	end
 
-	offerRow("GiveRow", 44, "YOU GIVE (escrowed when you post)")
-	offerRow("WantRow", 162, "YOU WANT")
+	offerRow("WantRow", 44, "YOU WANT")
 
-	button("AutoButton", {
-		Position = UDim2.fromOffset(12, 284),
-		Size = UDim2.fromOffset(230, 30),
-		Text = "Auto-trade: ON",
-		TextSize = 12,
-		BackgroundColor3 = C.Good,
-		ZIndex = 11,
-	}, post)
-	label("AutoHint", {
-		Position = UDim2.fromOffset(12, 318),
-		Size = UDim2.new(1, -24, 0, 30),
-		Text = "ON: anyone can accept instantly, even while you're offline. OFF: you get notified and trade them yourself.",
-		Font = FONT_LIGHT,
-		TextSize = 10,
-		TextColor3 = C.TextDim,
-		TextWrapped = true,
-		ZIndex = 11,
-	}, post)
 	button("SubmitButton", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -12),
@@ -1193,87 +1458,6 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Good,
 		ZIndex = 11,
 	}, post)
-
-	-- item picker popup (shared by give/want rows)
-	local picker = panel("BoardItemPicker", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.fromOffset(380, 300),
-		Visible = false,
-		ZIndex = 20,
-		BackgroundColor3 = C.Panel,
-	}, boardPanel)
-	label("Title", {
-		Position = UDim2.fromOffset(12, 8),
-		Size = UDim2.new(1, -50, 0, 20),
-		Text = "Pick an item",
-		TextSize = 14,
-		ZIndex = 21,
-	}, picker)
-	button("CloseButton", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -8, 0, 8),
-		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
-		BackgroundColor3 = C.Bad,
-		ZIndex = 21,
-	}, picker)
-	local pickGrid = new("ScrollingFrame", {
-		Name = "PickGrid",
-		Position = UDim2.fromOffset(12, 38),
-		Size = UDim2.new(1, -24, 1, -50),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		CanvasSize = UDim2.new(),
-		ZIndex = 21,
-	}, picker)
-	new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(76, 92),
-		CellPadding = UDim2.fromOffset(8, 8),
-		SortOrder = Enum.SortOrder.Name,
-	}, pickGrid)
-	local pickTile = new("ImageButton", {
-		Name = "PickTile",
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		AutoButtonColor = true,
-		Image = "",
-		Visible = false,
-		ZIndex = 21,
-	}, pickGrid)
-	corner(pickTile, 6)
-	local ptIcon2 = new("ImageLabel", {
-		Name = "Icon",
-		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-		BackgroundTransparency = 1,
-		Position = UDim2.new(0.5, -20, 0, 6),
-		Size = UDim2.fromOffset(40, 40),
-		ScaleType = Enum.ScaleType.Fit,
-		ZIndex = 22,
-	}, pickTile)
-	corner(ptIcon2, 6)
-	label("ItemName", {
-		Position = UDim2.fromOffset(4, 50),
-		Size = UDim2.new(1, -8, 0, 26),
-		Text = "Item",
-		Font = FONT_LIGHT,
-		TextSize = 10,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextWrapped = true,
-		ZIndex = 22,
-	}, pickTile)
-	label("CountLabel", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -4, 0, 2),
-		Size = UDim2.fromOffset(30, 12),
-		Text = "",
-		TextSize = 10,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		TextColor3 = C.Warn,
-		ZIndex = 22,
-	}, pickTile)
 
 	return boardPanel
 end

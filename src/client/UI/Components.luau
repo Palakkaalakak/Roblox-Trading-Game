@@ -149,14 +149,21 @@ function Components.wireTooltip(gui: ScreenGui)
 			return
 		end
 		title.Text = snapshot.name or "?"
-		title.TextColor3 = Components.rarityColor(snapshot.rarity)
-		sub.Text = (snapshot.rarity or "?") .. " · " .. Components.existenceText(snapshot)
-			.. ((count and count > 1) and (" · x" .. count) or "")
-		body.Text = ("Est. Value: %s\nStore Cost: %s\nRAP: %s"):format(
-			statText(snapshot.value),
-			Components.storeCostText(snapshot),
-			statText(snapshot.rap)
-		)
+		if snapshot.isWildcard then
+			-- trade-ad token: no rarity, no stats — explain what it stands for
+			title.TextColor3 = Theme.Warn
+			sub.Text = "Trade-ad token"
+			body.Text = snapshot.blurb or "Stands for a kind of offer, not a specific item."
+		else
+			title.TextColor3 = Components.rarityColor(snapshot.rarity)
+			sub.Text = (snapshot.rarity or "?") .. " · " .. Components.existenceText(snapshot)
+				.. ((count and count > 1) and (" · x" .. count) or "")
+			body.Text = ("Est. Value: %s\nStore Cost: %s\nRAP: %s"):format(
+				statText(snapshot.value),
+				Components.storeCostText(snapshot),
+				statText(snapshot.rap)
+			)
+		end
 		local pos = anchor.AbsolutePosition
 		local size = anchor.AbsoluteSize
 		local guiWidth = gui.AbsoluteSize.X

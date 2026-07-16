@@ -49,6 +49,8 @@ local Enums = {
 		"CraftItem", -- (eventId, rid) -> {ok, output?, err?}
 		"GetCatalog", -- () -> {ok, items = {{itemId, name, imageId}}} — every registered item
 		"GetBoard", -- () -> {ok, listings}
+		"GetMarketSummary", -- () -> {ok, items} — per-item stats + best bid/ask (Market directory)
+		"GetItemBook", -- (itemId) -> {ok, asks, bids} — one item's live order book
 		"PostListing", -- (payload) -> {ok, id?, err?} — swap or bulk
 		"CancelListing", -- (id) -> {ok, err?}
 		"AcceptListing", -- (id) -> {ok, err?} — auto-trade swaps

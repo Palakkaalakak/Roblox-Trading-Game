@@ -11,6 +11,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local State = require(ReplicatedStorage.Shared.Util.State)
 local TradeConfig = require(ReplicatedStorage.Shared.Config.TradeConfig)
+local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
@@ -110,7 +111,10 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				end
 			end)
 			tooltip.attach(slot, function()
-				return entry.itemId and EconomyController.get(entry.itemId) or nil, 1
+				if entry.itemId == nil then
+					return nil, nil
+				end
+				return EconomyController.get(entry.itemId) or WildcardConfig.snapshot(entry.itemId), 1
 			end)
 		end
 
@@ -205,21 +209,27 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		local total = netGems
 		local unknown = false
 		local copies = 0
+		local tokens = 0
 		for itemId, count in offer.items do
-			copies += count
-			local snap = stats[itemId]
-			if snap and snap.value and snap.value.state == "Known" and snap.value.value then
-				total += snap.value.value * count
+			if WildcardConfig.isWildcard(itemId) then
+				tokens += 1 -- trade-ad tokens carry no value of their own
 			else
-				unknown = true
+				copies += count
+				local snap = stats[itemId]
+				if snap and snap.value and snap.value.state == "Known" and snap.value.value then
+					total += snap.value.value * count
+				else
+					unknown = true
+				end
 			end
 		end
-		return ("Total: ~%d gems%s  (%d item%s + %d gems after tax)"):format(
+		return ("Total: ~%d gems%s  (%d item%s + %d gems after tax)%s"):format(
 			total,
 			unknown and " +?" or "",
 			copies,
 			copies == 1 and "" or "s",
-			netGems
+			netGems,
+			tokens > 0 and "  ·  trade ad" or ""
 		)
 	end
 
@@ -228,7 +238,8 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		for i, entry in side.slots do
 			local itemId = copies[i]
 			if itemId then
-				local snap = stats[itemId]
+				-- trade-ad tokens aren't in the stats push; resolve locally
+				local snap = stats[itemId] or WildcardConfig.snapshot(itemId)
 				entry.itemId = itemId
 				entry.plus.Text = ""
 				entry.icon.Visible = true
@@ -294,7 +305,11 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local function onPicked(itemId: string, source: string)
 		if compose then
 			local offer = source == "inventory" and compose.give or compose.want
-			offer.items[itemId] = (offer.items[itemId] or 0) + 1
+			if WildcardConfig.isWildcard(itemId) then
+				offer.items[itemId] = 1 -- one token of a kind says it all
+			else
+				offer.items[itemId] = (offer.items[itemId] or 0) + 1
+			end
 			picker.Visible = false
 			renderCompose()
 		else
@@ -310,14 +325,19 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 	end
 
+	-- SearchBox filters by name (FindFirst: tolerate an unrebuilt GUI)
+	local pickerSearch = picker:FindFirstChild("SearchBox") :: TextBox?
+
 	-- source "inventory": your items with available counts (give side / live trades)
-	-- source "catalog": every registered item (compose WANT side)
+	-- source "catalog": every registered item (compose WANT side), with the
+	-- trade-ad tokens pinned ahead of the alphabetical items
 	local function refreshPicker(source: string?)
 		source = source or pickerSource
 		clearPicker()
 		local stats = EconomyController.stats:get()
+		local query = pickerSearch and pickerSearch.Text:lower() or ""
 
-		local entries: { { itemId: string, name: string?, imageId: string?, count: number? } } = {}
+		local entries: { { itemId: string, name: string?, imageId: string?, count: number?, wildcard: boolean? } } = {}
 		if source == "inventory" then
 			local inventory = InventoryController.inventory:get()
 			local offered = compose and compose.give.items
@@ -342,31 +362,65 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				table.insert(entries, { itemId = entry.itemId, name = entry.name, imageId = entry.imageId })
 			end
 		end
+		table.sort(entries, function(a, b)
+			return (a.name or a.itemId) < (b.name or b.itemId)
+		end)
 
+		-- compose want side: "no specific item in mind" tokens come first
+		if compose and source == "catalog" then
+			for i, token in WildcardConfig.Tokens do
+				table.insert(entries, i, {
+					itemId = token.id,
+					name = token.label,
+					imageId = token.imageId,
+					wildcard = true,
+				})
+			end
+		end
+
+		local order = 0
 		for _, entry in entries do
 			local itemId = entry.itemId
-			local tile = pickerTemplate:Clone()
-			tile.Name = itemId
-			tile.Visible = true
-			tile.Parent = pickerGrid
-			pickerTiles[itemId] = tile
-			tile.Activated:Connect(function()
-				onPicked(itemId, source)
-			end)
-			tooltip.attach(tile, function()
-				return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
-			end)
-			local nameLabel = tile:WaitForChild("ItemName") :: TextLabel
-			nameLabel.Text = entry.name or itemId
-			local countLabel = tile:WaitForChild("CountLabel") :: TextLabel
-			countLabel.Text = entry.count and ("x" .. entry.count) or ""
-			Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, entry)
+			if query == "" or (entry.name or itemId):lower():find(query, 1, true) then
+				order += 1
+				local tile = pickerTemplate:Clone()
+				tile.Name = itemId
+				tile.Visible = true
+				tile.LayoutOrder = order
+				tile.Parent = pickerGrid
+				pickerTiles[itemId] = tile
+				tile.Activated:Connect(function()
+					onPicked(itemId, source)
+				end)
+				tooltip.attach(tile, function()
+					if entry.wildcard then
+						return WildcardConfig.snapshot(itemId), nil
+					end
+					return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
+				end)
+				local nameLabel = tile:WaitForChild("ItemName") :: TextLabel
+				nameLabel.Text = entry.name or itemId
+				local countLabel = tile:WaitForChild("CountLabel") :: TextLabel
+				countLabel.Text = entry.count and ("x" .. entry.count) or ""
+				Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, entry)
+			end
 		end
+	end
+
+	if pickerSearch then
+		pickerSearch:GetPropertyChangedSignal("Text"):Connect(function()
+			if picker.Visible then
+				refreshPicker()
+			end
+		end)
 	end
 
 	function TradeScreen.openPicker(source: string?)
 		source = source or "inventory"
 		pickerSource = source
+		if pickerSearch and pickerSearch.Text ~= "" then
+			pickerSearch.Text = "" -- fresh open, fresh search (fires refresh)
+		end
 		if source == "catalog" and catalogCache == nil then
 			task.spawn(function()
 				local result = Net.invoke("GetCatalog")
@@ -415,9 +469,22 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 		TradeController.cancel()
 	end)
+	-- any trade-ad token on the want side pins the listing to ask-first
+	local function composeWantHasToken(): boolean
+		if compose == nil then
+			return false
+		end
+		for itemId in compose.want.items do
+			if WildcardConfig.isWildcard(itemId) then
+				return true
+			end
+		end
+		return false
+	end
+
 	if autoToggle then
 		autoToggle.Activated:Connect(function()
-			if compose then
+			if compose and not composeWantHasToken() then
 				compose.autoTrade = not compose.autoTrade
 				renderCompose()
 			end
@@ -459,9 +526,16 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			table.insert(wanted, itemId)
 		end
 		for itemId in compose.want.items do
-			table.insert(wanted, itemId)
+			if not WildcardConfig.isWildcard(itemId) then
+				table.insert(wanted, itemId)
+			end
 		end
 		EconomyController.ensure(wanted)
+
+		local hasToken = composeWantHasToken()
+		if hasToken then
+			compose.autoTrade = false
+		end
 
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
@@ -493,11 +567,22 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 		acceptBtn.Text = "POST TO BOARD"
 		acceptBtn.BackgroundColor3 = Theme.Good
-		statusLabel.Text = ""
+		if hasToken then
+			statusLabel.Text = "Trade ad: interested traders ping you, and you pick the offer you like."
+		elseif compose.autoTrade then
+			statusLabel.Text = "Auto-trade: the first taker completes this trade instantly, even while you're offline."
+		else
+			statusLabel.Text = "Ask-first: you approve each interested trader before anything trades."
+		end
 		if autoToggle then
 			autoToggle.Visible = true
-			autoToggle.Text = compose.autoTrade and "Auto-trade: ON" or "Auto-trade: OFF"
-			autoToggle.BackgroundColor3 = compose.autoTrade and Theme.Good or Theme.Warn
+			if hasToken then
+				autoToggle.Text = "Ask-first (trade ad)"
+				autoToggle.BackgroundColor3 = Theme.BgLight
+			else
+				autoToggle.Text = compose.autoTrade and "Auto-trade: ON" or "Auto-trade: OFF"
+				autoToggle.BackgroundColor3 = compose.autoTrade and Theme.Good or Theme.Warn
+			end
 		end
 	end
 
