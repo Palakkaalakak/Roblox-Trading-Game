@@ -33,6 +33,7 @@ local StoreScreen = require(UI.StoreScreen)
 local EventsScreen = require(UI.EventsScreen)
 local BoardScreen = require(UI.BoardScreen)
 local ProfileScreen = require(UI.ProfileScreen)
+local RollsScreen = require(UI.RollsScreen)
 local ActivityFeed = require(UI.ActivityFeed)
 local AdminScreen = require(UI.AdminScreen)
 
@@ -54,6 +55,7 @@ StoreScreen.wire(modalGui, tooltip, toast)
 EventsScreen.wire(modalGui, tooltip, toast)
 BoardScreen.wire(modalGui, tooltip, toast)
 ProfileScreen.wire(modalGui, tooltip)
+RollsScreen.wire(modalGui, tooltip, toast)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
@@ -66,14 +68,17 @@ HUD.wire(hudGui, {
 	end,
 })
 
--- world prompts: store NPC / event NPC / trade board pillar
+-- world prompts: store NPC / event NPC / rolls NPC / trade board pillar
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local StoreConfig = require(game:GetService("ReplicatedStorage").Shared.Config.StoreConfig)
+local RollConfig = require(game:GetService("ReplicatedStorage").Shared.Config.RollConfig)
 ProximityPromptService.PromptTriggered:Connect(function(prompt)
 	if prompt.Name == StoreConfig.PromptName then
 		StoreScreen.open()
 	elseif prompt.Name == "EventPrompt" then
 		EventsScreen.open()
+	elseif prompt.Name == RollConfig.PromptName then
+		RollsScreen.open()
 	elseif prompt.Name == "BoardPrompt" then
 		BoardScreen.open()
 	end

@@ -121,6 +121,7 @@ local EXCLUSIVE_PANELS = {
 	BoardPanel = true,
 	ProfilePanel = true,
 	SearchPanel = true,
+	RollsPanel = true,
 }
 
 -- Hide every other exclusive panel (call at the start of a panel's open()).

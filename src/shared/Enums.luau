@@ -69,7 +69,7 @@ local Enums = {
 		"SetPrivacy", -- ({hideValue, hideShowcase}) -> {ok, err}
 		"GetBotData", -- () -> {ok, data} — admin-only bot inspector (temporary)
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
-		"RollItem", -- (tierId) -> {ok, item?, spent?, err?} — spend gems, get an item
+		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)

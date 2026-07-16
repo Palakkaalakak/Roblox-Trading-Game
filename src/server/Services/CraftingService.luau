@@ -40,6 +40,62 @@ local function outputItemId(sku: string): string
 end
 
 --------------------------------------------------------------------------------
+-- Recipe graph sanity
+--------------------------------------------------------------------------------
+
+-- Who makes each event item? itemId -> event name ("Rotating Recipes" for the
+-- pool). Built once from config; drives the "get it from X" UI hint and the
+-- reachability check below.
+local producers: { [string]: string } = {}
+do
+	for _, event in EventConfig.Events do
+		if event.enabled then
+			for _, recipe in event.recipes do
+				producers[outputItemId(recipe.output.sku)] = event.name
+			end
+		end
+	end
+	local rot = EventConfig.RotatingRecipes
+	if rot and rot.enabled then
+		for _, recipe in rot.Pool do
+			producers[outputItemId(recipe.output.sku)] = "Rotating Recipes"
+		end
+	end
+end
+
+-- Every event-item INPUT must have a recipe somewhere that produces it —
+-- otherwise a recipe can exist that is impossible to ever craft (its input
+-- can neither be rolled, bought, nor made). Returns violation strings;
+-- empty = the whole recipe graph is reachable. Pure config check.
+function CraftingService.validateRecipeGraph(): { string }
+	local violations = {}
+	local function checkRecipe(where: string, recipe: any)
+		for itemId in recipe.inputs do
+			if itemId:sub(1, 4) == "evt_" and producers[itemId] == nil then
+				table.insert(
+					violations,
+					("%s/%s needs %s, but nothing active produces it"):format(where, recipe.rid, itemId)
+				)
+			end
+		end
+	end
+	for _, event in EventConfig.Events do
+		if event.enabled then
+			for _, recipe in event.recipes do
+				checkRecipe(event.id, recipe)
+			end
+		end
+	end
+	local rot = EventConfig.RotatingRecipes
+	if rot and rot.enabled then
+		for _, recipe in rot.Pool do
+			checkRecipe(ROTATING_EVENT_ID, recipe)
+		end
+	end
+	return violations
+end
+
+--------------------------------------------------------------------------------
 -- Active events/recipes (pure time functions)
 --------------------------------------------------------------------------------
 
@@ -56,7 +112,35 @@ local function eventActive(event: any, now: number): boolean
 	return true
 end
 
--- Active event descriptors: { id, name, kind, endsAt?, rotatesAt?, recipes }
+-- The picked window must always be able to PROGRESS: if none of the picked
+-- recipes is a tier-1 material producer (commons -> essence), every tier-2
+-- recipe that window is gated on essence already in circulation — a fresh
+-- economy would stall. Deterministically swap the last pick for a tier-1
+-- recipe (pure function of the window, so all servers agree).
+local function ensureMaterialProducer(pool: { any }, picks: { number }, windowIdx: number): { number }
+	for _, poolIndex in picks do
+		if (pool[poolIndex].tier or 1) == 1 then
+			return picks
+		end
+	end
+	local tierOnes = {}
+	for i, recipe in pool do
+		if (recipe.tier or 1) == 1 then
+			table.insert(tierOnes, i)
+		end
+	end
+	if #tierOnes == 0 then
+		return picks -- pool has no materials at all; nothing to guarantee
+	end
+	picks[#picks] = tierOnes[(windowIdx % #tierOnes) + 1]
+	table.sort(picks)
+	return picks
+end
+
+-- Active event descriptors:
+-- { id, name, kind, category, endsAt?, rotatesAt?, recipes }
+-- category: "permanent" (always-on station) | "limited" (has an end date,
+-- i.e. temporary/seasonal) | "rotating" (the windowed recipe set).
 function CraftingService.activeEvents(now: number): { any }
 	local out = {}
 	for _, event in EventConfig.Events do
@@ -65,6 +149,7 @@ function CraftingService.activeEvents(now: number): { any }
 				id = event.id,
 				name = event.name,
 				kind = event.kind,
+				category = (event.endsAt or event.startsAt) and "limited" or "permanent",
 				endsAt = event.endsAt,
 				recipes = event.recipes,
 			})
@@ -74,19 +159,29 @@ function CraftingService.activeEvents(now: number): { any }
 	local rot = EventConfig.RotatingRecipes
 	if rot and rot.enabled and #rot.Pool > 0 then
 		local windowIdx = Rotation.windowIndex(now, rot.RotationIntervalSeconds)
+		local picks = Rotation.pick(windowIdx, #rot.Pool, rot.ActiveCount)
+		picks = ensureMaterialProducer(rot.Pool, picks, windowIdx)
 		local recipes = {}
-		for _, poolIndex in Rotation.pick(windowIdx, #rot.Pool, rot.ActiveCount) do
+		for _, poolIndex in picks do
 			table.insert(recipes, rot.Pool[poolIndex])
 		end
 		table.insert(out, {
 			id = ROTATING_EVENT_ID,
 			name = "Rotating Recipes",
 			kind = "crafting",
+			category = "rotating",
 			rotatesAt = Rotation.windowEndsAt(now, rot.RotationIntervalSeconds),
 			recipes = recipes,
 		})
 	end
 	return out
+end
+
+-- Expose for tests: pure pick-with-guarantee for an arbitrary window.
+function CraftingService.rotationPicksFor(windowIdx: number): { number }
+	local rot = EventConfig.RotatingRecipes
+	local picks = Rotation.pick(windowIdx, #rot.Pool, rot.ActiveCount)
+	return ensureMaterialProducer(rot.Pool, picks, windowIdx)
 end
 
 -- Find an ACTIVE recipe by (eventId, rid). Nil when not currently active.
@@ -122,6 +217,9 @@ local function describeRecipe(recipe: any, profile: any): any
 			imageId = item and item.imageId or nil,
 			count = count,
 			owned = owned,
+			-- event-item inputs say WHERE they're made, so the UI can point a
+			-- player at the source instead of leaving them to hunt
+			from = producers[itemId],
 		})
 	end
 	table.sort(inputs, function(a, b)
@@ -163,6 +261,7 @@ local function handleGetEvents(player: Player)
 			id = event.id,
 			name = event.name,
 			kind = event.kind,
+			category = event.category,
 			endsAt = event.endsAt,
 			rotatesAt = event.rotatesAt,
 			recipes = recipes,
@@ -301,6 +400,11 @@ function CraftingService.Init()
 		end
 	end
 	EconomyService.registerItems(defs)
+
+	-- a config mistake here means an event that can NEVER be crafted — shout
+	for _, violation in CraftingService.validateRecipeGraph() do
+		warn("[Crafting] UNREACHABLE RECIPE: " .. violation)
+	end
 end
 
 function CraftingService.Start()

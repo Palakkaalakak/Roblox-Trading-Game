@@ -78,6 +78,7 @@ function RollService.oddsFor(tier: any): { { itemId: string, name: string, pct: 
 		table.insert(out, {
 			itemId = itemId,
 			name = item and item.name or itemId,
+			rarity = item and item.rarity or nil, -- UI rolls these up per rarity
 			pct = total > 0 and (weights[itemId] / total * 100) or 0,
 		})
 	end
@@ -85,6 +86,16 @@ function RollService.oddsFor(tier: any): { { itemId: string, name: string, pct: 
 		return a.pct > b.pct
 	end)
 	return out
+end
+
+-- Value of an item-payment offer at live prices. Pure read; the UI shows the
+-- same number the server charges against.
+function RollService.paymentValue(items: { [string]: number }): number
+	local total = 0
+	for itemId, count in items do
+		total += EconomyService.valueOf(itemId) * count
+	end
+	return total
 end
 
 -- Pick an item for this tier. `ticket` drives the draw: real players get a
@@ -119,10 +130,41 @@ function RollService.pick(tier: any, ticket: number?): string?
 	return ids[#ids]
 end
 
+-- Item payment shape: { [itemId]: count }, bounded. Every id must be a real
+-- registry item; the combined live Value must cover the tier's price. Paid
+-- copies are BURNED (retired from existence) — paying with goods is a sink.
+local function checkPayment(payment: any, tier: any): (boolean, string?, number)
+	if type(payment) ~= "table" or type(payment.items) ~= "table" then
+		return false, "bad_payment", 0
+	end
+	local distinct = 0
+	for itemId, count in payment.items do
+		if not Guard.isString(itemId, 64) or not Guard.isPositiveInt(count) or count > 99 then
+			return false, "bad_payment", 0
+		end
+		if EconomyService.getItem(itemId) == nil then
+			return false, "unknown_item", 0
+		end
+		distinct += 1
+		if distinct > 12 then
+			return false, "bad_payment", 0
+		end
+	end
+	if distinct == 0 then
+		return false, "bad_payment", 0
+	end
+	local total = RollService.paymentValue(payment.items)
+	if total < tier.gems then
+		return false, "payment_too_low", total
+	end
+	return true, nil, total
+end
+
 -- Shared core. isBot routes charges/grants + reserve the same way the store and
 -- crafting do: bots stay session-local (their state resets every server start,
 -- so their draws must never touch the durable reserve), players are durable.
-local function rollCore(userId: number, tierId: any, ticket: number?)
+-- `payment` (players only): pay with items instead of gems.
+local function rollCore(userId: number, tierId: any, ticket: number?, payment: any?)
 	if not RollConfig.Enabled then
 		return { ok = false, err = "disabled" }
 	end
@@ -146,13 +188,35 @@ local function rollCore(userId: number, tierId: any, ticket: number?)
 		return InventoryService.applyDelta(player, d, source)
 	end
 
+	local paidValue = 0
+	if payment ~= nil then
+		if isBot then
+			return { ok = false, err = "bad_payment" } -- bots pay gems only
+		end
+		local okPay, payErr, total = checkPayment(payment, tier)
+		if not okPay then
+			return { ok = false, err = payErr }
+		end
+		paidValue = total
+	end
+
 	local itemId = RollService.pick(tier, ticket)
 	if itemId == nil then
 		return { ok = false, err = "nothing_left" } -- every pool item fully distributed
 	end
 
-	-- charge first (validates funds atomically)...
-	local charged, chargeErr = delta({ gems = -tier.gems }, Enums.GrantSource.Roll)
+	-- charge first (validates funds/ownership atomically)...
+	local charge: any
+	if payment then
+		local negItems = {}
+		for payId, count in payment.items do
+			negItems[payId] = -count
+		end
+		charge = { items = negItems }
+	else
+		charge = { gems = -tier.gems }
+	end
+	local charged, chargeErr = delta(charge, Enums.GrantSource.Roll)
 	if not charged then
 		return { ok = false, err = chargeErr }
 	end
@@ -160,9 +224,30 @@ local function rollCore(userId: number, tierId: any, ticket: number?)
 	-- item can never be distributed beyond its totalSupply.
 	local reserved = if isBot then EconomyService.reserveOneLazy(itemId) else EconomyService.reserveOne(itemId)
 	if not reserved then
-		delta({ gems = tier.gems }, Enums.GrantSource.Refund) -- lost the race: nothing taken, nothing charged
+		-- lost the race: give back exactly what was taken
+		if payment then
+			local posItems = {}
+			for payId, count in payment.items do
+				posItems[payId] = count
+			end
+			delta({ items = posItems }, Enums.GrantSource.Refund)
+		else
+			delta({ gems = tier.gems }, Enums.GrantSource.Refund)
+		end
 		return { ok = false, err = "nothing_left" }
 	end
+
+	-- item payments leave existence for good (the sink) — only after the
+	-- reserve is safely ours, so a failed roll never burns anything
+	if payment then
+		local touched = {}
+		for payId, count in payment.items do
+			EconomyService.retireCopies(payId, count)
+			table.insert(touched, payId)
+		end
+		EconomyService.broadcastStats(touched)
+	end
+
 	delta({ items = { [itemId] = 1 } }, Enums.GrantSource.Roll)
 	if player then
 		task.spawn(function()
@@ -172,7 +257,13 @@ local function rollCore(userId: number, tierId: any, ticket: number?)
 
 	local item = EconomyService.getItem(itemId)
 	EconomyService.broadcastStats({ itemId })
-	AnalyticsService.log("roll", { userId = userId, tier = tier.id, gems = tier.gems, itemId = itemId })
+	AnalyticsService.log("roll", {
+		userId = userId,
+		tier = tier.id,
+		gems = payment and 0 or tier.gems,
+		paidValue = payment and paidValue or nil,
+		itemId = itemId,
+	})
 	return {
 		ok = true,
 		item = {
@@ -182,7 +273,8 @@ local function rollCore(userId: number, tierId: any, ticket: number?)
 			rarity = item and item.rarity or nil,
 			value = EconomyService.valueOf(itemId),
 		},
-		spent = tier.gems,
+		spent = payment and 0 or tier.gems,
+		paidValue = payment and paidValue or nil,
 	}
 end
 
@@ -209,11 +301,13 @@ function RollService.Start()
 		return { ok = true, tiers = tiers, enabled = RollConfig.Enabled }
 	end)
 
-	Net.bindFunction("RollItem", function(player, tierId)
+	-- (tierId, payment?) — payment = { items = {itemId->count} } pays with
+	-- goods (burned) instead of gems; omit it for a plain gem roll
+	Net.bindFunction("RollItem", function(player, tierId, payment)
 		if not DataService.isLoaded(player) then
 			return { ok = false, err = "loading" }
 		end
-		return rollCore(player.UserId, tierId, nil)
+		return rollCore(player.UserId, tierId, nil, payment)
 	end)
 end
 

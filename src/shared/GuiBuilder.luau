@@ -1476,6 +1476,301 @@ function GuiBuilder.addBoardPanel()
 end
 
 --------------------------------------------------------------------------------
+-- Rolls panel (the gacha NPC) — 5 tier cards, pay with gems OR items
+--------------------------------------------------------------------------------
+
+local function buildRollsPanel(parent: Instance)
+	local rolls = panel("RollsPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(740, 560),
+		Visible = false,
+	}, parent)
+
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -60, 0, 24),
+		Text = "🎲 Lucky Rolls",
+		TextSize = 18,
+	}, rolls)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, rolls)
+	label("Hint", {
+		Position = UDim2.fromOffset(14, 34),
+		Size = UDim2.new(1, -28, 0, 16),
+		Text = "Pick a roll. Pricier rolls have better odds. Every prize is a real limited item from the reserve.",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, rolls)
+
+	-- five tier cards, side by side
+	local tierRow = new("Frame", {
+		Name = "TierRow",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 56),
+		Size = UDim2.new(1, -24, 0, 240),
+	}, rolls)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, tierRow)
+	local card = new("TextButton", {
+		Name = "TierCard",
+		Text = "",
+		AutoButtonColor = true,
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(136, 240),
+		Visible = false, -- template
+	}, tierRow)
+	corner(card, 8)
+	stroke(card, C.Stroke, 1.5)
+	label("TierName", {
+		Position = UDim2.fromOffset(8, 8),
+		Size = UDim2.new(1, -16, 0, 18),
+		Text = "Roll",
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	label("Price", {
+		Position = UDim2.fromOffset(8, 28),
+		Size = UDim2.new(1, -16, 0, 20),
+		Text = "? gems",
+		TextSize = 16,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	label("Luck", {
+		Position = UDim2.fromOffset(8, 50),
+		Size = UDim2.new(1, -16, 0, 14),
+		Text = "Luck ×1",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	label("OddsLabel", {
+		Position = UDim2.fromOffset(8, 72),
+		Size = UDim2.new(1, -16, 0, 92),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.Text,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, card)
+	label("Blurb", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 8, 1, -8),
+		Size = UDim2.new(1, -16, 0, 58),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 10,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Bottom,
+	}, card)
+
+	-- payment bar: gems on the left, items on the right
+	local payBar = new("Frame", {
+		Name = "PayBar",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 304),
+		Size = UDim2.new(1, -24, 0, 40),
+	}, rolls)
+	button("GemsButton", {
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(0.5, -6, 1, 0),
+		Text = "Roll — ? gems",
+		TextSize = 15,
+		BackgroundColor3 = C.Good,
+	}, payBar)
+	button("ItemsButton", {
+		Position = UDim2.new(0.5, 6, 0, 0),
+		Size = UDim2.new(0.5, -6, 1, 0),
+		Text = "Pay with items instead…",
+		TextSize = 13,
+		BackgroundColor3 = C.Accent,
+	}, payBar)
+
+	-- item tray: pick inventory items until their value covers the price
+	local tray = new("Frame", {
+		Name = "ItemTray",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(12, 352),
+		Size = UDim2.new(1, -24, 1, -364),
+		Visible = false,
+	}, rolls)
+	corner(tray, 6)
+	stroke(tray, C.Stroke, 1)
+	label("TrayHint", {
+		Position = UDim2.fromOffset(10, 6),
+		Size = UDim2.new(1, -220, 0, 16),
+		Text = "Click your items to add them — they are traded in for the roll.",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, tray)
+	label("TotalLabel", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 6),
+		Size = UDim2.fromOffset(200, 16),
+		Text = "Selected: 0 / ? value",
+		TextSize = 12,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Right,
+	}, tray)
+	local trayGrid = new("ScrollingFrame", {
+		Name = "TrayGrid",
+		Position = UDim2.fromOffset(10, 28),
+		Size = UDim2.new(1, -20, 1, -74),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, tray)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(74, 88),
+		CellPadding = UDim2.fromOffset(6, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, trayGrid)
+	local trayTile = new("ImageButton", {
+		Name = "TrayTile",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		AutoButtonColor = true,
+		Image = "",
+		Visible = false, -- template
+	}, trayGrid)
+	corner(trayTile, 6)
+	stroke(trayTile, C.Stroke, 1)
+	local ttIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, -18, 0, 4),
+		Size = UDim2.fromOffset(36, 36),
+		ScaleType = Enum.ScaleType.Fit,
+	}, trayTile)
+	corner(ttIcon, 6)
+	label("ItemName", {
+		Position = UDim2.fromOffset(3, 40),
+		Size = UDim2.new(1, -6, 0, 13),
+		Text = "Item",
+		Font = FONT_LIGHT,
+		TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	}, trayTile)
+	label("ValueLabel", {
+		Position = UDim2.fromOffset(3, 54),
+		Size = UDim2.new(1, -6, 0, 13),
+		Text = "? each",
+		Font = FONT_LIGHT,
+		TextSize = 9,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, trayTile)
+	label("UseLabel", {
+		Position = UDim2.fromOffset(3, 68),
+		Size = UDim2.new(1, -6, 0, 14),
+		Text = "",
+		TextSize = 11,
+		TextColor3 = C.Warn,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, trayTile)
+	button("ConfirmButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -6),
+		Size = UDim2.fromOffset(260, 32),
+		Text = "Roll with these items",
+		TextSize = 13,
+		BackgroundColor3 = C.BgLight,
+	}, tray)
+
+	-- reveal overlay: what you won, big and unmissable
+	local reveal = new("Frame", {
+		Name = "Reveal",
+		BackgroundColor3 = C.Bg,
+		BackgroundTransparency = 0.06,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 1, 0),
+		Visible = false,
+		ZIndex = 30,
+	}, rolls)
+	corner(reveal)
+	local rIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 110),
+		Size = UDim2.fromOffset(120, 120),
+		ScaleType = Enum.ScaleType.Fit,
+		ZIndex = 31,
+	}, reveal)
+	corner(rIcon, 10)
+	label("WonLabel", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 74),
+		Size = UDim2.fromOffset(400, 24),
+		Text = "You rolled…",
+		TextSize = 16,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 31,
+	}, reveal)
+	label("ItemName", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 244),
+		Size = UDim2.fromOffset(500, 30),
+		Text = "?",
+		TextSize = 24,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 31,
+	}, reveal)
+	label("SubLine", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 278),
+		Size = UDim2.fromOffset(500, 18),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 13,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 31,
+	}, reveal)
+	button("AgainButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, -110, 0, 330),
+		Size = UDim2.fromOffset(200, 38),
+		Text = "Roll again",
+		TextSize = 14,
+		BackgroundColor3 = C.Good,
+		ZIndex = 31,
+	}, reveal)
+	button("DoneButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 110, 0, 330),
+		Size = UDim2.fromOffset(200, 38),
+		Text = "Done",
+		TextSize = 14,
+		BackgroundColor3 = C.BgLight,
+		ZIndex = 31,
+	}, reveal)
+
+	return rolls
+end
+
+--------------------------------------------------------------------------------
 -- Events panel (crafting / sacrifices / rotating recipes)
 --------------------------------------------------------------------------------
 
@@ -2192,6 +2487,7 @@ local function buildModals(parent: Instance)
 	buildEventsPanel(gui)
 	buildBoardPanel(gui)
 	buildProfilePanel(gui)
+	buildRollsPanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {

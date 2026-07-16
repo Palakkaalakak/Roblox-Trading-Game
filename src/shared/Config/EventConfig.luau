@@ -128,6 +128,46 @@ local EventConfig = {
 		},
 
 		--------------------------------------------------------------------
+		-- SEASONAL — limited-time events with an endsAt. They show up on the
+		-- Events panel's "Limited" tab with a live countdown, then vanish.
+		-- Inputs are always base-pool items (never event items), so a
+		-- seasonal recipe can NEVER be gated behind a rotation window.
+		--------------------------------------------------------------------
+		{
+			id = "evt_midsummer",
+			name = "🌞 Midsummer Festival",
+			kind = "crafting",
+			enabled = true,
+			endsAt = 1785542400, -- Aug 1 2026 00:00 UTC
+			recipes = {
+				{
+					rid = "solstice_talisman",
+					tier = 2,
+					blurb = "Only while the sun is high. Gone in August.",
+					inputs = { ["itm_1_6_sunstone_charm"] = 2, ["itm_1_3_amber_idol"] = 1 },
+					output = {
+						sku = "solstice_talisman",
+						name = "Solstice Talisman",
+						totalSupply = 150,
+						imageId = "rbxassetid://17368097932", -- star
+					},
+				},
+				{
+					rid = "midsummer_wreath",
+					tier = 1,
+					blurb = "Woven once a year. Cheap to make, gone forever after.",
+					inputs = { ["itm_1_4_clay_totem"] = 2, ["itm_1_5_jade_serpent"] = 1 },
+					output = {
+						sku = "midsummer_wreath",
+						name = "Midsummer Wreath",
+						totalSupply = 260,
+						imageId = "rbxassetid://15403275152", -- blue potion
+					},
+				},
+			},
+		},
+
+		--------------------------------------------------------------------
 		-- ALCHEMIST — always-on entry point. Cheap, common inputs, so there
 		-- is always SOMETHING to make even on a bad rotation.
 		--------------------------------------------------------------------

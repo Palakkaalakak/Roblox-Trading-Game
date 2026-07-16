@@ -25,6 +25,15 @@
 local RollConfig = {
 	Enabled = true,
 
+	-- world hookup: ProximityPrompt with this name opens the Rolls panel
+	PromptName = "RollsPrompt",
+
+	-- A roll can be paid in gems OR in items totalling at least the tier's
+	-- price (each item counted at its live Value). Item payments are BURNED —
+	-- copies leave existence — so paying with goods is a real sink that makes
+	-- what everyone else holds scarcer.
+
+	-- Five cost levels, cheapest first. Higher price -> higher luck.
 	Tiers = {
 		{
 			id = "basic",
@@ -34,11 +43,25 @@ local RollConfig = {
 			blurb = "A cheap pull. Mostly junk, occasionally not.",
 		},
 		{
+			id = "solid",
+			name = "Solid Roll",
+			gems = 25,
+			luck = 2, -- commons still likely, but rares show up
+			blurb = "A step up. Rares start knocking.",
+		},
+		{
 			id = "lucky",
 			name = "Lucky Roll",
 			gems = 55,
 			luck = 4, -- flattens the curve hard: rares become genuinely likely
 			blurb = "Better odds on the good stuff.",
+		},
+		{
+			id = "grand",
+			name = "Grand Roll",
+			gems = 110,
+			luck = 7, -- legendaries are a realistic outcome
+			blurb = "Serious money, serious chances.",
 		},
 		{
 			id = "mythic",

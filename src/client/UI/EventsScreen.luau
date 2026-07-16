@@ -4,10 +4,11 @@
 -- and the per-row extras (tier badge, blurb, value-created line) are built here
 -- so the shared builder stays untouched.
 --
--- Three tabs, in the order a player actually thinks:
+-- Four tabs, in the order a player actually thinks:
 --   ⚡ Can Craft — only what I can make RIGHT NOW (the default; no hunting)
---   ⏳ Rotating — this window's recipes + a live countdown to the swap
---   📋 All      — everything, grouped by event
+--   🏛 Stations  — the permanent crafting stations (always here)
+--   ⏳ Rotating  — this window's recipes + a live countdown to the swap
+--   🎉 Limited   — temporary/seasonal events, each with its end countdown
 --
 -- Every row states the deal plainly: what it eats -> what it mints, how much
 -- stock is left, and the VALUE CREATED (output value minus everything it burns).
@@ -77,8 +78,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 
 	local TABS = {
 		{ id = "craft", text = "⚡ Can Craft" },
+		{ id = "stations", text = "🏛 Stations" },
 		{ id = "rotating", text = "⏳ Rotating" },
-		{ id = "all", text = "📋 All" },
+		{ id = "limited", text = "🎉 Limited" },
 	}
 	local activeTab = "craft"
 	local tabButtons: { [string]: TextButton } = {}
@@ -171,8 +173,19 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		badge.Text = TIER_NAME[recipe.tier] or ""
 		badge.Parent = row
 
-		-- blurb along the bottom
-		if recipe.blurb then
+		-- bottom line: normally the blurb, but a missing event-item input takes
+		-- priority — point the player at WHERE that input is crafted instead of
+		-- leaving them staring at an ingredient they can't buy or roll
+		local bottomText = recipe.blurb
+		local bottomColor = Theme.TextDim
+		for _, input in recipe.inputs do
+			if input.from and input.owned < input.count then
+				bottomText = ("Need %s? Craft it at %s."):format(input.name, input.from)
+				bottomColor = Theme.Warn
+				break
+			end
+		end
+		if bottomText then
 			local blurb = Instance.new("TextLabel")
 			blurb.Name = "Blurb"
 			blurb.BackgroundTransparency = 1
@@ -182,8 +195,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			blurb.TextSize = 11
 			blurb.TextXAlignment = Enum.TextXAlignment.Left
 			blurb.TextTruncate = Enum.TextTruncate.AtEnd
-			blurb.TextColor3 = Theme.TextDim
-			blurb.Text = recipe.blurb
+			blurb.TextColor3 = bottomColor
+			blurb.Text = bottomText
 			blurb.Parent = row
 		end
 
@@ -224,17 +237,20 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end)
 	end
 
-	-- which recipes survive the active tab
+	-- which recipes survive the active tab (events carry a server-side
+	-- category: permanent station / rotating window / limited-time)
 	local function visibleRecipes(event: any): { any }
 		local out = {}
 		for _, recipe in event.recipes do
 			local keep
 			if activeTab == "craft" then
 				keep = recipe.craftable and recipe.output.remaining > 0
+			elseif activeTab == "stations" then
+				keep = event.category == "permanent"
 			elseif activeTab == "rotating" then
-				keep = event.rotatesAt ~= nil
-			else
-				keep = true
+				keep = event.category == "rotating"
+			else -- limited
+				keep = event.category == "limited"
 			end
 			if keep then
 				table.insert(out, recipe)
@@ -246,10 +262,12 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local function emptyMessage(): string
 		if activeTab == "craft" then
 			return "Nothing you can craft yet — trade for the inputs, then come back!"
+		elseif activeTab == "stations" then
+			return "No crafting stations are open right now."
 		elseif activeTab == "rotating" then
 			return "No rotating recipes right now, check back soon!"
 		end
-		return "No events right now, come back later!"
+		return "No limited events running — new seasons land here!"
 	end
 
 	renderEvents = function(events: { any })
