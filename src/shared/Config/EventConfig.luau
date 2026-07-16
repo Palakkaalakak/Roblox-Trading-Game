@@ -5,8 +5,8 @@
 -- Item-for-item trading is zero-sum: it moves worth around, it never creates
 -- any. Crafting is the only thing that MAKES value, and it does it twice over:
 --   1. THE PREMIUM. A recipe burns its inputs and mints an output seeded at
---      (input value + gems) * EconomyConfig.CraftValuePremium. Every craft
---      mints more worth than it destroys.
+--      (input value) * EconomyConfig.CraftValuePremium. Every craft mints more
+--      worth than it destroys. Crafting costs ITEMS ONLY — no gem fee.
 --   2. THE SINK (the big one). Burned copies leave existence forever. The
 --      ROTATING refinery deliberately points that sink at a couple of specific
 --      commons per window, so crafters all bid for the SAME items at once —
@@ -63,7 +63,6 @@ local EventConfig = {
 						["evt_storm_artifact"] = 2,
 						["itm_1_8_crimson_crown"] = 1,
 					},
-					gems = 120,
 					output = {
 						sku = "ancient_grail",
 						name = "Ancient Grail",
@@ -79,7 +78,6 @@ local EventConfig = {
 						["evt_ember_artifact"] = 2,
 						["itm_1_11_void_shard"] = 1,
 					},
-					gems = 150,
 					output = {
 						sku = "eternal_diadem",
 						name = "Eternal Diadem",
@@ -91,8 +89,8 @@ local EventConfig = {
 		},
 
 		--------------------------------------------------------------------
-		-- SACRIFICE — one item type, a LOT of it. Costs more gems than
-		-- crafting, and it is the heaviest single sink in the game.
+		-- SACRIFICE — one item type, a LOT of it. The heaviest single sink in
+		-- the game: it eats the most copies per output.
 		--------------------------------------------------------------------
 		{
 			id = "evt_shadow_ritual",
@@ -107,7 +105,6 @@ local EventConfig = {
 					-- NOTE: keep every input count <= BotConfig.MaxHoldPerItem (8),
 					-- or no bot can ever physically stockpile enough to craft it.
 					inputs = { ["itm_1_2_copper_coin"] = 6 },
-					gems = 60,
 					output = {
 						sku = "shadow_crown",
 						name = "Shadow Crown",
@@ -120,7 +117,6 @@ local EventConfig = {
 					tier = 2,
 					blurb = "Six relics of stone for one hollow thing.",
 					inputs = { ["itm_1_1_stone_relic"] = 6 },
-					gems = 70,
 					output = {
 						sku = "hollow_effigy",
 						name = "Hollow Effigy",
@@ -146,7 +142,6 @@ local EventConfig = {
 					tier = 2,
 					blurb = "The first thing every trader learns to make.",
 					inputs = { ["itm_1_1_stone_relic"] = 2, ["itm_1_3_amber_idol"] = 1 },
-					gems = 30,
 					output = {
 						sku = "transmutation_stone",
 						name = "Transmutation Stone",
@@ -159,7 +154,6 @@ local EventConfig = {
 					tier = 2,
 					blurb = "Serpent and sun, bound into a ward.",
 					inputs = { ["itm_1_5_jade_serpent"] = 1, ["itm_1_6_sunstone_charm"] = 1 },
-					gems = 40,
 					output = {
 						sku = "rune_protection",
 						name = "Rune of Protection",
@@ -190,7 +184,6 @@ local EventConfig = {
 				tier = 1,
 				blurb = "Stone Relics are wanted this window. Grind them down.",
 				inputs = { ["itm_1_1_stone_relic"] = 3 },
-				gems = 5,
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -203,7 +196,6 @@ local EventConfig = {
 				tier = 1,
 				blurb = "Copper is in demand. Melt it down.",
 				inputs = { ["itm_1_2_copper_coin"] = 3 },
-				gems = 5,
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -216,7 +208,6 @@ local EventConfig = {
 				tier = 1,
 				blurb = "Amber Idols burn hot this window.",
 				inputs = { ["itm_1_3_amber_idol"] = 3 },
-				gems = 5,
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -229,7 +220,6 @@ local EventConfig = {
 				tier = 1,
 				blurb = "Clay Totems are the ask right now.",
 				inputs = { ["itm_1_4_clay_totem"] = 3 },
-				gems = 5,
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -244,7 +234,6 @@ local EventConfig = {
 				tier = 2,
 				blurb = "Bind essence to a serpent and it holds a storm.",
 				inputs = { ["evt_refined_essence"] = 3, ["itm_1_5_jade_serpent"] = 1 },
-				gems = 30,
 				output = {
 					sku = "storm_artifact",
 					name = "Storm Artifact",
@@ -257,7 +246,6 @@ local EventConfig = {
 				tier = 2,
 				blurb = "Sunstone and essence. Warm to the touch, forever.",
 				inputs = { ["evt_refined_essence"] = 3, ["itm_1_6_sunstone_charm"] = 1 },
-				gems = 30,
 				output = {
 					sku = "ember_artifact",
 					name = "Ember Artifact",
@@ -270,7 +258,6 @@ local EventConfig = {
 				tier = 2,
 				blurb = "A lantern that never thaws.",
 				inputs = { ["evt_refined_essence"] = 3, ["itm_1_7_frost_lantern"] = 1 },
-				gems = 30,
 				output = {
 					sku = "frost_artifact",
 					name = "Frost Artifact",
@@ -283,7 +270,6 @@ local EventConfig = {
 				tier = 2,
 				blurb = "Essence poured over a fang. Obscene, and worth it.",
 				inputs = { ["evt_refined_essence"] = 4, ["itm_1_10_obsidian_fang"] = 1 },
-				gems = 45,
 				output = {
 					sku = "gilded_artifact",
 					name = "Gilded Artifact",
