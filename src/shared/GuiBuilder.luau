@@ -1613,7 +1613,7 @@ local function buildRollsPanel(parent: Instance)
 	label("TrayHint", {
 		Position = UDim2.fromOffset(10, 6),
 		Size = UDim2.new(1, -220, 0, 16),
-		Text = "Click your items to add them — they are traded in for the roll.",
+		Text = "Traded-in items go back into the roll pool for others to win — they aren't destroyed.",
 		Font = FONT_LIGHT,
 		TextSize = 11,
 		TextColor3 = C.TextDim,

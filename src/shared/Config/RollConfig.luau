@@ -29,9 +29,11 @@ local RollConfig = {
 	PromptName = "RollsPrompt",
 
 	-- A roll can be paid in gems OR in items totalling at least the tier's
-	-- price (each item counted at its live Value). Item payments are BURNED —
-	-- copies leave existence — so paying with goods is a real sink that makes
-	-- what everyone else holds scarcer.
+	-- price (each item counted at its live Value). Item payments are
+	-- REDISTRIBUTED: the copies return to their item's reserve, where future
+	-- rolls and draws hand them to someone else. Because paid items must be
+	-- able to come back out, items that can no longer be re-made (outputs of
+	-- ended limited events) are refused — see EventConfig.isReobtainable.
 
 	-- Five cost levels, cheapest first. Higher price -> higher luck.
 	Tiers = {

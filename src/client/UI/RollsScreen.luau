@@ -6,14 +6,18 @@
 -- Two ways to pay:
 --   * gems — one click
 --   * items — open the tray, click items from your inventory until their
---     combined live Value covers the price. Paid items are BURNED (they
---     leave existence), which makes everyone else's copies scarcer.
+--     combined live Value covers the price. Paid items are REDISTRIBUTED:
+--     they go back into the roll pool for other players to win. Items that
+--     can never be re-made (ended limited-event outputs) are refused — they
+--     would be stuck in the reserve forever — and the tray shows them dimmed
+--     with the reason.
 -- The result lands as a full-panel reveal, not a toast.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local State = require(ReplicatedStorage.Shared.Util.State)
+local EventConfig = require(ReplicatedStorage.Shared.Config.EventConfig)
 local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
@@ -191,6 +195,9 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		elseif result.err == "payment_too_low" then
 			toast("Prices moved — add another item to cover the cost.", Theme.Warn)
 			refreshTray()
+		elseif result.err == "not_reobtainable" then
+			toast("Limited event items can't be traded in — they can never be made again.", Theme.Warn)
+			refreshTray()
 		elseif result.err == "nothing_left" then
 			toast("Every rollable item is fully distributed!", Theme.Warn)
 		else
@@ -243,6 +250,7 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			table.insert(wanted, itemId)
 			local snap = stats[itemId]
 			local tile = trayTiles[itemId]
+			local eligible = EventConfig.isReobtainable(itemId)
 			if tile == nil then
 				tile = trayTile:Clone()
 				tile.Name = itemId
@@ -253,6 +261,10 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 					return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
 				end)
 				tile.Activated:Connect(function()
+					if not EventConfig.isReobtainable(itemId) then
+						toast("Limited event items can't be traded in — they can never be made again.", Theme.Warn)
+						return
+					end
 					-- click cycles how many copies you're putting in: 0 -> 1 -> … -> owned -> 0
 					local own = InventoryController.inventory:get()[itemId] or 0
 					local using = (traySelection[itemId] or 0) + 1
@@ -263,13 +275,28 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, snap)
 			;(tile:WaitForChild("ItemName") :: TextLabel).Text = snap and snap.name or itemId
 			local v = snap and snap.value and snap.value.value
-			;(tile:WaitForChild("ValueLabel") :: TextLabel).Text = v and (tostring(v) .. " each") or "…"
-			local using = traySelection[itemId] or 0
-			;(tile:WaitForChild("UseLabel") :: TextLabel).Text = using > 0 and ("using x" .. using) or ""
+			local valueLabel = tile:WaitForChild("ValueLabel") :: TextLabel
+			local useLabel = tile:WaitForChild("UseLabel") :: TextLabel
+			local icon = tile:WaitForChild("Icon") :: ImageLabel
+			if eligible then
+				icon.ImageTransparency = 0
+				valueLabel.Text = v and (tostring(v) .. " each") or "…"
+				local using = traySelection[itemId] or 0
+				useLabel.Text = using > 0 and ("using x" .. using) or ""
+				useLabel.TextColor3 = Theme.Warn
+			else
+				-- limited-event keepsake: visible so the player learns WHY, but
+				-- never addable (it could never be won back out of the pool)
+				icon.ImageTransparency = 0.55
+				valueLabel.Text = "limited event"
+				useLabel.Text = "can't trade in"
+				useLabel.TextColor3 = Theme.TextDim
+			end
 			local tileStroke = tile:FindFirstChildWhichIsA("UIStroke")
 			if tileStroke then
-				tileStroke.Color = using > 0 and Theme.Warn or Theme.Stroke
-				tileStroke.Thickness = using > 0 and 2 or 1
+				local using = traySelection[itemId] or 0
+				tileStroke.Color = (eligible and using > 0) and Theme.Warn or Theme.Stroke
+				tileStroke.Thickness = (eligible and using > 0) and 2 or 1
 			end
 		end
 		EconomyController.ensure(wanted)

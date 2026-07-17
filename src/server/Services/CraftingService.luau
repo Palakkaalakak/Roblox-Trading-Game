@@ -43,24 +43,11 @@ end
 -- Recipe graph sanity
 --------------------------------------------------------------------------------
 
--- Who makes each event item? itemId -> event name ("Rotating Recipes" for the
--- pool). Built once from config; drives the "get it from X" UI hint and the
--- reachability check below.
-local producers: { [string]: string } = {}
-do
-	for _, event in EventConfig.Events do
-		if event.enabled then
-			for _, recipe in event.recipes do
-				producers[outputItemId(recipe.output.sku)] = event.name
-			end
-		end
-	end
-	local rot = EventConfig.RotatingRecipes
-	if rot and rot.enabled then
-		for _, recipe in rot.Pool do
-			producers[outputItemId(recipe.output.sku)] = "Rotating Recipes"
-		end
-	end
+-- Who makes each event item? Shared lookup on EventConfig (client uses the
+-- same one); drives the "get it from X" UI hint and the reachability check.
+local function producerName(itemId: string): string?
+	local producer = EventConfig.producerOf(itemId)
+	return producer and producer.name or nil
 end
 
 -- Every event-item INPUT must have a recipe somewhere that produces it —
@@ -71,7 +58,7 @@ function CraftingService.validateRecipeGraph(): { string }
 	local violations = {}
 	local function checkRecipe(where: string, recipe: any)
 		for itemId in recipe.inputs do
-			if itemId:sub(1, 4) == "evt_" and producers[itemId] == nil then
+			if itemId:sub(1, 4) == "evt_" and producerName(itemId) == nil then
 				table.insert(
 					violations,
 					("%s/%s needs %s, but nothing active produces it"):format(where, recipe.rid, itemId)
@@ -219,7 +206,7 @@ local function describeRecipe(recipe: any, profile: any): any
 			owned = owned,
 			-- event-item inputs say WHERE they're made, so the UI can point a
 			-- player at the source instead of leaving them to hunt
-			from = producers[itemId],
+			from = producerName(itemId),
 		})
 	end
 	table.sort(inputs, function(a, b)

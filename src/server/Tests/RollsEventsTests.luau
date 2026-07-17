@@ -77,5 +77,22 @@ return {
 			local RollService = require(script.Parent.Parent.Services.RollService)
 			eq(RollService.paymentValue({}), 0, "empty payment")
 		end,
+
+		["rolls: only re-obtainable items may pay for a roll"] = function()
+			-- base-pool items: always fine (rolls/store/draws restock them)
+			eq(EventConfig.isReobtainable("itm_1_1_stone_relic"), true, "base item")
+			-- rotating-pool outputs: the recipe reappears in future windows
+			eq(EventConfig.isReobtainable("evt_refined_essence"), true, "rotating output")
+			eq(EventConfig.isReobtainable("evt_storm_artifact"), true, "rotating artifact")
+			-- permanent-station outputs: craftable forever
+			eq(EventConfig.isReobtainable("evt_transmutation_stone"), true, "station output")
+			eq(EventConfig.isReobtainable("evt_ancient_grail"), true, "grail (permanent forge)")
+			-- limited/seasonal outputs: once the event ends they can NEVER be
+			-- re-made, so redistributing them into the reserve would strand them
+			eq(EventConfig.isReobtainable("evt_solstice_talisman"), false, "seasonal output")
+			eq(EventConfig.isReobtainable("evt_midsummer_wreath"), false, "seasonal output 2")
+			-- unknown event ids are never eligible
+			eq(EventConfig.isReobtainable("evt_never_existed"), false, "unknown evt id")
+		end,
 	},
 }

@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local RollConfig = require(ReplicatedStorage.Shared.Config.RollConfig)
+local EventConfig = require(ReplicatedStorage.Shared.Config.EventConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 
 local Net = require(script.Parent.Parent.Net)
@@ -132,7 +133,10 @@ end
 
 -- Item payment shape: { [itemId]: count }, bounded. Every id must be a real
 -- registry item; the combined live Value must cover the tier's price. Paid
--- copies are BURNED (retired from existence) — paying with goods is a sink.
+-- copies are REDISTRIBUTED into the reserve (someone else can roll them back
+-- out) — which is why items that can no longer be re-made are refused: a
+-- limited event item pushed into the reserve after its event ended would be
+-- stuck there forever.
 local function checkPayment(payment: any, tier: any): (boolean, string?, number)
 	if type(payment) ~= "table" or type(payment.items) ~= "table" then
 		return false, "bad_payment", 0
@@ -144,6 +148,9 @@ local function checkPayment(payment: any, tier: any): (boolean, string?, number)
 		end
 		if EconomyService.getItem(itemId) == nil then
 			return false, "unknown_item", 0
+		end
+		if not EventConfig.isReobtainable(itemId) then
+			return false, "not_reobtainable", 0
 		end
 		distinct += 1
 		if distinct > 12 then
@@ -237,15 +244,13 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 		return { ok = false, err = "nothing_left" }
 	end
 
-	-- item payments leave existence for good (the sink) — only after the
-	-- reserve is safely ours, so a failed roll never burns anything
+	-- item payments are REDISTRIBUTED: the copies go back into each item's
+	-- reserve, where future rolls/draws can hand them to someone else. Only
+	-- after the prize is safely ours, so a failed roll never moves anything.
 	if payment then
-		local touched = {}
 		for payId, count in payment.items do
-			EconomyService.retireCopies(payId, count)
-			table.insert(touched, payId)
+			EconomyService.restockCopies(payId, count)
 		end
-		EconomyService.broadcastStats(touched)
 	end
 
 	delta({ items = { [itemId] = 1 } }, Enums.GrantSource.Roll)

@@ -44,7 +44,7 @@
 -- (while `enabled`). RotatingRecipes picks ActiveCount recipes from Pool per
 -- time window, deterministically — all servers agree with no coordination.
 
-local EventConfig = {
+local EventConfig: any = {
 	Events = {
 		--------------------------------------------------------------------
 		-- TIER 3 — the capstone. Burns Artifacts into a true grail.
@@ -320,5 +320,57 @@ local EventConfig = {
 		},
 	},
 }
+
+--------------------------------------------------------------------------------
+-- Producer lookup (shared helpers — client and server answer the same way)
+--------------------------------------------------------------------------------
+
+-- itemId -> { name, category } for every craftable output.
+-- category: "permanent" (always-on station) | "rotating" (pool; the recipe
+-- reappears in future windows) | "limited" (has a start/end; once it's over,
+-- the item can never be made again).
+local producerIndex: { [string]: { name: string, category: string } }? = nil
+local function producers(): { [string]: { name: string, category: string } }
+	if producerIndex then
+		return producerIndex
+	end
+	local index: { [string]: { name: string, category: string } } = {}
+	for _, event in EventConfig.Events do
+		if event.enabled then
+			local category = (event.endsAt or event.startsAt) and "limited" or "permanent"
+			for _, recipe in event.recipes do
+				index["evt_" .. recipe.output.sku] = { name = event.name, category = category }
+			end
+		end
+	end
+	local rot = EventConfig.RotatingRecipes
+	if rot and rot.enabled then
+		for _, recipe in rot.Pool do
+			index["evt_" .. recipe.output.sku] = { name = "Rotating Recipes", category = "rotating" }
+		end
+	end
+	producerIndex = index
+	return index
+end
+
+-- Who makes this event item? nil for base-pool items and unknown ids.
+function EventConfig.producerOf(itemId: string): { name: string, category: string }?
+	return producers()[itemId]
+end
+
+-- Can more copies of this item still enter the world? Base items: always
+-- (rolls, store, starter draws). Event items: only while a recipe can still
+-- mint them — permanent stations and the rotating pool qualify, LIMITED
+-- events do not (once the season ends, copies pushed back into the reserve
+-- would be stuck there forever). Drives what the Rolls NPC accepts as
+-- payment: traded-in items are REDISTRIBUTED into the reserve, not destroyed,
+-- so anything paid in must be able to come back out.
+function EventConfig.isReobtainable(itemId: string): boolean
+	if itemId:sub(1, 4) ~= "evt_" then
+		return true
+	end
+	local producer = producers()[itemId]
+	return producer ~= nil and producer.category ~= "limited"
+end
 
 return EventConfig

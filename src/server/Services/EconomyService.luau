@@ -455,6 +455,24 @@ function EconomyService.bumpDemand(itemId: string, amount: number, countAsSample
 	end)
 end
 
+-- Return copies from circulation to the RESERVE (the roll/draw pool) — the
+-- inverse of reserveOne. Used by roll item-payments: traded-in copies are
+-- redistributed, not destroyed, so someone else can roll them back out.
+-- Strong CAS like reserveOne; never moves more than circulation holds.
+function EconomyService.restockCopies(itemId: string, count: number)
+	if count <= 0 then
+		return
+	end
+	mutateRecord(itemId, function(old)
+		local back = math.min(count, old.circulating or 0)
+		old.circulating = math.max(0, (old.circulating or 0) - back)
+		old.reserveRemaining = (old.reserveRemaining or 0) + back
+		old.updatedAt = os.time()
+		return old
+	end)
+	EconomyService.broadcastStats({ itemId })
+end
+
 -- Retire copies from circulation (crafting/sacrifice sink: the consumed
 -- items are destroyed). totalSupply is untouched — "X/Y in existence" shows
 -- X dropping while Y stays the historical cap. Atomic cross-server.
