@@ -82,10 +82,15 @@ function Components.fillItemTile(tile: Instance, snapshot: any?, count: number?)
 end
 
 -- Device fit: every top-level panel carries a "FitScale" UIScale (built by
--- GuiBuilder). One camera listener shrinks each panel proportionally to the
+-- GuiBuilder). One camera listener scales each panel proportionally to the
 -- live viewport so the whole panel — bottom buttons included — always fits,
--- on any screen size / window / OS scaling. Scale never exceeds 1 (design
--- size) and layouts/text stay proportionally intact.
+-- on any screen size / window / OS scaling. Since offsets multiply by the
+-- UIScale, this makes offset-designed panels behave like scale-based ones.
+--
+-- Desktop: never grows past design size (cap 1). Phones/tablets (touch +
+-- short viewport): the panel FILLS the screen instead — letting it upscale
+-- past 1 where the aspect allows — so text and touch targets stay big.
+-- Panels with scale-based roots (no offset size) manage themselves.
 function Components.wireFitScales(gui: ScreenGui)
 	local camera = workspace.CurrentCamera
 	local panels: { { scale: UIScale, w: number, h: number } } = {}
@@ -101,9 +106,13 @@ function Components.wireFitScales(gui: ScreenGui)
 	end
 	local function refit()
 		local vp = camera.ViewportSize
+		local touchSmall = UserInputService.TouchEnabled and vp.Y < 600
+		local marginX = touchSmall and 16 or 40
+		local marginY = touchSmall and 24 or 90
+		local cap = touchSmall and 1.75 or 1
 		for _, p in panels do
 			if p.w > 0 and p.h > 0 then
-				p.scale.Scale = math.min(1, (vp.Y - 90) / p.h, (vp.X - 40) / p.w)
+				p.scale.Scale = math.min(cap, (vp.Y - marginY) / p.h, (vp.X - marginX) / p.w)
 			end
 		end
 	end

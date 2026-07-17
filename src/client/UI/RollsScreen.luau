@@ -35,7 +35,7 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local itemsBtn = payBar:WaitForChild("ItemsButton") :: TextButton
 	local tray = panel:WaitForChild("ItemTray") :: Frame
 	local trayGrid = tray:WaitForChild("TrayGrid") :: ScrollingFrame
-	local trayTile = trayGrid:WaitForChild("TrayTile") :: ImageButton
+	local trayTile = trayGrid:WaitForChild("TrayTile") :: Frame
 	local totalLabel = tray:WaitForChild("TotalLabel") :: TextLabel
 	local confirmBtn = tray:WaitForChild("ConfirmButton") :: TextButton
 	local reveal = panel:WaitForChild("Reveal") :: Frame
@@ -50,7 +50,7 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local rolling = false
 	local cards: { [string]: TextButton } = {}
 	local traySelection: { [string]: number } = {} -- itemId -> copies offered
-	local trayTiles: { [string]: ImageButton } = {}
+	local trayTiles: { [string]: Frame } = {}
 	local refreshTray -- fwd decl
 
 	local function selectedTier(): any?
@@ -66,25 +66,29 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- Tier cards
 	----------------------------------------------------------------------
 
-	-- odds rolled up by rarity: "Common 82%" beats a 33-line item list
-	local function oddsText(odds: { any }): string
+	-- odds rolled up by rarity: one big centered row per rarity, in that
+	-- rarity's color (the labels are pre-built + pre-colored by GuiBuilder)
+	local function fillOdds(card: TextButton, odds: { any })
 		local byRarity: { [string]: number } = {}
 		for _, o in odds do
 			if o.rarity then
 				byRarity[o.rarity] = (byRarity[o.rarity] or 0) + o.pct
 			end
 		end
-		local lines = {}
+		local oddsList = card:WaitForChild("OddsList") :: Frame
 		for _, rarity in RARITY_ORDER do
+			local row = oddsList:WaitForChild("Odds" .. rarity) :: TextLabel
 			local pct = byRarity[rarity]
 			if pct and pct > 0 then
 				local shown = pct >= 10 and ("%.0f%%"):format(pct)
 					or pct >= 1 and ("%.1f%%"):format(pct)
 					or ("%.2f%%"):format(pct)
-				table.insert(lines, ("%s  %s"):format(rarity, shown))
+				row.Text = ("%s  %s"):format(rarity, shown)
+				row.Visible = true
+			else
+				row.Visible = false
 			end
 		end
-		return table.concat(lines, "\n")
 	end
 
 	local function updatePayBar()
@@ -126,7 +130,7 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			;(card:WaitForChild("TierName") :: TextLabel).Text = tier.name
 			;(card:WaitForChild("Price") :: TextLabel).Text = ("%d gems"):format(tier.gems)
 			;(card:WaitForChild("Luck") :: TextLabel).Text = ("Luck ×%d"):format(tier.luck)
-			;(card:WaitForChild("OddsLabel") :: TextLabel).Text = oddsText(tier.odds or {})
+			fillOdds(card, tier.odds or {})
 			;(card:WaitForChild("Blurb") :: TextLabel).Text = tier.blurb or ""
 			card.Activated:Connect(function()
 				selectTier(tier.id)
@@ -260,16 +264,18 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				tooltip.attach(tile, function()
 					return EconomyController.get(itemId), InventoryController.inventory:get()[itemId]
 				end)
-				tile.Activated:Connect(function()
-					if not EventConfig.isReobtainable(itemId) then
-						toast("Limited event items can't be traded in — they can never be made again.", Theme.Warn)
-						return
-					end
-					-- click cycles how many copies you're putting in: 0 -> 1 -> … -> owned -> 0
+				-- thumb-friendly steppers: − / + adjust how many copies go in
+				local function bump(delta: number)
 					local own = InventoryController.inventory:get()[itemId] or 0
-					local using = (traySelection[itemId] or 0) + 1
-					traySelection[itemId] = using > own and nil or using
+					local using = math.clamp((traySelection[itemId] or 0) + delta, 0, own)
+					traySelection[itemId] = using > 0 and using or nil
 					refreshTray()
+				end
+				;(tile:WaitForChild("PlusButton") :: TextButton).Activated:Connect(function()
+					bump(1)
+				end)
+				;(tile:WaitForChild("MinusButton") :: TextButton).Activated:Connect(function()
+					bump(-1)
 				end)
 			end
 			Components.setIcon(tile:WaitForChild("Icon") :: ImageLabel, snap)
@@ -278,23 +284,28 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			local valueLabel = tile:WaitForChild("ValueLabel") :: TextLabel
 			local useLabel = tile:WaitForChild("UseLabel") :: TextLabel
 			local icon = tile:WaitForChild("Icon") :: ImageLabel
+			local minus = tile:WaitForChild("MinusButton") :: TextButton
+			local plus = tile:WaitForChild("PlusButton") :: TextButton
+			local using = traySelection[itemId] or 0
 			if eligible then
 				icon.ImageTransparency = 0
 				valueLabel.Text = v and (tostring(v) .. " each") or "…"
-				local using = traySelection[itemId] or 0
-				useLabel.Text = using > 0 and ("using x" .. using) or ""
-				useLabel.TextColor3 = Theme.Warn
+				minus.Visible = true
+				plus.Visible = true
+				useLabel.Text = tostring(using)
+				useLabel.TextColor3 = using > 0 and Theme.Warn or Theme.TextDim
 			else
-				-- limited-event keepsake: visible so the player learns WHY, but
-				-- never addable (it could never be won back out of the pool)
+				-- limited-event keepsake: visible so the player learns WHY it
+				-- can't pay for a roll (it could never be won back out)
 				icon.ImageTransparency = 0.55
 				valueLabel.Text = "limited event"
-				useLabel.Text = "can't trade in"
+				minus.Visible = false
+				plus.Visible = false
+				useLabel.Text = "—"
 				useLabel.TextColor3 = Theme.TextDim
 			end
 			local tileStroke = tile:FindFirstChildWhichIsA("UIStroke")
 			if tileStroke then
-				local using = traySelection[itemId] or 0
 				tileStroke.Color = (eligible and using > 0) and Theme.Warn or Theme.Stroke
 				tileStroke.Thickness = (eligible and using > 0) and 2 or 1
 			end
