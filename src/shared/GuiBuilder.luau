@@ -1560,19 +1560,9 @@ local function buildRollsPanel(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, card)
 	capText(price, 20)
-	local luck = label("Luck", {
-		Position = UDim2.fromScale(0.05, 0.215),
-		Size = UDim2.fromScale(0.9, 0.055),
-		Text = "Luck ×1",
-		Font = FONT_LIGHT,
-		TextScaled = true,
-		TextColor3 = C.Gold,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, card)
-	capText(luck, 13)
 	-- the value floor this tier guarantees (filled live by RollsScreen)
 	local guarantee = label("Guarantee", {
-		Position = UDim2.fromScale(0.05, 0.272),
+		Position = UDim2.fromScale(0.05, 0.215),
 		Size = UDim2.fromScale(0.9, 0.05),
 		Text = "",
 		Font = FONT_LIGHT,
@@ -1587,8 +1577,8 @@ local function buildRollsPanel(parent: Instance)
 	local oddsList = new("Frame", {
 		Name = "OddsList",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.03, 0.335),
-		Size = UDim2.fromScale(0.94, 0.47),
+		Position = UDim2.fromScale(0.03, 0.28),
+		Size = UDim2.fromScale(0.94, 0.52),
 	}, card)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Vertical,

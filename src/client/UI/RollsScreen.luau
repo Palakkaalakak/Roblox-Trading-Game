@@ -130,7 +130,6 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			card.LayoutOrder = order
 			;(card:WaitForChild("TierName") :: TextLabel).Text = tier.name
 			;(card:WaitForChild("Price") :: TextLabel).Text = ("%d gems"):format(tier.gems)
-			;(card:WaitForChild("Luck") :: TextLabel).Text = ("Luck ×%d"):format(tier.luck)
 			;(card:WaitForChild("Guarantee") :: TextLabel).Text = tier.minValue and tier.minValue > 0
 				and ("≥ %d value guaranteed"):format(tier.minValue)
 				or ""
