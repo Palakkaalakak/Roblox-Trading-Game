@@ -46,15 +46,24 @@ function RollService.tierById(id: string): any?
 	return nil
 end
 
--- Everything rollable RIGHT NOW: pool items that still have reserve left.
--- Sorted for deterministic iteration.
-local function rollableIds(): { string }
+-- The gem-value floor a roll of this tier guarantees. Draws only ever return
+-- items worth at least this, so pricey tiers can't hand back cheap junk.
+function RollService.floorFor(tier: any): number
+	return math.floor(tier.gems * (RollConfig.MinValueFraction or 0))
+end
+
+-- Everything rollable RIGHT NOW: pool items that still have reserve left AND
+-- (when minValue is given) are worth at least that many gems. Sorted for
+-- deterministic iteration.
+local function rollableIds(minValue: number?): { string }
 	local out = {}
 	for itemId, item in EconomyService.allItems() do
 		if (item.assignmentWeight or 0) > 0 then
 			local snap = EconomyService.snapshot(itemId)
 			if snap and (snap.reserveRemaining or 0) > 0 then
-				table.insert(out, itemId)
+				if minValue == nil or EconomyService.valueOf(itemId) >= minValue then
+					table.insert(out, itemId)
+				end
 			end
 		end
 	end
@@ -64,8 +73,8 @@ end
 
 -- Odds for a tier, as a name->percent table. Pure function of the live pool +
 -- the tier's luck, so the UI can show honest odds rather than vibes.
-function RollService.oddsFor(tier: any): { { itemId: string, name: string, pct: number } }
-	local ids = rollableIds()
+function RollService.oddsFor(tier: any): { any }
+	local ids = rollableIds(RollService.floorFor(tier))
 	local weights, total = {}, 0
 	for _, itemId in ids do
 		local item = EconomyService.getItem(itemId)
@@ -79,6 +88,7 @@ function RollService.oddsFor(tier: any): { { itemId: string, name: string, pct: 
 		table.insert(out, {
 			itemId = itemId,
 			name = item and item.name or itemId,
+			imageId = item and item.imageId or nil, -- feeds the roll animation
 			rarity = item and item.rarity or nil, -- UI rolls these up per rarity
 			pct = total > 0 and (weights[itemId] / total * 100) or 0,
 		})
@@ -103,7 +113,7 @@ end
 -- random one, bots pass a derived integer so the whole simulation stays
 -- deterministic and reproducible.
 function RollService.pick(tier: any, ticket: number?): string?
-	local ids = rollableIds()
+	local ids = rollableIds(RollService.floorFor(tier))
 	if #ids == 0 then
 		return nil
 	end
@@ -209,7 +219,10 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 
 	local itemId = RollService.pick(tier, ticket)
 	if itemId == nil then
-		return { ok = false, err = "nothing_left" } -- every pool item fully distributed
+		-- nothing in reserve clears this tier's value floor right now: either
+		-- the whole pool is distributed, or only sub-floor items remain
+		local anyLeft = #rollableIds() > 0
+		return { ok = false, err = anyLeft and "no_reward_available" or "nothing_left" }
 	end
 
 	-- charge first (validates funds/ownership atomically)...
@@ -300,6 +313,7 @@ function RollService.Start()
 				gems = tier.gems,
 				luck = tier.luck,
 				blurb = tier.blurb,
+				minValue = RollService.floorFor(tier), -- guaranteed value floor
 				odds = RollService.oddsFor(tier),
 			})
 		end

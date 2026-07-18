@@ -78,6 +78,30 @@ return {
 			eq(RollService.paymentValue({}), 0, "empty payment")
 		end,
 
+		["rolls: value floor scales with tier price"] = function()
+			local RollService = require(script.Parent.Parent.Services.RollService)
+			local frac = RollConfig.MinValueFraction
+			assert(frac and frac > 0 and frac <= 1, "fraction in (0,1]")
+			for _, tier in RollConfig.Tiers do
+				eq(RollService.floorFor(tier), math.floor(tier.gems * frac), "floor for " .. tier.id)
+			end
+			-- higher tier => higher floor => excludes more of the cheap pool
+			local tiers = RollConfig.Tiers
+			assert(
+				RollService.floorFor(tiers[#tiers]) > RollService.floorFor(tiers[1]),
+				"top tier floor exceeds cheapest"
+			)
+			-- when the registry is booted (Play), a pricey tier must not be able
+			-- to roll a Common (its odds carry no Common rarity)
+			local EconomyService = require(script.Parent.Parent.Services.EconomyService)
+			if next(EconomyService.allItems()) ~= nil then
+				local topOdds = RollService.oddsFor(tiers[#tiers])
+				for _, o in topOdds do
+					eq(o.rarity ~= "Common", true, "no Common in top-tier odds: " .. tostring(o.name))
+				end
+			end
+		end,
+
 		["rolls: only re-obtainable items may pay for a roll"] = function()
 			-- base-pool items: always fine (rolls/store/draws restock them)
 			eq(EventConfig.isReobtainable("itm_1_1_stone_relic"), true, "base item")

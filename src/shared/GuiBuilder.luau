@@ -1561,8 +1561,8 @@ local function buildRollsPanel(parent: Instance)
 	}, card)
 	capText(price, 20)
 	local luck = label("Luck", {
-		Position = UDim2.fromScale(0.05, 0.225),
-		Size = UDim2.fromScale(0.9, 0.06),
+		Position = UDim2.fromScale(0.05, 0.215),
+		Size = UDim2.fromScale(0.9, 0.055),
 		Text = "Luck ×1",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1570,14 +1570,25 @@ local function buildRollsPanel(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, card)
 	capText(luck, 13)
+	-- the value floor this tier guarantees (filled live by RollsScreen)
+	local guarantee = label("Guarantee", {
+		Position = UDim2.fromScale(0.05, 0.272),
+		Size = UDim2.fromScale(0.9, 0.05),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.Good,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	capText(guarantee, 12)
 
 	-- the odds ARE the product: centered, big, one row per rarity in that
 	-- rarity's color (filled live by RollsScreen)
 	local oddsList = new("Frame", {
 		Name = "OddsList",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.03, 0.3),
-		Size = UDim2.fromScale(0.94, 0.5),
+		Position = UDim2.fromScale(0.03, 0.335),
+		Size = UDim2.fromScale(0.94, 0.47),
 	}, card)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Vertical,
@@ -1793,6 +1804,14 @@ local function buildRollsPanel(parent: Instance)
 		ZIndex = 31,
 	}, reveal)
 	corner(rIcon, 10)
+	-- rarity glow: RollsScreen recolors + fades this during the spin/land
+	new("UIStroke", {
+		Name = "Glow",
+		Color = C.Gold,
+		Thickness = 4,
+		Transparency = 0.15,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, rIcon)
 	local rName = label("ItemName", {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.55),

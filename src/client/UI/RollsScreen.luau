@@ -14,6 +14,7 @@
 -- The result lands as a full-panel reveal, not a toast.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local State = require(ReplicatedStorage.Shared.Util.State)
@@ -130,6 +131,9 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			;(card:WaitForChild("TierName") :: TextLabel).Text = tier.name
 			;(card:WaitForChild("Price") :: TextLabel).Text = ("%d gems"):format(tier.gems)
 			;(card:WaitForChild("Luck") :: TextLabel).Text = ("Luck ×%d"):format(tier.luck)
+			;(card:WaitForChild("Guarantee") :: TextLabel).Text = tier.minValue and tier.minValue > 0
+				and ("≥ %d value guaranteed"):format(tier.minValue)
+				or ""
 			fillOdds(card, tier.odds or {})
 			;(card:WaitForChild("Blurb") :: TextLabel).Text = tier.blurb or ""
 			card.Activated:Connect(function()
@@ -159,19 +163,97 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	----------------------------------------------------------------------
-	-- Reveal
+	-- Reveal (with a gacha spin animation)
 	----------------------------------------------------------------------
 
-	local function showReveal(item: any)
-		Components.setIcon(reveal:WaitForChild("Icon") :: ImageLabel, item)
-		local nameLabel = reveal:WaitForChild("ItemName") :: TextLabel
-		nameLabel.Text = item.name or "?"
-		nameLabel.TextColor3 = Components.rarityColor(item.rarity)
-		;(reveal:WaitForChild("SubLine") :: TextLabel).Text =
-			("%s  ·  worth about %d gems"):format(item.rarity or "?", item.value or 0)
-		reveal.Visible = true
+	local revealIcon = reveal:WaitForChild("Icon") :: ImageLabel
+	local revealName = reveal:WaitForChild("ItemName") :: TextLabel
+	local revealSub = reveal:WaitForChild("SubLine") :: TextLabel
+	local revealWon = reveal:WaitForChild("WonLabel") :: TextLabel
+	local revealAgain = reveal:WaitForChild("AgainButton") :: TextButton
+	local revealDone = reveal:WaitForChild("DoneButton") :: TextButton
+	local revealGlow = revealIcon:FindFirstChild("Glow") :: UIStroke?
+	local iconBaseSize = revealIcon.Size -- design size, captured before any tween
+	local spinToken = 0
+
+	-- images to flicker through during the spin: the selected tier's live pool
+	local function spinPool(): { any }
+		local out = {}
+		for _, o in (selectedTier() or {}).odds or {} do
+			if o.imageId then
+				table.insert(out, o)
+			end
+		end
+		return out
 	end
-	;(reveal:WaitForChild("DoneButton") :: TextButton).Activated:Connect(function()
+
+	local function landReveal(item: any)
+		Components.setIcon(revealIcon, item)
+		local color = Components.rarityColor(item.rarity)
+		if revealGlow then
+			revealGlow.Color = color
+			revealGlow.Transparency = 0.1
+		end
+		revealWon.Text = "You rolled…"
+		revealName.Text = item.name or "?"
+		revealName.TextColor3 = color
+		revealName.Visible = true
+		revealSub.Text = ("%s  ·  worth about %d gems"):format(item.rarity or "?", item.value or 0)
+		revealSub.Visible = true
+		revealAgain.Visible = true
+		revealDone.Visible = true
+		-- pop the icon in from small
+		revealIcon.Size = UDim2.fromScale(iconBaseSize.X.Scale * 0.6, iconBaseSize.Y.Scale * 0.6)
+		TweenService:Create(
+			revealIcon,
+			TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+			{ Size = iconBaseSize }
+		):Play()
+	end
+
+	local function showReveal(item: any)
+		spinToken += 1
+		local myToken = spinToken
+		reveal.Visible = true
+		revealName.Visible = false
+		revealSub.Visible = false
+		revealAgain.Visible = false
+		revealDone.Visible = false
+		revealWon.Text = "Rolling…"
+
+		local pool = spinPool()
+		if #pool == 0 then
+			landReveal(item) -- no icons to flicker; just show it
+			return
+		end
+
+		task.spawn(function()
+			-- flicker fast, then decelerate into the landing (classic gacha feel)
+			local interval = 0.045
+			local elapsed = 0
+			while elapsed < 1.55 and myToken == spinToken do
+				local pick = pool[math.random(1, #pool)]
+				revealIcon.Image = pick.imageId
+				revealIcon.ImageColor3 = Color3.new(1, 1, 1)
+				if revealGlow then
+					revealGlow.Color = Components.rarityColor(pick.rarity)
+					revealGlow.Transparency = 0.4
+				end
+				-- subtle tick pulse
+				revealIcon.Size = UDim2.fromScale(iconBaseSize.X.Scale * 0.92, iconBaseSize.Y.Scale * 0.92)
+				TweenService:Create(revealIcon, TweenInfo.new(interval * 0.9), { Size = iconBaseSize }):Play()
+				task.wait(interval)
+				elapsed += interval
+				interval = math.min(interval * 1.16, 0.26) -- slow down
+			end
+			if myToken == spinToken then
+				landReveal(item)
+			end
+		end)
+	end
+
+	revealDone.Activated:Connect(function()
+		spinToken += 1 -- kill any in-flight spin
 		reveal.Visible = false
 	end)
 
@@ -202,6 +284,9 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		elseif result.err == "not_reobtainable" then
 			toast("Limited event items can't be traded in — they can never be made again.", Theme.Warn)
 			refreshTray()
+		elseif result.err == "no_reward_available" then
+			toast("Nothing valuable enough is in the pool right now — try a lower tier.", Theme.Warn)
+			refresh()
 		elseif result.err == "nothing_left" then
 			toast("Every rollable item is fully distributed!", Theme.Warn)
 		else
