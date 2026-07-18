@@ -1772,6 +1772,18 @@ local function buildRollsPanel(parent: Instance)
 		ZIndex = 30,
 	}, rolls)
 	corner(reveal)
+	-- crescendo flash: RollsScreen pops this to near-opaque then fades it at
+	-- the exact moment the true prize lands (the "flash of light" beat real
+	-- gacha reveals use to punctuate the payoff). Sits above everything else.
+	local flash = new("Frame", {
+		Name = "Flash",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 40,
+	}, reveal)
+	corner(flash)
 	local wonLabel = label("WonLabel", {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.1),
@@ -1783,25 +1795,68 @@ local function buildRollsPanel(parent: Instance)
 		ZIndex = 31,
 	}, reveal)
 	capText(wonLabel, 16)
-	local rIcon = new("ImageLabel", {
-		Name = "Icon",
-		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-		BackgroundTransparency = 1,
+	-- The REEL: a horizontal, clipped strip of item icons that scrolls past a
+	-- fixed center marker and decelerates to a stop with the prize under the
+	-- marker. The tiles either side of it stay visible — the "item before and
+	-- the item after" — so every pull ends on a near-miss (you SEE the icons
+	-- that slid past, and the one that almost stopped). RollsScreen clones
+	-- ReelTile into Strip and animates Strip.Position.
+	local reel = new("Frame", {
+		Name = "Reel",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.18),
-		Size = UDim2.fromScale(0.22, 0.34),
-		ScaleType = Enum.ScaleType.Fit,
+		Position = UDim2.fromScale(0.5, 0.15),
+		Size = UDim2.fromScale(0.94, 0.36),
 		ZIndex = 31,
 	}, reveal)
-	corner(rIcon, 10)
-	-- rarity glow: RollsScreen recolors + fades this during the spin/land
+	corner(reel, 10)
+	stroke(reel, C.Stroke, 1)
+	local strip = new("Frame", {
+		Name = "Strip",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromScale(0, 0.86),
+		ZIndex = 31,
+	}, reel)
+	-- one reel cell: square art, sized to the strip's height (RollsScreen sets
+	-- explicit X offsets, so no layout — landing math stays exact)
+	local reelTile = new("ImageLabel", {
+		Name = "ReelTile",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundColor3 = C.BgLight,
+		BackgroundTransparency = 0.4,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		ScaleType = Enum.ScaleType.Fit,
+		Visible = false, -- template
+		ZIndex = 31,
+	}, strip)
+	corner(reelTile, 8)
+	-- center marker: the fixed "you get this" window, on top of the strip, with
+	-- the rarity-colored glow RollsScreen recolors as the reel lands
+	local marker = new("Frame", {
+		Name = "CenterMarker",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 0.94),
+		SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		ZIndex = 33,
+	}, reel)
+	corner(marker, 8)
 	new("UIStroke", {
 		Name = "Glow",
 		Color = C.Gold,
 		Thickness = 4,
 		Transparency = 0.15,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-	}, rIcon)
+	}, marker)
 	local rName = label("ItemName", {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.55),

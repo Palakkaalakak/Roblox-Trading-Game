@@ -162,20 +162,40 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	----------------------------------------------------------------------
-	-- Reveal (with a gacha spin animation)
+	-- Reveal (a scrolling reel that decelerates onto the prize)
+	--
+	-- Modelled on case-opening / slot reels: a horizontal strip of item icons
+	-- scrolls past a fixed center marker and eases to a stop with the prize
+	-- under it. Two deliberate psychology beats (researched from gacha /
+	-- slot-machine design):
+	--   * NEAR-MISS — the tiles either side of the prize stay visible (the
+	--     "item before and the item after"), and the strip is seeded so a
+	--     high-rarity icon sits right next to the landing slot. You SEE what
+	--     you just missed, which is the single strongest pull-again cue.
+	--   * BACK-LOADED DECELERATION — a long, heavily eased-out scroll (Quint)
+	--     spends most of its ~4.5s crawling to a halt, so the final second
+	--     stretches out and the marker seems to "almost" stop on each tile it
+	--     creeps past. Ends on a bright flash-pop punctuating the payoff.
 	----------------------------------------------------------------------
 
-	local revealIcon = reveal:WaitForChild("Icon") :: ImageLabel
+	local reel = reveal:WaitForChild("Reel") :: Frame
+	local strip = reel:WaitForChild("Strip") :: Frame
+	local reelTileTemplate = strip:WaitForChild("ReelTile") :: ImageLabel
+	local marker = reel:WaitForChild("CenterMarker") :: Frame
+	local markerGlow = marker:FindFirstChild("Glow") :: UIStroke?
 	local revealName = reveal:WaitForChild("ItemName") :: TextLabel
 	local revealSub = reveal:WaitForChild("SubLine") :: TextLabel
 	local revealWon = reveal:WaitForChild("WonLabel") :: TextLabel
 	local revealAgain = reveal:WaitForChild("AgainButton") :: TextButton
 	local revealDone = reveal:WaitForChild("DoneButton") :: TextButton
-	local revealGlow = revealIcon:FindFirstChild("Glow") :: UIStroke?
-	local iconBaseSize = revealIcon.Size -- design size, captured before any tween
+	local revealFlash = reveal:WaitForChild("Flash") :: Frame
 	local spinToken = 0
+	local reelTiles: { Instance } = {}
+	local WINNER_INDEX = 34 -- how many tiles scroll past before the prize
+	local TRAILING = 4 -- filler tiles after the prize (no blank edge on land)
+	local SCROLL_TIME = 4.5
 
-	-- images to flicker through during the spin: the selected tier's live pool
+	-- candidate icons for the reel: the selected tier's live pool
 	local function spinPool(): { any }
 		local out = {}
 		for _, o in (selectedTier() or {}).odds or {} do
@@ -186,12 +206,18 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		return out
 	end
 
+	local function clearReel()
+		for _, t in reelTiles do
+			t:Destroy()
+		end
+		table.clear(reelTiles)
+	end
+
 	local function landReveal(item: any)
-		Components.setIcon(revealIcon, item)
 		local color = Components.rarityColor(item.rarity)
-		if revealGlow then
-			revealGlow.Color = color
-			revealGlow.Transparency = 0.1
+		if markerGlow then
+			markerGlow.Color = color
+			markerGlow.Transparency = 0.1
 		end
 		revealWon.Text = "You rolled…"
 		revealName.Text = item.name or "?"
@@ -201,13 +227,11 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		revealSub.Visible = true
 		revealAgain.Visible = true
 		revealDone.Visible = true
-		-- pop the icon in from small
-		revealIcon.Size = UDim2.fromScale(iconBaseSize.X.Scale * 0.6, iconBaseSize.Y.Scale * 0.6)
-		TweenService:Create(
-			revealIcon,
-			TweenInfo.new(0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-			{ Size = iconBaseSize }
-		):Play()
+		-- payoff flash — punctuates the exact instant the reel stops
+		revealFlash.BackgroundTransparency = 0.1
+		TweenService:Create(revealFlash, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1,
+		}):Play()
 	end
 
 	local function showReveal(item: any)
@@ -218,33 +242,74 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		revealSub.Visible = false
 		revealAgain.Visible = false
 		revealDone.Visible = false
+		revealFlash.BackgroundTransparency = 1
 		revealWon.Text = "Rolling…"
+		if markerGlow then
+			markerGlow.Color = Theme.Warn -- neutral gold while it spins
+			markerGlow.Transparency = 0.35
+		end
+		clearReel()
 
 		local pool = spinPool()
-		if #pool == 0 then
-			landReveal(item) -- no icons to flicker; just show it
-			return
+		-- geometry from the live reel (works at any scale / on mobile)
+		local reelH = reel.AbsoluteSize.Y
+		local tileW = reelH * 0.86 -- strip height = tile size (square)
+		local stride = tileW * 1.14 -- tile + gap
+		local reelW = reel.AbsoluteSize.X
+
+		-- build the strip: random pool icons, the PRIZE at WINNER_INDEX, and a
+		-- deliberately high-rarity neighbour just before it (the near-miss you
+		-- "just missed"). Fall back to the prize alone if the pool is empty.
+		local function rarestOf(list)
+			local best
+			for _, o in list do
+				if best == nil or (o.pct or 100) < (best.pct or 100) then
+					best = o
+				end
+			end
+			return best
+		end
+		local lastIndex = WINNER_INDEX + TRAILING
+		for i = 0, lastIndex do
+			local tile = reelTileTemplate:Clone()
+			tile.Visible = true
+			tile.Position = UDim2.new(0, i * stride, 0.5, 0)
+			tile.Size = UDim2.fromOffset(tileW, tileW)
+			local entry
+			if i == WINNER_INDEX then
+				entry = item
+			elseif i == WINNER_INDEX - 1 and #pool > 0 then
+				entry = rarestOf(pool) -- the tempting near-miss neighbour
+			elseif #pool > 0 then
+				entry = pool[math.random(1, #pool)]
+			else
+				entry = item
+			end
+			Components.setIcon(tile, entry)
+			tile.Parent = strip
+			table.insert(reelTiles, tile)
 		end
 
+		-- start with tile 0 centered, scroll left until the prize is centered
+		local startX = reelW / 2 - tileW / 2
+		local targetX = reelW / 2 - (WINNER_INDEX * stride + tileW / 2)
+		strip.Position = UDim2.new(0, startX, 0.5, 0)
+
+		local tween = TweenService:Create(
+			strip,
+			TweenInfo.new(SCROLL_TIME, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
+			{ Position = UDim2.new(0, targetX, 0.5, 0) }
+		)
+		tween:Play()
+		-- "almost there" text for the final crawl, then land
 		task.spawn(function()
-			-- flicker fast, then decelerate into the landing (classic gacha feel)
-			local interval = 0.045
-			local elapsed = 0
-			while elapsed < 1.55 and myToken == spinToken do
-				local pick = pool[math.random(1, #pool)]
-				revealIcon.Image = pick.imageId
-				revealIcon.ImageColor3 = Color3.new(1, 1, 1)
-				if revealGlow then
-					revealGlow.Color = Components.rarityColor(pick.rarity)
-					revealGlow.Transparency = 0.4
-				end
-				-- subtle tick pulse
-				revealIcon.Size = UDim2.fromScale(iconBaseSize.X.Scale * 0.92, iconBaseSize.Y.Scale * 0.92)
-				TweenService:Create(revealIcon, TweenInfo.new(interval * 0.9), { Size = iconBaseSize }):Play()
-				task.wait(interval)
-				elapsed += interval
-				interval = math.min(interval * 1.16, 0.26) -- slow down
+			task.wait(SCROLL_TIME * 0.72)
+			if myToken == spinToken then
+				revealWon.Text = "Almost there…"
 			end
+		end)
+		task.spawn(function()
+			task.wait(SCROLL_TIME)
 			if myToken == spinToken then
 				landReveal(item)
 			end
@@ -252,7 +317,7 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	revealDone.Activated:Connect(function()
-		spinToken += 1 -- kill any in-flight spin
+		spinToken += 1 -- supersede any in-flight scroll
 		reveal.Visible = false
 	end)
 
