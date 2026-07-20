@@ -25,7 +25,7 @@ local EconomyController = require(script.Parent.Parent.Controllers.EconomyContro
 
 local RollsScreen = {}
 
-local RARITY_ORDER = { "Common", "Rare", "Legendary", "Mythical" }
+local RARITY_ORDER = { "Common", "Rare", "Legendary", "Mythical", "Godly", "Celestial" }
 
 function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, color: Color3) -> ())
 	local panel = gui:WaitForChild("RollsPanel") :: Frame
@@ -83,7 +83,8 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			if pct and pct > 0 then
 				local shown = pct >= 10 and ("%.0f%%"):format(pct)
 					or pct >= 1 and ("%.1f%%"):format(pct)
-					or ("%.2f%%"):format(pct)
+					or pct >= 0.01 and ("%.2f%%"):format(pct)
+					or "<0.01%" -- honest longshot, never a broken-looking 0.00%
 				row.Text = ("%s  %s"):format(rarity, shown)
 				row.Visible = true
 			else

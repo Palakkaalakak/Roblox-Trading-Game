@@ -1,7 +1,7 @@
 --!strict
 -- Shared Luau types for the trading core.
 
-export type RarityTier = "Common" | "Rare" | "Legendary" | "Mythical"
+export type RarityTier = "Common" | "Rare" | "Legendary" | "Mythical" | "Godly" | "Celestial"
 export type StatState = "Known" | "NA"
 export type TradeState = "Invited" | "Opened" | "Confirmed" | "Settling" | "Settled" | "Aborted"
 

@@ -12,7 +12,7 @@ function Rarity.tierFor(totalSupply: number): string
 			return row.tier
 		end
 	end
-	return "Mythical"
+	return "Celestial"
 end
 
 -- Default assignment weight from supply (sublinear). Separate tunable from supply:

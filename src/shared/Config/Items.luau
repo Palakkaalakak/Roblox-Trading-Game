@@ -22,28 +22,35 @@ local Items = {
 	-- arrives with the shop phase; use the debug button meanwhile.
 	StarterGems = 0,
 
-	-- totalSupply >= threshold -> that tier (checked top-down). Below all -> Mythical.
-	-- WIDE disparity on purpose: a Common is ~1500x more plentiful than the
-	-- scarcest Mythical, so scarcity (and thus Value / price) spreads hard
-	-- across the catalog instead of everything clustering near one price.
+	-- totalSupply >= threshold -> that tier (checked top-down). Below all ->
+	-- Celestial (the rarest). SIX tiers: the top three (Mythical/Godly/
+	-- Celestial) sit close together in supply so the VALUE ladder has no big
+	-- cliff — that's what lets rolls guarantee a fair return without a tier
+	-- collapsing to a single rarity (see RollConfig.MinValueFraction).
 	RarityThresholds = {
 		{ tier = "Common", min = 20000 },
 		{ tier = "Rare", min = 5000 },
-		{ tier = "Legendary", min = 800 },
-		-- < 800 -> Mythical (down to ~40)
+		{ tier = "Legendary", min = 1200 },
+		{ tier = "Mythical", min = 300 },
+		{ tier = "Godly", min = 80 },
+		-- < 80 -> Celestial (down to ~40)
 	},
 
 	-- assignmentWeight default = round(totalSupply ^ exponent * scale).
 	AssignmentWeightExponent = 0.75,
 	AssignmentWeightScale = 1,
 
-	-- Store cost (gems) per rarity tier. Disparity widened to match the supply
-	-- spread — a Mythical seeds ~60x a Common, so scarce items feel scarce.
+	-- Store cost (gems) per rarity tier — ALSO the base Value seed (see
+	-- EconomyService.seedFor). A smooth ~2x-per-tier ladder: no gap for a roll
+	-- price to fall into and force a jackpot-only pool. Mythical eased down
+	-- (500 -> 300) so it sits closer to Legendary; Godly/Celestial extend the top.
 	StoreCostByRarity = {
 		Common = 8,
 		Rare = 35,
 		Legendary = 130,
-		Mythical = 500,
+		Mythical = 300,
+		Godly = 650,
+		Celestial = 1300,
 	},
 
 	-- Placeholder initial pool (pool #1) — 12 diverse items spanning every
@@ -60,13 +67,17 @@ local Items = {
 		{ name = "Jade Serpent", totalSupply = 14000, imageId = "rbxassetid://15403270948" }, -- green potion
 		{ name = "Sunstone Charm", totalSupply = 9000, imageId = "rbxassetid://17368097932" }, -- star
 		{ name = "Frost Lantern", totalSupply = 5600, imageId = "rbxassetid://15403275152" }, -- blue potion
-		-- Legendary
+		-- Legendary (1200-4999)
 		{ name = "Crimson Crown", totalSupply = 3000, imageId = "rbxassetid://16912465495" }, -- crown
 		{ name = "Storm Sigil", totalSupply = 1500, imageId = "rbxassetid://15403144723" }, -- fire
+		-- Mythical (300-1199)
 		{ name = "Obsidian Fang", totalSupply = 900, imageId = "rbxassetid://17368155868" }, -- key
-		-- Mythical (scarce, prized)
 		{ name = "Void Shard", totalSupply = 420, imageId = "rbxassetid://15402964203" }, -- beta gem
-		{ name = "Astral Prism", totalSupply = 90, imageId = "rbxassetid://15402896733" }, -- gem chest
+		-- Godly (80-299)
+		{ name = "Astral Prism", totalSupply = 200, imageId = "rbxassetid://15402896733" }, -- gem chest
+		{ name = "Solar Halo", totalSupply = 90, imageId = "rbxassetid://15403047368" }, -- triple stars
+		-- Celestial (<80, the rarest of all)
+		{ name = "Eclipse Core", totalSupply = 48, imageId = "rbxassetid://15402892798" }, -- gem bag
 	},
 
 	-- Icon candidates for procedurally generated pools (rotation). Drawn
@@ -99,9 +110,9 @@ local Items = {
 		"rbxassetid://17368197534", -- wheel
 	},
 
-	-- Procedural generation template for rotated pools (pool #2+). 12 slots,
-	-- one entry per slot; supply rolled uniformly in [min, max]. Template
-	-- guarantees the full rarity spread structurally.
+	-- Procedural generation template for rotated pools (pool #2+). One entry
+	-- per slot; supply rolled uniformly in [min, max]. Template guarantees the
+	-- full six-tier rarity spread structurally (>=1 of every tier).
 	PoolTemplate = {
 		{ min = 24000, max = 60000 }, -- Common
 		{ min = 22000, max = 50000 }, -- Common
@@ -109,12 +120,14 @@ local Items = {
 		{ min = 12000, max = 19000 }, -- Rare
 		{ min = 8000, max = 15000 }, -- Rare
 		{ min = 5000, max = 9000 }, -- Rare
-		{ min = 2500, max = 4500 }, -- Legendary
+		{ min = 2500, max = 4800 }, -- Legendary
 		{ min = 1400, max = 2800 }, -- Legendary
-		{ min = 800, max = 1500 }, -- Legendary
-		{ min = 300, max = 700 }, -- Mythical
-		{ min = 120, max = 350 }, -- Mythical
-		{ min = 40, max = 150 }, -- Mythical
+		{ min = 1200, max = 2000 }, -- Legendary
+		{ min = 600, max = 1100 }, -- Mythical
+		{ min = 320, max = 700 }, -- Mythical
+		{ min = 150, max = 290 }, -- Godly
+		{ min = 85, max = 180 }, -- Godly
+		{ min = 45, max = 78 }, -- Celestial
 	},
 
 	-- Name generation for rotated pools.

@@ -24,6 +24,8 @@ local Theme = {
 		Rare = Color3.fromRGB(79, 195, 247),
 		Legendary = Color3.fromRGB(255, 183, 77),
 		Mythical = Color3.fromRGB(186, 104, 200),
+		Godly = Color3.fromRGB(255, 95, 130), -- rose-red
+		Celestial = Color3.fromRGB(120, 245, 235), -- aqua glow
 	} :: { [string]: Color3 },
 
 	Corner = UDim.new(0, 10),

@@ -30,12 +30,17 @@ local RollConfig = {
 
 	-- VALUE FLOOR: a roll always returns an item worth at least this fraction
 	-- of the tier's gem price (live Est. Value). Items below the floor are
-	-- dropped from that tier's draw table entirely — so a Common (worth ~8)
-	-- simply cannot come out of a 240-gem Mythic roll. The higher the tier,
-	-- the higher the floor climbs, and the more of the cheap pool it excludes.
-	-- The odds shown on each card already reflect this, so what you see is
-	-- exactly what can drop.
-	MinValueFraction = 0.9,
+	-- dropped from that tier's draw table entirely — you can come out behind,
+	-- but never fleeced.
+	MinValueFraction = 0.5,
+
+	-- TARGET PAYOUT: expected value of a roll as a fraction of its price.
+	-- The draw table is EV-NORMALIZED live: after luck shapes the rarity mix,
+	-- an exponential damp on item value is solved (binary search) so the
+	-- tier's EV lands here. Rolls are a mild sink (house keeps ~10%) no
+	-- matter how item values drift — nobody farms rolls for profit — while
+	-- the jackpot tail stays in the table at honestly-shown long odds.
+	TargetPayout = 0.9,
 
 	-- A roll can be paid in gems OR in items totalling at least the tier's
 	-- price (each item counted at its live Value). Item payments are

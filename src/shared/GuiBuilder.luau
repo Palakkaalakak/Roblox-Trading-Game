@@ -1584,7 +1584,7 @@ local function buildRollsPanel(parent: Instance)
 		FillDirection = Enum.FillDirection.Vertical,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
-		Padding = UDim.new(0.03, 0),
+		Padding = UDim.new(0.015, 0),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, oddsList)
 	local RARITY_COLORS = {
@@ -1592,17 +1592,20 @@ local function buildRollsPanel(parent: Instance)
 		{ "Rare", Color3.fromRGB(79, 195, 247) },
 		{ "Legendary", Color3.fromRGB(255, 183, 77) },
 		{ "Mythical", Color3.fromRGB(186, 104, 200) },
+		{ "Godly", Color3.fromRGB(255, 95, 130) },
+		{ "Celestial", Color3.fromRGB(120, 245, 235) },
 	}
 	for i, spec in RARITY_COLORS do
+		-- six rows must fit the box: 6 x 0.15 + 5 x 0.02 padding < 1
 		local oddsRow = label("Odds" .. spec[1], {
-			Size = UDim2.fromScale(1, 0.2),
+			Size = UDim2.fromScale(1, 0.15),
 			Text = "",
 			TextScaled = true,
 			TextColor3 = spec[2],
 			TextXAlignment = Enum.TextXAlignment.Center,
 			LayoutOrder = i,
 		}, oddsList)
-		capText(oddsRow, 17)
+		capText(oddsRow, 16)
 	end
 
 	local blurb = label("Blurb", {

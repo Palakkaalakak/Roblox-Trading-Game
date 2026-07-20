@@ -278,8 +278,11 @@ end
 
 function PoolService.Init()
 	StoreAdapters.init()
-	poolStore = StoreAdapters.dataStore("PoolStore_v5")
-	lockMap = StoreAdapters.sortedMap("PoolLocks_v5")
+	-- v6 alongside ItemRegistry_v6/EconomyStore_v6: these three MUST move in
+	-- lockstep — a stale pool record against a fresh registry means pool_1 is
+	-- never re-registered and every item lookup misses (which is a read storm).
+	poolStore = StoreAdapters.dataStore("PoolStore_v6")
+	lockMap = StoreAdapters.sortedMap("PoolLocks_v6")
 end
 
 function PoolService.Start()

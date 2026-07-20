@@ -286,7 +286,13 @@ local function tryRoll(bot: any, state: any, sweep: number): string?
 		return nil
 	end
 	local spendable = state.gems - BotConfig.MinGemsKept
-	local best, bestEV = nil, 0
+	-- Rolls are EV-normalized to a slight house edge (RollConfig.TargetPayout),
+	-- so a purely margin-positive bot would never roll and the goods faucet
+	-- would die. Bots accept a bounded expected loss — goods carry trading
+	-- utility beyond resale (they fill desires, feed crafts, make offers) —
+	-- exactly like a player paying a little for the pull.
+	local best, bestEV = nil, -math.huge
+	local maxAcceptableLoss = 0.15
 	for _, tier in RollConfig.Tiers do
 		if tier.gems <= spendable then
 			-- expected value of this tier right now, straight off the live odds
@@ -295,13 +301,13 @@ local function tryRoll(bot: any, state: any, sweep: number): string?
 				ev += (o.pct / 100) * EconomyService.valueOf(o.itemId)
 			end
 			local margin = ev - tier.gems
-			if margin > bestEV then
+			if margin > -tier.gems * maxAcceptableLoss and margin > bestEV then
 				best, bestEV = tier, margin
 			end
 		end
 	end
 	if best == nil then
-		return nil -- nothing is worth rolling at these prices
+		return nil -- every tier is a worse deal than just trading
 	end
 	bot.rolls = (bot.rolls or 0) + 1
 	local res = RollService.botRoll(bot.userId, best.id, bot.index * 7919 + bot.rolls * 104729 + sweep)

@@ -187,12 +187,29 @@ end
 -- Registry
 --------------------------------------------------------------------------------
 
+-- Cooldown on registry re-reads. getItem() re-fetches on a miss ("maybe
+-- another server registered it") — but a genuinely-unknown id would otherwise
+-- turn EVERY lookup into a DataStore GetAsync, and a busy bot sweep into a
+-- read-throttle storm. One refresh per window is plenty: cross-server
+-- registrations are rare and never latency-critical.
+local REGISTRY_RELOAD_COOLDOWN = 10
+local lastRegistryLoad = 0
+
 function EconomyService.loadRegistry()
+	if os.clock() - lastRegistryLoad < REGISTRY_RELOAD_COOLDOWN then
+		return
+	end
+	lastRegistryLoad = os.clock()
 	local stored
 	pcall(function()
 		stored = registryStore:GetAsync("all")
 	end)
-	registry = stored or {}
+	-- keep what we have on a failed/empty read; never wipe a live registry
+	if stored then
+		registry = stored
+	elseif next(registry or {}) == nil then
+		registry = {}
+	end
 end
 
 -- Register new items (rotation / seed). Item defs: {itemId, poolId, name,
@@ -671,8 +688,11 @@ end
 
 function EconomyService.Init()
 	StoreAdapters.init()
-	registryStore = StoreAdapters.dataStore("ItemRegistry_v5")
-	econStore = StoreAdapters.dataStore("EconomyStore_v5")
+	-- v6: six-tier rarity restructure (added Godly/Celestial, eased Mythical
+	-- threshold + supplies) — bumped so already-registered items re-seed with
+	-- the new rarity/totalSupply instead of silently freezing at old values.
+	registryStore = StoreAdapters.dataStore("ItemRegistry_v6")
+	econStore = StoreAdapters.dataStore("EconomyStore_v6")
 	EconomyService.loadRegistry()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything

@@ -22,9 +22,13 @@ return {
 			eq(Rarity.tierFor(19999), "Rare")
 			eq(Rarity.tierFor(5000), "Rare")
 			eq(Rarity.tierFor(4999), "Legendary")
-			eq(Rarity.tierFor(800), "Legendary")
-			eq(Rarity.tierFor(799), "Mythical")
-			eq(Rarity.tierFor(1), "Mythical")
+			eq(Rarity.tierFor(1200), "Legendary")
+			eq(Rarity.tierFor(1199), "Mythical")
+			eq(Rarity.tierFor(300), "Mythical")
+			eq(Rarity.tierFor(299), "Godly")
+			eq(Rarity.tierFor(80), "Godly")
+			eq(Rarity.tierFor(79), "Celestial")
+			eq(Rarity.tierFor(1), "Celestial")
 		end,
 
 		["default weight monotonic and >= 1"] = function()

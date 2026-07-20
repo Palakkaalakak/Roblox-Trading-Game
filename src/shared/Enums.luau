@@ -7,6 +7,8 @@ local Enums = {
 		Rare = "Rare",
 		Legendary = "Legendary",
 		Mythical = "Mythical",
+		Godly = "Godly",
+		Celestial = "Celestial",
 	},
 
 	TradeState = {
