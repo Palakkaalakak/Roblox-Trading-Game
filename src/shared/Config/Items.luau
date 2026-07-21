@@ -25,8 +25,7 @@ local Items = {
 	-- totalSupply >= threshold -> that tier (checked top-down). Below all ->
 	-- Celestial (the rarest). SIX tiers: the top three (Mythical/Godly/
 	-- Celestial) sit close together in supply so the VALUE ladder has no big
-	-- cliff — that's what lets rolls guarantee a fair return without a tier
-	-- collapsing to a single rarity (see RollConfig.MinValueFraction).
+	-- cliff — roll tiers window four adjacent rarities each (see RollConfig).
 	RarityThresholds = {
 		{ tier = "Common", min = 20000 },
 		{ tier = "Rare", min = 5000 },

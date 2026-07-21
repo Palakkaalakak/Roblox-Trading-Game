@@ -286,10 +286,10 @@ local function tryRoll(bot: any, state: any, sweep: number): string?
 		return nil
 	end
 	local spendable = state.gems - BotConfig.MinGemsKept
-	-- Rolls are EV-normalized to a slight house edge (RollConfig.TargetPayout),
-	-- so a purely margin-positive bot would never roll and the goods faucet
-	-- would die. Bots accept a bounded expected loss — goods carry trading
-	-- utility beyond resale (they fill desires, feed crafts, make offers) —
+	-- Rolls carry a mild house edge (each tier's EV sits under its price), so
+	-- a purely margin-positive bot would never roll and the goods faucet would
+	-- die. Bots accept a bounded expected loss — goods carry trading utility
+	-- beyond resale (they fill desires, feed crafts, make offers) —
 	-- exactly like a player paying a little for the pull.
 	local best, bestEV = nil, -math.huge
 	local maxAcceptableLoss = 0.15

@@ -15,17 +15,27 @@ end
 return {
 	name = "RollsEvents",
 	tests = {
-		["rolls: five tiers, strictly pricier and luckier"] = function()
+		["rolls: five tiers, pricier + higher floor, valid windows/odds"] = function()
 			eq(#RollConfig.Tiers, 5, "tier count")
 			local seen = {}
 			for i, tier in RollConfig.Tiers do
 				assert(not seen[tier.id], "duplicate tier id " .. tier.id)
 				seen[tier.id] = true
 				assert(#tier.name > 0 and #tier.blurb > 0, tier.id .. " needs name+blurb")
+				-- window is exactly four rarities, odds cover them and sum ~100
+				eq(#tier.window, 4, tier.id .. " window size")
+				local sum = 0
+				for _, rarity in tier.window do
+					assert(tier.odds[rarity] ~= nil, tier.id .. " missing odds for " .. rarity)
+					sum += tier.odds[rarity]
+				end
+				assert(math.abs(sum - 100) < 0.01, tier.id .. " odds must sum to 100, got " .. sum)
+				assert(tier.floorFrac > 0 and tier.floorFrac < 1, tier.id .. " floorFrac in (0,1)")
 				if i > 1 then
 					local prev = RollConfig.Tiers[i - 1]
 					assert(tier.gems > prev.gems, tier.id .. " must cost more than " .. prev.id)
-					assert(tier.luck > prev.luck, tier.id .. " must be luckier than " .. prev.id)
+					-- the guaranteed value floor rises with tier
+					assert(tier.floorFrac >= prev.floorFrac, tier.id .. " floor must not drop below " .. prev.id)
 				end
 			end
 			assert(#RollConfig.PromptName > 0, "world prompt name set")
@@ -78,25 +88,28 @@ return {
 			eq(RollService.paymentValue({}), 0, "empty payment")
 		end,
 
-		["rolls: value floor scales with tier price"] = function()
+		["rolls: guaranteed floor is per-tier and rises in gems"] = function()
 			local RollService = require(script.Parent.Parent.Services.RollService)
-			local frac = RollConfig.MinValueFraction
-			assert(frac and frac > 0 and frac <= 1, "fraction in (0,1]")
-			for _, tier in RollConfig.Tiers do
-				eq(RollService.floorFor(tier), math.floor(tier.gems * frac), "floor for " .. tier.id)
-			end
-			-- higher tier => higher floor => excludes more of the cheap pool
 			local tiers = RollConfig.Tiers
-			assert(
-				RollService.floorFor(tiers[#tiers]) > RollService.floorFor(tiers[1]),
-				"top tier floor exceeds cheapest"
-			)
-			-- when the registry is booted (Play), a pricey tier must not be able
-			-- to roll a Common (its odds carry no Common rarity)
+			for _, tier in tiers do
+				eq(RollService.floorFor(tier), math.floor(tier.gems * tier.floorFrac), "floor for " .. tier.id)
+			end
+			-- the guaranteed gem-value floor grows every tier
+			for i = 2, #tiers do
+				assert(
+					RollService.floorFor(tiers[i]) > RollService.floorFor(tiers[i - 1]),
+					tiers[i].id .. " floor must exceed " .. tiers[i - 1].id
+				)
+			end
+			-- top tier's window carries no Common (mythic starts at Legendary)
+			local topWindow = tiers[#tiers].window
+			for _, rarity in topWindow do
+				assert(rarity ~= "Common" and rarity ~= "Rare", "top tier window too low: " .. rarity)
+			end
+			-- when the registry is booted (Play), the top tier never shows Common
 			local EconomyService = require(script.Parent.Parent.Services.EconomyService)
 			if next(EconomyService.allItems()) ~= nil then
-				local topOdds = RollService.oddsFor(tiers[#tiers])
-				for _, o in topOdds do
+				for _, o in RollService.oddsFor(tiers[#tiers]) do
 					eq(o.rarity ~= "Common", true, "no Common in top-tier odds: " .. tostring(o.name))
 				end
 			end

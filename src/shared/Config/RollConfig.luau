@@ -1,26 +1,27 @@
 --!strict
--- RollConfig: the gacha. Spend gems, get one item — the main REASONED way new
--- goods enter the world.
+-- RollConfig: the gem gacha. Spend gems, get one item.
 --
--- WHY THIS EXISTS: items must not just appear on a timer. Something has to be
--- given up for them. A roll costs gems, so every new item in the economy was
--- paid for by someone who earned those gems by selling something another trader
--- actually wanted. That's a reason.
+-- Rolls are the main paid way new goods enter the economy: a roll costs gems
+-- (a sink) and mints one item from reserve into circulation. Nothing appears
+-- on a timer — every new item was paid for.
 --
--- LUCK: pay more, roll better. Each tier's `luck` flattens the draw curve:
---     weight_i = assignmentWeight_i ^ (1 / luck)
--- assignmentWeight is ~totalSupply^0.75, so at luck = 1 the Commons dominate
--- exactly like a starter draw. Raising luck compresses those weights toward
--- each other, so the scarce items climb from "basically never" to "a real
--- chance" — without ever guaranteeing anything.
+-- Each tier is authored, not derived:
+--   * window   — the four rarities this tier can produce (and the four rows
+--                its card shows). Windows slide up the ladder as tiers get
+--                pricier; the cheap tiers can't roll the top rarities and the
+--                expensive tiers can't roll commons.
+--   * odds     — the drop chance per rarity (percent, sums to 100). Authored
+--                so the card shows exactly what happens. Pricier tiers weight
+--                harder toward the high rarities.
+--   * floorFrac — the tier's MINIMUM guaranteed value, as a fraction of its
+--                gem price. A roll never returns an item worth less than
+--                floorFrac * gems (items below it are dropped from the pool),
+--                so the floor is a property of the TIER, not of whatever
+--                rarity happened to drop. It rises with tier: a Basic roll
+--                guarantees a little of its cost back, a Mythic roll most of it.
 --
--- HARD RULE: a roll can only ever produce an item with reserve left. Once the
--- last copy of something is distributed it can NEVER be rolled again — it only
--- exists in players' hands from then on, which is what makes a sold-out limited
--- actually limited.
---
--- Tiers are ordered cheapest-first. A bot/player rolls the best tier it can
--- afford and justify.
+-- HARD RULE: a roll only ever produces an item with reserve left. The last
+-- copy of a limited leaves reserve and can never be rolled again.
 
 local RollConfig = {
 	Enabled = true,
@@ -28,63 +29,57 @@ local RollConfig = {
 	-- world hookup: ProximityPrompt with this name opens the Rolls panel
 	PromptName = "RollsPrompt",
 
-	-- VALUE FLOOR: a roll always returns an item worth at least this fraction
-	-- of the tier's gem price (live Est. Value). Items below the floor are
-	-- dropped from that tier's draw table entirely — you can come out behind,
-	-- but never fleeced.
-	MinValueFraction = 0.5,
-
-	-- TARGET PAYOUT: expected value of a roll as a fraction of its price.
-	-- The draw table is EV-NORMALIZED live: after luck shapes the rarity mix,
-	-- an exponential damp on item value is solved (binary search) so the
-	-- tier's EV lands here. Rolls are a mild sink (house keeps ~10%) no
-	-- matter how item values drift — nobody farms rolls for profit — while
-	-- the jackpot tail stays in the table at honestly-shown long odds.
-	TargetPayout = 0.9,
-
-	-- A roll can be paid in gems OR in items totalling at least the tier's
-	-- price (each item counted at its live Value). Item payments are
-	-- REDISTRIBUTED: the copies return to their item's reserve, where future
-	-- rolls and draws hand them to someone else. Because paid items must be
-	-- able to come back out, items that can no longer be re-made (outputs of
+	-- A roll can be paid in gems OR in items whose combined live Value covers
+	-- the price. Item payments are REDISTRIBUTED back into reserve (someone
+	-- else can roll them out), so items that can never be re-made (outputs of
 	-- ended limited events) are refused — see EventConfig.isReobtainable.
 
-	-- Five cost levels, cheapest first. Higher price -> higher luck.
+	-- Five cost levels, cheapest first.
 	Tiers = {
 		{
 			id = "basic",
 			name = "Basic Roll",
 			gems = 12,
-			luck = 1, -- raw supply weighting: you're getting a Common
-			blurb = "A cheap pull. Mostly junk, occasionally not.",
+			floorFrac = 0.35,
+			window = { "Common", "Rare", "Legendary", "Mythical" },
+			odds = { Common = 96.0, Rare = 3.2, Legendary = 0.6, Mythical = 0.2 },
+			blurb = "Cheapest roll. Almost always a common.",
 		},
 		{
 			id = "solid",
 			name = "Solid Roll",
 			gems = 25,
-			luck = 2, -- commons still likely, but rares show up
-			blurb = "A step up. Rares start knocking.",
+			floorFrac = 0.42,
+			window = { "Common", "Rare", "Legendary", "Mythical" },
+			odds = { Common = 74.0, Rare = 21.0, Legendary = 4.0, Mythical = 1.0 },
+			blurb = "Commons still likely, but rares show up.",
 		},
 		{
 			id = "lucky",
 			name = "Lucky Roll",
 			gems = 55,
-			luck = 4, -- flattens the curve hard: rares become genuinely likely
-			blurb = "Better odds on the good stuff.",
+			floorFrac = 0.46,
+			window = { "Rare", "Legendary", "Mythical", "Godly" },
+			odds = { Rare = 73.0, Legendary = 21.0, Mythical = 5.0, Godly = 1.0 },
+			blurb = "No commons. Rares and up, real shot at legendaries.",
 		},
 		{
 			id = "grand",
 			name = "Grand Roll",
 			gems = 110,
-			luck = 7, -- legendaries are a realistic outcome
-			blurb = "Serious money, serious chances.",
+			floorFrac = 0.50,
+			window = { "Rare", "Legendary", "Mythical", "Godly" },
+			odds = { Rare = 40.0, Legendary = 38.0, Mythical = 17.0, Godly = 5.0 },
+			blurb = "Legendaries common, mythicals within reach.",
 		},
 		{
 			id = "mythic",
 			name = "Mythic Roll",
 			gems = 240,
-			luck = 12, -- near-flat: this is how a grail actually gets pulled
-			blurb = "Expensive. Worth it, if the Void is listening.",
+			floorFrac = 0.52,
+			window = { "Legendary", "Mythical", "Godly", "Celestial" },
+			odds = { Legendary = 50.0, Mythical = 33.0, Godly = 12.0, Celestial = 5.0 },
+			blurb = "Legendary floor. Best odds on godly and celestial.",
 		},
 	},
 }

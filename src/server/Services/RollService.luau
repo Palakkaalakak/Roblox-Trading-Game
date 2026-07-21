@@ -46,132 +46,95 @@ function RollService.tierById(id: string): any?
 	return nil
 end
 
--- The gem-value floor a roll of this tier guarantees. Draws only ever return
--- items worth at least this, so pricey tiers can't hand back cheap junk.
+-- The tier's minimum guaranteed value in gems (floorFrac * price). A property
+-- of the TIER, not the rarity: draws never return an item worth less, and it
+-- rises with tier so a Mythic roll guarantees far more of its cost back than
+-- a Basic roll.
 function RollService.floorFor(tier: any): number
-	return math.floor(tier.gems * (RollConfig.MinValueFraction or 0))
+	return math.floor(tier.gems * (tier.floorFrac or 0))
 end
 
--- Everything rollable RIGHT NOW: pool items that still have reserve left AND
--- (when minValue is given) are worth at least that many gems. Sorted for
--- deterministic iteration.
-local function rollableIds(minValue: number?): { string }
-	local out = {}
+-- The tier's live draw table. Authored per-tier: the rarity odds come straight
+-- from config (so the card shows exactly what happens), and within each rarity
+-- the specific item is chosen by supply weight among that rarity's rollable
+-- items (reserve left, value at/above the tier floor).
+--
+-- Returns the per-item entries { itemId, rarity, weight } and the resolved
+-- per-rarity percentages. If a window rarity has no eligible item right now
+-- (all sold out, or all below the floor), its share is redistributed across
+-- the rarities that DO have stock, so the odds always sum to 100 and match
+-- what can actually drop.
+local function drawTable(tier: any): ({ any }, { [string]: number })
+	local floor = RollService.floorFor(tier)
+	local inWindow: { [string]: boolean } = {}
+	for _, r in tier.window do
+		inWindow[r] = true
+	end
+
+	-- rollable items grouped by rarity
+	local byRarity: { [string]: { { itemId: string, weight: number } } } = {}
 	for itemId, item in EconomyService.allItems() do
-		if (item.assignmentWeight or 0) > 0 then
+		if (item.assignmentWeight or 0) > 0 and item.rarity and inWindow[item.rarity] then
 			local snap = EconomyService.snapshot(itemId)
-			if snap and (snap.reserveRemaining or 0) > 0 then
-				if minValue == nil or EconomyService.valueOf(itemId) >= minValue then
-					table.insert(out, itemId)
+			if snap and (snap.reserveRemaining or 0) > 0 and EconomyService.valueOf(itemId) >= floor then
+				local group = byRarity[item.rarity]
+				if group == nil then
+					group = {}
+					byRarity[item.rarity] = group
 				end
+				table.insert(group, { itemId = itemId, weight = math.max(item.assignmentWeight, 1) })
 			end
 		end
 	end
-	table.sort(out)
-	return out
+
+	-- resolve per-rarity odds: authored share, but only over rarities that have
+	-- stock, renormalized to 100
+	local activeTotal = 0
+	for _, rarity in tier.window do
+		if byRarity[rarity] then
+			activeTotal += tier.odds[rarity] or 0
+		end
+	end
+	local rarityPct: { [string]: number } = {}
+	if activeTotal > 0 then
+		for _, rarity in tier.window do
+			if byRarity[rarity] then
+				rarityPct[rarity] = (tier.odds[rarity] or 0) / activeTotal * 100
+			end
+		end
+	end
+
+	-- split each rarity's share across its items by supply weight
+	local entries: { any } = {}
+	for rarity, group in byRarity do
+		local sumW = 0
+		for _, e in group do
+			sumW += e.weight
+		end
+		for _, e in group do
+			table.insert(entries, {
+				itemId = e.itemId,
+				rarity = rarity,
+				pct = (rarityPct[rarity] or 0) * (e.weight / sumW),
+			})
+		end
+	end
+	return entries, rarityPct
 end
 
--- The tier's live draw table: eligible ids + final weights. Two stages:
---   1. LUCK shapes the rarity mix: w = assignmentWeight ^ (1/luck), same
---      curve as starter draws, flattened for pricier tiers.
---   2. EV NORMALIZATION keeps rolls honest: an exponential damp on item
---      value, w *= exp(-k * value/price), with k binary-searched so the
---      tier's expected payout hits TargetPayout * price. Damping is
---      monotone in k, so the search always converges; k = 0 when the tier
---      is already at-or-under target (we damp windfalls, never inflate).
--- Self-tuning: values drift as the economy trades, the damp re-solves on
--- every read, and the payout stays pinned — no profit farming, ever.
-local function drawTable(tier: any): ({ string }, { [string]: number }, number)
-	local price = math.max(tier.gems, 1)
-	local ids = rollableIds(RollService.floorFor(tier))
-	local base, values = {}, {}
-	for _, itemId in ids do
-		local item = EconomyService.getItem(itemId)
-		base[itemId] = math.max(item and item.assignmentWeight or 0, 1) ^ (1 / math.max(tier.luck, 0.0001))
-		values[itemId] = EconomyService.valueOf(itemId)
-	end
-
-	-- Weights at damp strength k: w = luckWeight * exp(-k * excess), where
-	-- excess = max(0, value/price - 1). Below-price items are never damped;
-	-- the jackpot tail carries the brunt. EV(k) is monotone decreasing, so a
-	-- binary search pins the payout — and when the target is unreachable
-	-- (values drifted so even the cheapest eligible item beats it), the
-	-- search saturates at the closest feasible payout instead of giving up.
-	local function weightsAt(k: number): ({ [string]: number }, number, number)
-		local weights, total, evSum = {}, 0, 0
-		for _, itemId in ids do
-			local excess = math.max(0, values[itemId] / price - 1)
-			local w = base[itemId] * math.exp(-k * excess)
-			weights[itemId] = w
-			total += w
-			evSum += w * values[itemId]
-		end
-		return weights, total, (total > 0 and evSum / total or 0)
-	end
-
-	local target = (RollConfig.TargetPayout or 1) * price
-	local weights, total, ev = weightsAt(0)
-	if ev > target then
-		local lo, hi = 0, 12
-		for _ = 1, 24 do
-			local mid = (lo + hi) / 2
-			local _, _, evMid = weightsAt(mid)
-			if evMid > target then
-				lo = mid
-			else
-				hi = mid
-			end
-		end
-		weights, total, ev = weightsAt(hi)
-	end
-
-	-- Upgrade-slice floor: hard damping can leave the above-price chance at
-	-- ~0% (a tier that FEELS like it never pays out). If so, lift the whole
-	-- above-price group to a small fixed share — but only while the payout
-	-- stays at-or-under 1x, so the guarantee never turns into profit.
-	local MIN_UPGRADE_SHARE = 0.02
-	local loSum, hiSum, hiEv, loEv = 0, 0, 0, 0
-	for _, itemId in ids do
-		if values[itemId] > price then
-			hiSum += weights[itemId]
-			hiEv += weights[itemId] * values[itemId]
-		else
-			loSum += weights[itemId]
-			loEv += weights[itemId] * values[itemId]
-		end
-	end
-	if total > 0 and hiSum > 0 and loSum > 0 and hiSum / total < MIN_UPGRADE_SHARE then
-		local loAvg = loEv / loSum
-		local hiAvg = hiEv / hiSum
-		local lifted = (1 - MIN_UPGRADE_SHARE) * loAvg + MIN_UPGRADE_SHARE * hiAvg
-		if lifted <= price then
-			for _, itemId in ids do
-				if values[itemId] > price then
-					weights[itemId] = weights[itemId] / hiSum * MIN_UPGRADE_SHARE
-				else
-					weights[itemId] = weights[itemId] / loSum * (1 - MIN_UPGRADE_SHARE)
-				end
-			end
-			total = 1
-		end
-	end
-	return ids, weights, total
-end
-
--- Odds for a tier, as a name->percent table. Pure function of the live pool +
--- the tier's luck + the EV normalizer, so the UI shows exactly what can drop
--- at exactly the chance it drops.
+-- Odds for a tier: per-item drop chances. The UI rolls these up by rarity, so
+-- the card shows the tier's four window rarities at their authored odds.
 function RollService.oddsFor(tier: any): { any }
-	local ids, weights, total = drawTable(tier)
+	local entries = drawTable(tier)
 	local out = {}
-	for _, itemId in ids do
-		local item = EconomyService.getItem(itemId)
+	for _, e in entries do
+		local item = EconomyService.getItem(e.itemId)
 		table.insert(out, {
-			itemId = itemId,
-			name = item and item.name or itemId,
+			itemId = e.itemId,
+			name = item and item.name or e.itemId,
 			imageId = item and item.imageId or nil, -- feeds the roll animation
-			rarity = item and item.rarity or nil, -- UI rolls these up per rarity
-			pct = total > 0 and (weights[itemId] / total * 100) or 0,
+			rarity = e.rarity,
+			pct = e.pct,
 		})
 	end
 	table.sort(out, function(a, b)
@@ -194,17 +157,17 @@ end
 -- random one, bots pass a derived integer so the whole simulation stays
 -- deterministic and reproducible.
 function RollService.pick(tier: any, ticket: number?): string?
-	local ids, weights, total = drawTable(tier)
-	if #ids == 0 or total <= 0 then
+	local entries = drawTable(tier)
+	if #entries == 0 then
 		return nil
 	end
-	local cum = {}
-	local running = 0
-	for i, itemId in ids do
-		running += weights[itemId]
-		cum[i] = running
+	local total = 0
+	for _, e in entries do
+		total += e.pct
 	end
-	total = running
+	if total <= 0 then
+		return nil
+	end
 	local r: number
 	if ticket then
 		r = ((ticket * 2654435761) % 4294967296) / 4294967296
@@ -212,12 +175,14 @@ function RollService.pick(tier: any, ticket: number?): string?
 		r = math.random()
 	end
 	local point = r * total
-	for i, c in cum do
-		if point < c then
-			return ids[i]
+	local running = 0
+	for _, e in entries do
+		running += e.pct
+		if point < running then
+			return e.itemId
 		end
 	end
-	return ids[#ids]
+	return entries[#entries].itemId
 end
 
 -- Item payment shape: { [itemId]: count }, bounded. Every id must be a real
@@ -390,7 +355,6 @@ function RollService.Start()
 				id = tier.id,
 				name = tier.name,
 				gems = tier.gems,
-				luck = tier.luck,
 				blurb = tier.blurb,
 				minValue = RollService.floorFor(tier), -- guaranteed value floor
 				odds = RollService.oddsFor(tier),
