@@ -76,7 +76,7 @@ local MonetizationConfig = {
 			section = "💎 GEM PACKS",
 			name = "Handful of Gems",
 			description = "A starter pinch of gems.",
-			imageId = "rbxassetid://15402885986", -- gem pile
+			imageId = "rbxassetid://15402880202", -- small gem
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 100 },
@@ -116,7 +116,7 @@ local MonetizationConfig = {
 			section = "💎 GEM PACKS",
 			name = "Vault of Gems",
 			description = "Stock up for the long haul.",
-			imageId = "rbxassetid://15402855334", -- coin chest
+			imageId = "rbxassetid://15402885986", -- gem pile
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 2600 },
@@ -129,7 +129,7 @@ local MonetizationConfig = {
 			section = "💎 GEM PACKS",
 			name = "Dragon's Hoard",
 			description = "The biggest pile we sell.",
-			imageId = "rbxassetid://15402852027", -- coin bag
+			imageId = "rbxassetid://17368064384", -- big gem
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 6000 },

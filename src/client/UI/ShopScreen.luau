@@ -63,8 +63,13 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 	-- BUY / OWNED state + purchase click. The button carries a green gradient
 	-- from the template; OWNED disables it and greys it out.
 	local function wireBuy(btn: TextButton, offer: any)
+		local priceLbl = btn:WaitForChild("PriceLabel") :: TextLabel
+		local robux = btn:FindFirstChild("RobuxIcon") :: ImageLabel?
 		if offer.owned then
-			btn.Text = "OWNED"
+			priceLbl.Text = "OWNED"
+			if robux then
+				robux.Visible = false
+			end
 			btn.AutoButtonColor = false
 			local g = btn:FindFirstChildOfClass("UIGradient")
 			if g then
@@ -73,8 +78,19 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			btn.BackgroundColor3 = Theme.BgLight
 			return
 		end
-		-- Roblox renders the real price in its own prompt, so the button just
-		-- invites the click rather than restating a price we'd have to sync.
+		-- show the real Robux price with the Bobux icon, Blox-Fruits style; fall
+		-- back to a plain BUY only if the price couldn't be resolved
+		if offer.price then
+			priceLbl.Text = comma(offer.price)
+			if robux then
+				robux.Visible = true
+			end
+		else
+			priceLbl.Text = "BUY"
+			if robux then
+				robux.Visible = false
+			end
+		end
 		btn.Activated:Connect(function()
 			if busy then
 				return

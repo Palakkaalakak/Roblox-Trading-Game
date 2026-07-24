@@ -36,6 +36,7 @@ local ICONS = {
 	Player = "rbxassetid://92109681457452",
 	Star = "rbxassetid://17368097932",
 	Shop = "rbxassetid://15402855334", -- coin chest
+	Robux = "rbxassetid://15403000023", -- Bobux (Robux) icon for price buttons
 }
 local FONT = Enum.Font.GothamBold
 local FONT_LIGHT = Enum.Font.Gotham
@@ -1505,7 +1506,7 @@ local function sheen(cardFrame: Instance, radius: number)
 		Name = "Sheen",
 		BackgroundColor3 = Color3.new(1, 1, 1),
 		BorderSizePixel = 0,
-		Size = UDim2.fromScale(1, 0.5),
+		Size = UDim2.fromScale(1, 0.46),
 		ZIndex = 1,
 	}, cardFrame)
 	corner(s, radius)
@@ -1513,7 +1514,8 @@ local function sheen(cardFrame: Instance, radius: number)
 		Color = ColorSequence.new(Color3.new(1, 1, 1)),
 		Rotation = 90,
 		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.78),
+			NumberSequenceKeypoint.new(0, 0.58),
+			NumberSequenceKeypoint.new(0.7, 0.9),
 			NumberSequenceKeypoint.new(1, 1),
 		}),
 	}, s)
@@ -1526,6 +1528,38 @@ local function textStroke(lbl: Instance, thickness: number?, transparency: numbe
 		Transparency = transparency or 0.25,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,
 	}, lbl)
+end
+-- shiny bevel edge: a UIStroke tinted by a gradient (light top → dark bottom)
+local function gradStroke(inst: Instance, top: Color3, bottom: Color3, thickness: number?)
+	local s = new("UIStroke", {
+		Thickness = thickness or 2,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, inst)
+	new("UIGradient", { Color = ColorSequence.new(top, bottom), Rotation = 90 }, s)
+	return s
+end
+-- soft dark drop shadow behind a card, for depth. ZIndex 0 keeps it under the
+-- card body (Global ZIndexBehavior), so only the offset halo shows.
+local function dropShadow(cardFrame: Instance, radius: number)
+	local sh = new("Frame", {
+		Name = "Shadow",
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.5,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 5),
+		Size = UDim2.new(1, 10, 1, 10),
+		ZIndex = 0,
+	}, cardFrame)
+	corner(sh, radius + 3)
+	new("UIGradient", {
+		Rotation = 90,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.7),
+			NumberSequenceKeypoint.new(1, 0.35),
+		}),
+	}, sh)
+	return sh
 end
 
 local function buildShopPanel(parent: Instance)
@@ -1651,26 +1685,30 @@ local function buildShopPanel(parent: Instance)
 	--------------------------------------------------------------------------
 	local card = new("Frame", {
 		Name = "OfferCard",
-		BackgroundColor3 = Color3.fromRGB(48, 44, 74),
+		BackgroundColor3 = Color3.fromRGB(46, 50, 63),
 		BorderSizePixel = 0,
 		Visible = false,
 	}, grid)
-	corner(card, 12)
-	grad(card, Color3.fromRGB(62, 56, 100), Color3.fromRGB(32, 30, 46), 90)
-	stroke(card, C.Gem, 2)
-	sheen(card, 12)
-	-- soft circular halo behind the icon
+	corner(card, 14)
+	dropShadow(card, 14)
+	-- neutral dark blue-grey (the game's palette) so the cyan/gold/green accents
+	-- pop as one system instead of fighting a purple card
+	grad(card, Color3.fromRGB(60, 65, 82), Color3.fromRGB(30, 32, 41), 115)
+	gradStroke(card, Color3.fromRGB(120, 210, 224), Color3.fromRGB(54, 120, 140), 2)
+	sheen(card, 14)
+	-- dark glossy medallion behind the icon (neutral, so the gem art pops)
 	local glow = new("Frame", {
 		Name = "IconGlow",
-		BackgroundColor3 = C.Gem,
-		BackgroundTransparency = 0.72,
+		BackgroundColor3 = Color3.fromRGB(44, 48, 60),
+		BackgroundTransparency = 0.12,
 		BorderSizePixel = 0,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.26),
-		Size = UDim2.fromScale(0.62, 0.34),
+		Size = UDim2.fromScale(0.6, 0.33),
 		ZIndex = 2,
 	}, card)
 	corner(glow, 100)
+	grad(glow, Color3.fromRGB(66, 74, 94), Color3.fromRGB(32, 35, 45), 90)
 	new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
@@ -1752,20 +1790,43 @@ local function buildShopPanel(parent: Instance)
 		Size = UDim2.new(1, 2, 0, 1),
 		Visible = false,
 	}, wasPrice)
-	-- green gradient BUY CTA
+	-- green gradient BUY CTA: [Robux icon] [price], centered as a group
 	local buyBtn = button("BuyButton", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.fromScale(0.86, 0.15),
-		Text = "BUY",
-		TextScaled = true,
+		Size = UDim2.fromScale(0.86, 0.16),
+		Text = "",
 		BackgroundColor3 = C.Good,
 		ZIndex = 3,
 	}, card)
 	grad(buyBtn, Color3.fromRGB(120, 232, 158), Color3.fromRGB(58, 178, 104), 90)
 	stroke(buyBtn, Color3.fromRGB(36, 130, 74), 1.5)
-	textStroke(buyBtn, 1.4, 0.2)
-	capText(buyBtn, 15)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0.03, 0),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, buyBtn)
+	local rbx = new("ImageLabel", {
+		Name = "RobuxIcon",
+		Image = ICONS.Robux,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(0.7, 0.7),
+		LayoutOrder = 1,
+		ZIndex = 4,
+	}, buyBtn)
+	new("UIAspectRatioConstraint", { AspectRatio = 1 }, rbx)
+	local price = label("PriceLabel", {
+		Size = UDim2.fromScale(0.62, 0.82),
+		Text = "BUY",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		LayoutOrder = 2,
+		ZIndex = 4,
+	}, buyBtn)
+	textStroke(price, 1.4, 0.2)
+	capText(price, 15)
 	local badge = label("Badge", {
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.fromScale(1.01, 0.03),
@@ -1789,49 +1850,54 @@ local function buildShopPanel(parent: Instance)
 	--------------------------------------------------------------------------
 	local feat = new("Frame", {
 		Name = "FeatureCard",
-		BackgroundColor3 = Color3.fromRGB(52, 46, 82),
+		BackgroundColor3 = Color3.fromRGB(48, 52, 66),
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 160),
+		Size = UDim2.new(1, 0, 0, 166),
 		Visible = false,
 	}, features)
-	corner(feat, 14)
-	grad(feat, Color3.fromRGB(70, 60, 116), Color3.fromRGB(34, 31, 50), 90)
-	stroke(feat, C.Gold, 2.5)
-	sheen(feat, 14)
-	-- ribbon header
+	corner(feat, 16)
+	dropShadow(feat, 16)
+	grad(feat, Color3.fromRGB(64, 69, 88), Color3.fromRGB(32, 34, 44), 115)
+	gradStroke(feat, Color3.fromRGB(255, 226, 132), Color3.fromRGB(212, 132, 22), 2.6)
+	sheen(feat, 16)
+	-- corner tag (BEST VALUE / LIMITED / the offer's badge) — a compact gold
+	-- pill in the top-right, so it doesn't restate the section header bar
 	local ribbon = new("Frame", {
 		Name = "Ribbon",
 		BackgroundColor3 = C.Gold,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 32),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(0.99, 0.08),
+		Size = UDim2.fromScale(0.26, 0.16),
 		ZIndex = 3,
 	}, feat)
-	corner(ribbon, 12)
+	corner(ribbon, 8)
 	grad(ribbon, Color3.fromRGB(255, 208, 92), Color3.fromRGB(238, 150, 24), 90)
+	stroke(ribbon, Color3.fromRGB(180, 110, 10), 1)
 	local ribbonLbl = label("RibbonText", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.96, 0.9),
+		Size = UDim2.fromScale(0.9, 0.82),
 		Text = "FEATURED",
 		TextColor3 = Color3.fromRGB(40, 28, 6),
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		ZIndex = 4, -- Global ZIndexBehavior: must beat the ribbon frame (3)
 	}, ribbon)
-	textStroke(ribbonLbl, 1, 0.6)
-	capText(ribbonLbl, 17)
-	-- big art on the left, with halo
-	new("Frame", {
+	capText(ribbonLbl, 14)
+	-- big art on the left, with a dark glossy medallion halo
+	local fglow = new("Frame", {
 		Name = "IconGlow",
-		BackgroundColor3 = C.Gem,
-		BackgroundTransparency = 0.7,
+		BackgroundColor3 = Color3.fromRGB(44, 48, 60),
+		BackgroundTransparency = 0.12,
 		BorderSizePixel = 0,
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.18, 0.62),
-		Size = UDim2.fromOffset(104, 104),
+		Size = UDim2.fromOffset(108, 108),
 		ZIndex = 2,
 	}, feat)
-	corner(feat:FindFirstChild("IconGlow") :: any, 100)
+	corner(fglow, 100)
+	grad(fglow, Color3.fromRGB(66, 74, 94), Color3.fromRGB(32, 35, 45), 90)
 	new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
@@ -1905,16 +1971,39 @@ local function buildShopPanel(parent: Instance)
 	local fBuy = button("BuyButton", {
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -14, 1, -14),
-		Size = UDim2.fromScale(0.26, 0.26),
-		Text = "BUY",
-		TextScaled = true,
+		Size = UDim2.fromScale(0.34, 0.2),
+		Text = "",
 		BackgroundColor3 = C.Good,
 		ZIndex = 3,
 	}, feat)
 	grad(fBuy, Color3.fromRGB(120, 232, 158), Color3.fromRGB(58, 178, 104), 90)
 	stroke(fBuy, Color3.fromRGB(36, 130, 74), 1.5)
-	textStroke(fBuy, 1.4, 0.2)
-	capText(fBuy, 18)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0.04, 0),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, fBuy)
+	local fRbx = new("ImageLabel", {
+		Name = "RobuxIcon",
+		Image = ICONS.Robux,
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(0.72, 0.72),
+		LayoutOrder = 1,
+		ZIndex = 4,
+	}, fBuy)
+	new("UIAspectRatioConstraint", { AspectRatio = 1 }, fRbx)
+	local fPrice = label("PriceLabel", {
+		Size = UDim2.fromScale(0.6, 0.82),
+		Text = "BUY",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		LayoutOrder = 2,
+		ZIndex = 4,
+	}, fBuy)
+	textStroke(fPrice, 1.4, 0.2)
+	capText(fPrice, 18)
 
 	label("EmptyLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),

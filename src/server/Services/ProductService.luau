@@ -45,8 +45,34 @@ local gamepassHandlers: { [number]: any } = {}
 -- gamepassId -> offer/def, for the client's OWNED state
 local gamepassOffers: { [number]: any } = {}
 
+-- productId -> price in Robux. Filled lazily from GetProductInfo and cached so
+-- the shop can print the real price on the BUY button (Blox-Fruits style)
+-- without re-querying Roblox every time the shop opens.
+local priceCache: { [number]: number } = {}
+
 local function tokenItemId(sku: string): string
 	return "prod_" .. sku
+end
+
+-- Robux price for an offer, cached. nil if it can't be resolved (no id yet,
+-- not for sale, or the lookup failed).
+local function priceInRobux(offer: any): number?
+	local id = offer.productId
+	if id == 0 then
+		return nil
+	end
+	if priceCache[id] ~= nil then
+		return priceCache[id]
+	end
+	local infoType = offer.productType == "gamepass" and Enum.InfoType.GamePass or Enum.InfoType.Product
+	local ok, info = pcall(function()
+		return MarketplaceService:GetProductInfo(id, infoType)
+	end)
+	if ok and typeof(info) == "table" and info.PriceInRobux then
+		priceCache[id] = info.PriceInRobux
+		return info.PriceInRobux
+	end
+	return nil
 end
 
 --------------------------------------------------------------------------------
@@ -229,6 +255,7 @@ function ProductService.Start()
 				nameColor = offer.nameColor,
 				featured = offer.featured,
 				accent = offer.accent,
+				price = priceInRobux(offer),
 				owned = owned,
 			})
 		end
