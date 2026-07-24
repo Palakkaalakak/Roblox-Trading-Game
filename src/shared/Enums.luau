@@ -70,6 +70,8 @@ local Enums = {
 		"SetStatChips", -- (keys) -> {ok, err} — owner pins <=4 stats
 		"SetPrivacy", -- ({hideValue, hideShowcase}) -> {ok, err}
 		"GetBotData", -- () -> {ok, data} — admin-only bot inspector (temporary)
+		"GetShop", -- () -> {ok, offers, sectionOrder} — Robux shop catalogue
+		"PromptPurchase", -- (offerId) -> {ok, err?} — server-side purchase prompt
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
 		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
 	},

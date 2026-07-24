@@ -34,6 +34,7 @@ local EventsScreen = require(UI.EventsScreen)
 local BoardScreen = require(UI.BoardScreen)
 local ProfileScreen = require(UI.ProfileScreen)
 local RollsScreen = require(UI.RollsScreen)
+local ShopScreen = require(UI.ShopScreen)
 local ActivityFeed = require(UI.ActivityFeed)
 local AdminScreen = require(UI.AdminScreen)
 
@@ -56,6 +57,7 @@ EventsScreen.wire(modalGui, tooltip, toast)
 BoardScreen.wire(modalGui, tooltip, toast)
 ProfileScreen.wire(modalGui, tooltip)
 RollsScreen.wire(modalGui, tooltip, toast)
+ShopScreen.wire(modalGui, tooltip, toast)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
@@ -65,6 +67,9 @@ HUD.wire(hudGui, {
 	end,
 	profile = function()
 		ProfileScreen.openBrowser()
+	end,
+	shop = function()
+		ShopScreen.toggle()
 	end,
 })
 

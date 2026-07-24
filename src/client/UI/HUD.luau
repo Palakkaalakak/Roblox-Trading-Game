@@ -13,7 +13,16 @@ local TradeController = require(script.Parent.Parent.Controllers.TradeController
 
 local HUD = {}
 
-function HUD.wire(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> (), profile: (() -> ())? })
+function HUD.wire(
+	gui: ScreenGui,
+	toggles: {
+		inventory: () -> (),
+		picker: () -> (),
+		profile: (() -> ())?,
+		shop: (() -> ())?,
+		freeGems: (() -> ())?,
+	}
+)
 	local gemPill = gui:WaitForChild("GemPill") :: Frame
 	local gemAmount = gemPill:WaitForChild("Amount") :: TextLabel
 	State.Observe(InventoryController.gems, function(gems)
@@ -28,6 +37,17 @@ function HUD.wire(gui: ScreenGui, toggles: { inventory: () -> (), picker: () -> 
 	local profileButton = gui:WaitForChild("ProfileButton") :: ImageButton
 	if toggles.profile then
 		profileButton.Activated:Connect(toggles.profile)
+	end
+
+	local shopButton = gui:WaitForChild("ShopButton") :: ImageButton
+	if toggles.shop then
+		shopButton.Activated:Connect(toggles.shop)
+	end
+
+	-- free gems is its own screen, not a shop tab
+	local freeGemsButton = gui:WaitForChild("FreeGemsButton") :: ImageButton
+	if toggles.freeGems then
+		freeGemsButton.Activated:Connect(toggles.freeGems)
 	end
 
 	local debugBtn = gui:WaitForChild("DebugGemsButton") :: ImageButton

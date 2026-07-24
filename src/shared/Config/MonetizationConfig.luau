@@ -1,0 +1,207 @@
+--!strict
+-- MonetizationConfig: the shop catalogue. EVERY thing the shop sells is one
+-- entry in `Offers` below — gem packs, gamepasses, subscriptions, bundles.
+--
+-- ADDING SOMETHING NEW IS A CONFIG EDIT, NOT A CODE EDIT:
+--   1. Create the dev product / gamepass on the Roblox site.
+--   2. Copy its id into a new entry below.
+--   3. Reboot. It appears in the shop, in its section, with its badge, and
+--      purchases grant automatically.
+-- No new UI, no new service code. The shop renders every offer through one
+-- card template and ProductService grants every offer through one receipt
+-- handler.
+--
+-- FIELD REFERENCE
+--   id            unique string, internal only
+--   kind          "gems" | "gamepass" | "subscription" | "bundle"
+--                 gems         -> grants grants.gems
+--                 gamepass     -> one-time, shows OWNED once held
+--                 subscription -> recurring (billing handled by Roblox)
+--                 bundle       -> grants any mix of gems + items
+--   section       shop section header text; new strings create new sections
+--   productType   "devproduct" | "gamepass" — how Roblox charges for it
+--   productId     the Roblox dev product / gamepass id
+--   grants        { gems = n, items = { [itemId] = count } }
+--   badge         optional corner ribbon: "BEST VALUE", "LIMITED", "-30%"
+--   bonusPercent  optional; renders a gold "+N% BONUS" flourish
+--   wasRobux      optional; renders a strikethrough "original price"
+--   availableUntil optional unix time; renders a live "N days left" countdown
+--                 and the offer stops being sellable once passed
+--   giftable      reserved — gifting isn't built yet, but the schema carries it
+--
+-- NOTE ON IDS: every offer needs a Roblox dev product / gamepass id to be
+-- buyable. Until each real product exists, entries point at PLACEHOLDER_PRODUCT_ID
+-- (a stand-in dev product) so the shop renders fully buyable during development.
+-- At publish, swap each one for its own real id — see the block just below.
+
+export type Offer = {
+	id: string,
+	kind: "gems" | "gamepass" | "subscription" | "bundle",
+	section: string,
+	name: string,
+	description: string,
+	imageId: string?,
+	productType: "devproduct" | "gamepass",
+	productId: number,
+	grants: { gems: number?, items: { [string]: number }? },
+	badge: string?,
+	bonusPercent: number?,
+	wasRobux: number?,
+	availableUntil: number?,
+	giftable: boolean?,
+	sortOrder: number,
+	nameColor: { number }?, -- optional RGB tint for the card's name label
+}
+
+-- Shared stand-in dev product used by every offer that doesn't have its own real
+-- Roblox id yet. Keeps the shop fully buyable in Studio and for devs. AT PUBLISH:
+-- create each product on the Roblox site and replace this with each offer's own
+-- id, so the correct pack grants on purchase.
+local PLACEHOLDER_PRODUCT_ID = 3611275062
+
+local MonetizationConfig = {
+	-- Section order in the shop, top to bottom. Sections with no live offers
+	-- are skipped, so unreleased categories simply don't render yet.
+	SectionOrder = { "💎 GEM PACKS", "🎟 PASSES", "⭐ SUBSCRIPTIONS", "🎁 BUNDLES" },
+
+	Offers = {
+		-- ── Gem packs ────────────────────────────────────────────────────
+		-- Escalating bonus % gives players a reason to buy the bigger pack;
+		-- the "+N% BONUS" flourish and BEST VALUE ribbon are what sell it.
+		{
+			id = "gems_handful",
+			kind = "gems",
+			section = "💎 GEM PACKS",
+			name = "Handful of Gems",
+			description = "A starter pinch of gems.",
+			imageId = "rbxassetid://15402885986", -- gem pile
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { gems = 100 },
+			sortOrder = 1,
+		},
+		{
+			id = "gems_pouch",
+			kind = "gems",
+			section = "💎 GEM PACKS",
+			name = "Pouch of Gems",
+			description = "Enough for a few good rolls.",
+			imageId = "rbxassetid://15402892798", -- gem bag
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { gems = 550 },
+			bonusPercent = 10,
+			sortOrder = 2,
+		},
+		{
+			id = "gems_chest",
+			kind = "gems",
+			section = "💎 GEM PACKS",
+			name = "Chest of Gems",
+			description = "Serious buying power.",
+			imageId = "rbxassetid://15402896733", -- gem chest
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { gems = 1200 },
+			bonusPercent = 20,
+			badge = "BEST VALUE",
+			sortOrder = 3,
+		},
+		{
+			id = "gems_vault",
+			kind = "gems",
+			section = "💎 GEM PACKS",
+			name = "Vault of Gems",
+			description = "Stock up for the long haul.",
+			imageId = "rbxassetid://15402855334", -- coin chest
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { gems = 2600 },
+			bonusPercent = 30,
+			sortOrder = 4,
+		},
+		{
+			id = "gems_hoard",
+			kind = "gems",
+			section = "💎 GEM PACKS",
+			name = "Dragon's Hoard",
+			description = "The biggest pile we sell.",
+			imageId = "rbxassetid://15402852027", -- coin bag
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { gems = 6000 },
+			bonusPercent = 40,
+			sortOrder = 5,
+		},
+
+		-- ── Passes / subscriptions / bundles ─────────────────────────────
+		-- Intentionally empty. Drop entries here when they exist; the shop
+		-- grows a section automatically. Example shapes:
+		--
+		-- {
+		-- 	id = "pass_trader",
+		-- 	kind = "gamepass",
+		-- 	section = "🎟 PASSES",
+		-- 	name = "Trader's Pass",
+		-- 	description = "+2 board listing slots, forever.",
+		-- 	productType = "gamepass",
+		-- 	productId = 123456789,
+		-- 	grants = { items = { prod_trader_pass = 1 } },
+		-- 	sortOrder = 1,
+		-- },
+		--
+		-- {
+		-- 	id = "bundle_starter",
+		-- 	kind = "bundle",
+		-- 	section = "🎁 BUNDLES",
+		-- 	name = "Starter Bundle",
+		-- 	description = "Gems plus a head start.",
+		-- 	productType = "devproduct",
+		-- 	productId = 123456789,
+		-- 	grants = { gems = 800, items = { itm_1_5_jade_serpent = 1 } },
+		-- 	badge = "LIMITED",
+		-- 	wasRobux = 500,
+		-- 	availableUntil = 1790000000,
+		-- 	sortOrder = 1,
+		-- },
+	} :: { Offer },
+}
+
+local function sorted(list: { Offer }): { Offer }
+	table.sort(list, function(a, b)
+		if a.section ~= b.section then
+			return a.section < b.section
+		end
+		return a.sortOrder < b.sortOrder
+	end)
+	return list
+end
+
+-- Offers the shop SHOWS: everything still inside its limited-time window,
+-- including entries whose Roblox id hasn't been created yet. Those render as
+-- "COMING SOON" instead of being hidden, so the shop looks stocked while it's
+-- being set up and a half-configured entry can never be bought.
+function MonetizationConfig.visibleOffers(now: number?): { Offer }
+	local t = now or os.time()
+	local out = {}
+	for _, offer in MonetizationConfig.Offers do
+		if offer.availableUntil == nil or t < offer.availableUntil then
+			table.insert(out, offer)
+		end
+	end
+	return sorted(out)
+end
+
+-- Offers that can actually be SOLD: visible, and backed by a real Roblox id.
+-- Only these get a grant handler and only these accept a purchase prompt.
+function MonetizationConfig.liveOffers(now: number?): { Offer }
+	local out = {}
+	for _, offer in MonetizationConfig.visibleOffers(now) do
+		if offer.productId ~= 0 then
+			table.insert(out, offer)
+		end
+	end
+	return out
+end
+
+return MonetizationConfig

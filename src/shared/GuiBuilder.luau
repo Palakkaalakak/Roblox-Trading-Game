@@ -34,6 +34,8 @@ local ICONS = {
 	Trade = "rbxassetid://15403064919",
 	Inventory = "rbxassetid://15402958715",
 	Player = "rbxassetid://92109681457452",
+	Star = "rbxassetid://17368097932",
+	Shop = "rbxassetid://15402855334", -- coin chest
 }
 local FONT = Enum.Font.GothamBold
 local FONT_LIGHT = Enum.Font.Gotham
@@ -176,7 +178,10 @@ local function buildHud(parent: Instance)
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.57))
 	iconButton("ProfileButton", ICONS.Player, "PLAYERS", UDim2.fromScale(0.955, 0.47))
-	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.955, 0.37))
+	-- Robux shop and the (deliberately separate) free-gems screen
+	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.37))
+	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.27))
+	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
 	local toastArea = new("Frame", {
@@ -1476,6 +1481,355 @@ function GuiBuilder.addBoardPanel()
 end
 
 --------------------------------------------------------------------------------
+-- Shop panel (Robux) — sectioned scroll of offer cards.
+--
+-- Every product the shop will ever sell renders through ONE card template:
+-- gem packs, gamepasses, subscriptions, bundles. Adding a product is a
+-- MonetizationConfig entry — this builder never changes. Scale-native (like
+-- RollsPanel) so it fits phones without a FitScale.
+--------------------------------------------------------------------------------
+
+local function buildShopPanel(parent: Instance)
+	local shop = panel("ShopPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.66, 0.84),
+		Visible = false,
+	}, parent)
+	new("UISizeConstraint", { MaxSize = Vector2.new(900, 680) }, shop)
+	-- gold frame: the shop should read as the premium screen
+	stroke(shop, C.Gold, 2.5)
+
+	local function capText(inst: Instance, maxSize: number)
+		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
+	end
+
+	-- title bar
+	local titleBar = new("Frame", {
+		Name = "TitleBar",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 0.082),
+	}, shop)
+	corner(titleBar, 10)
+	local title = label("Title", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.6, 0.7),
+		Text = "SHOP",
+		TextScaled = true,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, titleBar)
+	capText(title, 24)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, 0),
+		Size = UDim2.fromOffset(30, 30),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, titleBar)
+
+	-- scrolling body: SectionTemplate cloned per section, each holding a grid
+	local body = new("ScrollingFrame", {
+		Name = "Body",
+		Position = UDim2.fromScale(0.02, 0.095),
+		Size = UDim2.fromScale(0.96, 0.895),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, shop)
+	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, body)
+
+	local section = new("Frame", {
+		Name = "SectionTemplate",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 210),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Visible = false, -- template
+	}, body)
+	label("SectionHeader", {
+		Size = UDim2.new(1, 0, 0, 26),
+		Text = "SECTION",
+		TextSize = 15,
+		TextColor3 = C.Gold,
+	}, section)
+	local grid = new("Frame", {
+		Name = "Grid",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 30),
+		Size = UDim2.new(1, 0, 0, 180),
+		AutomaticSize = Enum.AutomaticSize.Y,
+	}, section)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(150, 180),
+		CellPadding = UDim2.fromOffset(10, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, grid)
+
+	-- ── the one card template ────────────────────────────────────────────
+	local card = new("Frame", {
+		Name = "OfferCard",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Visible = false, -- template
+	}, grid)
+	corner(card, 8)
+	stroke(card, C.Stroke, 1.5)
+	local cardIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.13),
+		Size = UDim2.fromScale(0.52, 0.38),
+		ScaleType = Enum.ScaleType.Fit,
+	}, card)
+	local cardName = label("OfferName", {
+		Position = UDim2.fromScale(0.05, 0.025),
+		Size = UDim2.fromScale(0.9, 0.1),
+		Text = "Offer",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	capText(cardName, 14)
+	-- contents line: gem amount tinted cyan
+	local contents = label("Contents", {
+		Position = UDim2.fromScale(0.05, 0.53),
+		Size = UDim2.fromScale(0.9, 0.09),
+		Text = "",
+		TextScaled = true,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	capText(contents, 15)
+	-- gold "+N% BONUS" flourish
+	local bonus = label("Bonus", {
+		Position = UDim2.fromScale(0.05, 0.625),
+		Size = UDim2.fromScale(0.9, 0.075),
+		Text = "",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	capText(bonus, 11)
+	-- limited-offer countdown
+	local timeLeft = label("TimeLeft", {
+		Position = UDim2.fromScale(0.05, 0.70),
+		Size = UDim2.fromScale(0.9, 0.07),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, card)
+	capText(timeLeft, 10)
+	-- strikethrough "was" price
+	local wasPrice = label("WasPrice", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.fromScale(0.5, 0.845),
+		Size = UDim2.fromScale(0.28, 0.07),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Right,
+	}, card)
+	capText(wasPrice, 11)
+	new("Frame", { -- the strike line, shown/hidden with the label
+		Name = "Strike",
+		BackgroundColor3 = C.TextDim,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, 2, 0, 1),
+		Visible = false,
+	}, wasPrice)
+	-- green price CTA
+	local buyBtn = button("BuyButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		Size = UDim2.fromScale(0.86, 0.16),
+		Text = "BUY",
+		TextScaled = true,
+		BackgroundColor3 = C.Good,
+	}, card)
+	capText(buyBtn, 14)
+	-- corner ribbon (BEST VALUE / LIMITED / -30%): sits on the icon's top-right
+	-- like a sticker, clear of the centered name label above it
+	local badge = label("Badge", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0.135),
+		Size = UDim2.fromScale(0.5, 0.1),
+		Text = "",
+		BackgroundColor3 = C.Warn,
+		BackgroundTransparency = 0,
+		TextScaled = true,
+		TextColor3 = C.Bg,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+	}, card)
+	corner(badge, 6)
+	capText(badge, 10)
+
+	label("EmptyLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.8, 0.2),
+		Text = "The shop is being stocked — check back soon!",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+		Visible = false,
+	}, shop)
+
+	return shop
+end
+
+--------------------------------------------------------------------------------
+-- Free Gems panel — deliberately its own screen, unrelated to the Robux shop.
+-- Before the community goal is met it shows the progress bar; after, the
+-- watch-an-ad reward UI.
+--------------------------------------------------------------------------------
+
+local function buildFreeGemsPanel(parent: Instance)
+	local free = panel("FreeGemsPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.46, 0.5),
+		Visible = false,
+	}, parent)
+	new("UISizeConstraint", { MaxSize = Vector2.new(560, 420) }, free)
+	stroke(free, C.Gem, 2.5) -- cyan frame: visually its own thing
+
+	local function capText(inst: Instance, maxSize: number)
+		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
+	end
+
+	local title = label("Title", {
+		Position = UDim2.fromScale(0.05, 0.04),
+		Size = UDim2.fromScale(0.7, 0.1),
+		Text = "FREE GEMS",
+		TextScaled = true,
+		TextColor3 = C.Gem,
+	}, free)
+	capText(title, 22)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(30, 30),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, free)
+
+	-- ── community goal state ─────────────────────────────────────────────
+	local goal = new("Frame", {
+		Name = "GoalView",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromScale(0.06, 0.18),
+		Size = UDim2.fromScale(0.88, 0.74),
+	}, free)
+	local goalTitle = label("GoalTitle", {
+		Size = UDim2.fromScale(1, 0.14),
+		Text = "🌍 COMMUNITY GOAL",
+		TextScaled = true,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, goal)
+	capText(goalTitle, 18)
+	local track = new("Frame", {
+		Name = "BarTrack",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromScale(0, 0.24),
+		Size = UDim2.fromScale(1, 0.14),
+	}, goal)
+	corner(track, 8)
+	stroke(track, C.Stroke, 1)
+	local fill = new("Frame", {
+		Name = "BarFill",
+		BackgroundColor3 = C.Gem,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(0, 1),
+	}, track)
+	corner(fill, 8)
+	local progress = label("ProgressLabel", {
+		Position = UDim2.fromScale(0, 0.42),
+		Size = UDim2.fromScale(1, 0.12),
+		Text = "0 / 2,000 players",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, goal)
+	capText(progress, 16)
+	local blurb = label("GoalBlurb", {
+		Position = UDim2.fromScale(0, 0.58),
+		Size = UDim2.fromScale(1, 0.34),
+		Text = "When we reach 2,000 players, free gems unlock for everyone — watch a short ad, get gems.",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, goal)
+	capText(blurb, 13)
+
+	-- ── unlocked (watch-ad) state ────────────────────────────────────────
+	local watch = new("Frame", {
+		Name = "WatchView",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromScale(0.06, 0.18),
+		Size = UDim2.fromScale(0.88, 0.74),
+		Visible = false,
+	}, free)
+	local reward = label("RewardLabel", {
+		Size = UDim2.fromScale(1, 0.2),
+		Text = "Watch a short ad for +50 gems",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+	}, watch)
+	capText(reward, 17)
+	local watchBtn = button("WatchButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.28),
+		Size = UDim2.fromScale(0.8, 0.24),
+		Text = "WATCH AD",
+		TextScaled = true,
+		BackgroundColor3 = C.Good,
+	}, watch)
+	capText(watchBtn, 20)
+	local remaining = label("RemainingLabel", {
+		Position = UDim2.fromScale(0, 0.58),
+		Size = UDim2.fromScale(1, 0.12),
+		Text = "",
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, watch)
+	capText(remaining, 14)
+	local status = label("StatusLabel", {
+		Position = UDim2.fromScale(0, 0.72),
+		Size = UDim2.fromScale(1, 0.22),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, watch)
+	capText(status, 13)
+
+	return free
+end
+
+--------------------------------------------------------------------------------
 -- Rolls panel (the gacha NPC) — 5 tier cards, pay with gems OR items
 --------------------------------------------------------------------------------
 
@@ -2624,6 +2978,8 @@ local function buildModals(parent: Instance)
 	buildBoardPanel(gui)
 	buildProfilePanel(gui)
 	buildRollsPanel(gui)
+	buildShopPanel(gui)
+	buildFreeGemsPanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {
