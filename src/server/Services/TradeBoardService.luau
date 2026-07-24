@@ -314,6 +314,38 @@ function TradeBoardService.isCounterListing(mine: any, theirs: any): boolean
 		and TradeBoardService.offersEqual(mine.want, theirs.give)
 end
 
+-- CROSS-MATCH terms for a gem-denominated pair (sell = ask, bulk = bid). If a
+-- fresh `incoming` order crosses a `resting` opposite order — same item, other
+-- poster, and bid price >= ask price — return the execution terms, else nil.
+--
+-- Execution is at the RESTING (maker) order's price, so the taker gets price
+-- improvement: a seller who crosses a higher resting bid is paid the bid; a
+-- buyer who crosses a lower resting ask pays the ask and is refunded the
+-- difference from their escrow (refundPerCopy). Pure — fully unit-testable.
+function TradeBoardService.crossTerms(incoming: any, resting: any): any?
+	if incoming.itemId ~= resting.itemId or incoming.posterId == resting.posterId then
+		return nil
+	end
+	local ask, bid
+	if incoming.kind == "sell" and resting.kind == "bulk" then
+		ask, bid = incoming, resting
+	elseif incoming.kind == "bulk" and resting.kind == "sell" then
+		ask, bid = resting, incoming
+	else
+		return nil -- same side, or a non-order-book kind
+	end
+	if bid.gemsPerCopy < ask.gemsPerCopy then
+		return nil -- spread not crossed
+	end
+	local execPrice = resting.gemsPerCopy
+	return {
+		askId = ask.id,
+		bidId = bid.id,
+		execPrice = execPrice,
+		refundPerCopy = bid.gemsPerCopy - execPrice, -- 0 unless the ask is the maker
+	}
+end
+
 local cancelListing -- fwd decl (defined below; scan lazy-expires through it)
 
 -- Newest-first scan over the WHOLE board: in-memory bot listings merged with
@@ -738,9 +770,12 @@ local function postCore(userId: number, userName: string, payload: any)
 	actorSave(userId)
 	AnalyticsService.log("board_posted", { id = id, kind = listing.kind, userId = userId })
 
-	-- counter-listing check: someone already posted the mirror of this trade
+	-- matching on post: swaps look for their mirror; gem-denominated orders
+	-- (sell/bulk) cross against the resting book automatically
 	if listing.kind == "swap" then
 		task.spawn(TradeBoardService.tryMatch, listing)
+	elseif listing.kind == "sell" or listing.kind == "bulk" then
+		task.spawn(TradeBoardService.tryCross, listing)
 	end
 	return { ok = true, id = id }
 end
@@ -820,6 +855,163 @@ function TradeBoardService.tryMatch(listing: any)
 	announce(("%s ⇄ %s matched mirror trades: %s for %s"):format(
 		mine.posterName, theirs.posterName, offerLabel(mine.give), offerLabel(theirs.give)))
 	AnalyticsService.log("board_matched", { a = mine.id, b = theirs.id })
+end
+
+--------------------------------------------------------------------------------
+-- Order-book crossing: a resting ask (sell) and bid (bulk) that cross execute
+-- automatically, no manual Buy/Contribute. Continuous double auction.
+--------------------------------------------------------------------------------
+
+-- reserve up to `qty` copies off a live listing (CAS); returns committed record
+-- (or nil) and the count actually taken.
+local function reserveCopies(id: string, qty: number): (any, number)
+	local taken = 0
+	local committed = mutate(id, function(l)
+		if l.status ~= "open" then
+			return nil, "gone"
+		end
+		taken = math.min(qty, l.remainingCount)
+		if taken <= 0 then
+			return nil, "empty"
+		end
+		l.remainingCount -= taken
+		if l.remainingCount <= 0 then
+			l.status = "done"
+		end
+		l.v += 1
+		return l
+	end)
+	if committed == nil then
+		return nil, 0
+	end
+	return committed, taken
+end
+
+-- hand `qty` copies back to a listing that was over-reserved (reopens if needed)
+local function unreserveCopies(id: string, qty: number): any
+	return mutate(id, function(l)
+		l.remainingCount += qty
+		if l.status == "done" then
+			l.status = "open"
+		end
+		l.v += 1
+		return l
+	end)
+end
+
+-- Execute ONE cross between a resting ask (sell) and bid (bulk) at execPrice.
+-- Reserves min-available on both (revert on shortfall), delivers copies to the
+-- buyer, taxed gems to the seller, refunds the buyer's over-escrow, records the
+-- clean price into RAP, and drops any listing that filled. Returns copies traded.
+local function crossFillOnce(askId: string, bidId: string, execPrice: number, refundPerCopy: number): number
+	local a = getListing(askId)
+	local b = getListing(bidId)
+	if a == nil or b == nil or a.status ~= "open" or b.status ~= "open" then
+		return 0
+	end
+	local qty = math.min(a.remainingCount, b.remainingCount)
+	if qty <= 0 then
+		return 0
+	end
+	local itemId = a.itemId
+
+	-- reserve on the ask, then the same amount on the bid; if the bid can't
+	-- cover it (raced), hand the shortfall back to the ask
+	local askCommit, tookAsk = reserveCopies(askId, qty)
+	if askCommit == nil or tookAsk <= 0 then
+		return 0
+	end
+	local bidCommit, tookBid = reserveCopies(bidId, tookAsk)
+	if bidCommit == nil or tookBid <= 0 then
+		local rev = unreserveCopies(askId, tookAsk)
+		if rev then
+			BookIndex.apply(bookIndex, rev)
+		end
+		return 0
+	end
+	if tookBid < tookAsk then
+		local rev = unreserveCopies(askId, tookAsk - tookBid)
+		if rev then
+			askCommit = rev
+		end
+	end
+	local q = tookBid
+
+	BookIndex.apply(bookIndex, askCommit)
+	BookIndex.apply(bookIndex, bidCommit)
+
+	-- unique per fill between this pair: remaining strictly decreases each time
+	local nonce = ("%d_%d"):format(askCommit.remainingCount, bidCommit.remainingCount)
+	-- copies to the buyer
+	deliver(bidCommit.posterId, { [itemId] = q }, 0, Enums.GrantSource.Board, ("cross_copies_%s_%s_%s"):format(askId, bidId, nonce))
+	-- taxed gems to the seller
+	local gross = q * execPrice
+	local net, cut = Tax.split(gross)
+	deliver(askCommit.posterId, {}, net, Enums.GrantSource.Board, ("cross_pay_%s_%s_%s"):format(askId, bidId, nonce))
+	-- refund the buyer's over-escrow (their bid above the exec price), untaxed
+	if refundPerCopy > 0 then
+		deliver(bidCommit.posterId, {}, refundPerCopy * q, Enums.GrantSource.Refund, ("cross_refund_%s_%s_%s"):format(askId, bidId, nonce))
+	end
+	actorSave(askCommit.posterId)
+	actorSave(bidCommit.posterId)
+
+	-- a direct gems-for-item fill at a clean per-copy price — feed RAP/Value
+	EconomyService.recordSale(itemId, execPrice, q)
+
+	if askCommit.status == "done" then
+		removeListing(askId)
+	end
+	if bidCommit.status == "done" then
+		removeListing(bidId)
+	end
+
+	announce(("%s ⇄ %s: %d x %s @ %d gems"):format(askCommit.posterName, bidCommit.posterName, q, itemLabel(itemId), execPrice))
+	AnalyticsService.log("board_crossed", { ask = askId, bid = bidId, qty = q, price = execPrice, tax = cut })
+	return q
+end
+
+-- After a fresh sell/bulk post, cross it against the best resting opposite
+-- orders until it's filled or nothing crosses. The index is already price-time
+-- sorted, so the best-priced maker matches first.
+function TradeBoardService.tryCross(incoming: any)
+	if incoming.kind ~= "sell" and incoming.kind ~= "bulk" then
+		return
+	end
+	local itemId = incoming.itemId
+	for _ = 1, 256 do -- bounded: a fill either progresses or evicts a stale row
+		local cur = getListing(incoming.id)
+		if cur == nil or cur.status ~= "open" or (cur.remainingCount or 0) <= 0 then
+			return
+		end
+		local asks, bids = BookIndex.book(bookIndex, itemId, os.time())
+		local makers = incoming.kind == "sell" and bids or asks
+		local terms, chosen
+		for _, m in makers do
+			if m.id ~= incoming.id and m.posterId ~= incoming.posterId then
+				local t = TradeBoardService.crossTerms(cur, m)
+				if t then
+					terms, chosen = t, m
+					break
+				end
+			end
+		end
+		if terms == nil then
+			return -- nothing crosses; the remainder rests on the book
+		end
+		local q = crossFillOnce(terms.askId, terms.bidId, terms.execPrice, terms.refundPerCopy)
+		if q <= 0 then
+			-- the index row was stale (filled elsewhere); resync it from the
+			-- authoritative record, or evict it, then try the next maker
+			local fresh = getListing(chosen.id)
+			if fresh then
+				BookIndex.apply(bookIndex, fresh)
+			else
+				chosen.status = "done"
+				chosen.remainingCount = 0
+				BookIndex.apply(bookIndex, chosen)
+			end
+		end
+	end
 end
 
 --------------------------------------------------------------------------------

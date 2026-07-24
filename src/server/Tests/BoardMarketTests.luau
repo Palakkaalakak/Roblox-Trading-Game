@@ -182,6 +182,41 @@ return {
 			eq(row.bidUnits, 10, "bid units summed")
 		end,
 
+		["cross: maker price wins and the taker's over-escrow is refunded"] = function()
+			local TBS = require(script.Parent.Parent.Services.TradeBoardService)
+			local ask = { id = "a", kind = "sell", itemId = "itm_x", gemsPerCopy = 100, posterId = 1 }
+			local bid = { id = "b", kind = "bulk", itemId = "itm_x", gemsPerCopy = 120, posterId = 2 }
+
+			-- incoming ask crosses a resting higher bid: fills at the bid (maker),
+			-- so the seller gets price improvement and there's nothing to refund
+			local t = TBS.crossTerms(ask, bid)
+			assert(t ~= nil, "ask should cross resting bid")
+			eq(t.execPrice, 120, "exec at resting bid price")
+			eq(t.refundPerCopy, 0, "no refund when the bid is the maker")
+			eq(t.askId, "a", "ask id")
+			eq(t.bidId, "b", "bid id")
+
+			-- incoming bid crosses a resting lower ask: fills at the ask (maker),
+			-- the buyer pays the ask and is refunded its bid over the ask
+			local t2 = TBS.crossTerms(bid, ask)
+			assert(t2 ~= nil, "bid should cross resting ask")
+			eq(t2.execPrice, 100, "exec at resting ask price")
+			eq(t2.refundPerCopy, 20, "buyer refunded bid minus ask")
+
+			-- no cross when the spread isn't crossed
+			local lowBid = { id = "c", kind = "bulk", itemId = "itm_x", gemsPerCopy = 90, posterId = 2 }
+			eq(TBS.crossTerms(ask, lowBid), nil, "ask above bid: no cross")
+			eq(TBS.crossTerms(lowBid, ask), nil, "bid below ask: no cross")
+
+			-- never self-cross, never across items, never same-side
+			local selfBid = { id = "d", kind = "bulk", itemId = "itm_x", gemsPerCopy = 120, posterId = 1 }
+			eq(TBS.crossTerms(ask, selfBid), nil, "no self-cross")
+			local otherItem = { id = "e", kind = "bulk", itemId = "itm_y", gemsPerCopy = 120, posterId = 2 }
+			eq(TBS.crossTerms(ask, otherItem), nil, "no cross across items")
+			local ask2 = { id = "f", kind = "sell", itemId = "itm_x", gemsPerCopy = 100, posterId = 2 }
+			eq(TBS.crossTerms(ask, ask2), nil, "ask vs ask never crosses")
+		end,
+
 		["perks: listing order honors boost then recency"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
 			local order = TradeBoardService.listingOrder
