@@ -227,6 +227,8 @@ function ProductService.Start()
 				wasRobux = offer.wasRobux,
 				availableUntil = offer.availableUntil,
 				nameColor = offer.nameColor,
+				featured = offer.featured,
+				accent = offer.accent,
 				owned = owned,
 			})
 		end

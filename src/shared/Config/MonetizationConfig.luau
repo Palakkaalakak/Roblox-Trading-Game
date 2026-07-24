@@ -51,6 +51,8 @@ export type Offer = {
 	giftable: boolean?,
 	sortOrder: number,
 	nameColor: { number }?, -- optional RGB tint for the card's name label
+	featured: boolean?, -- render as a big wide feature card (like a Blox-Fruits combo)
+	accent: { number }?, -- optional RGB tint for the card's stroke/gradient/ribbon
 }
 
 -- Shared stand-in dev product used by every offer that doesn't have its own real
@@ -105,6 +107,7 @@ local MonetizationConfig = {
 			grants = { gems = 1200 },
 			bonusPercent = 20,
 			badge = "BEST VALUE",
+			featured = true, -- the hero card at the top of the section
 			sortOrder = 3,
 		},
 		{

@@ -39,7 +39,10 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 	local panel = gui:WaitForChild("ShopPanel") :: Frame
 	local body = panel:WaitForChild("Body") :: ScrollingFrame
 	local sectionTemplate = body:WaitForChild("SectionTemplate") :: Frame
-	local cardTemplate = (sectionTemplate:WaitForChild("Grid") :: Frame):WaitForChild("OfferCard") :: Frame
+	local gridTemplate = sectionTemplate:WaitForChild("Grid") :: Frame
+	local featuresTemplate = sectionTemplate:WaitForChild("Features") :: Frame
+	local cardTemplate = gridTemplate:WaitForChild("OfferCard") :: Frame
+	local featureTemplate = featuresTemplate:WaitForChild("FeatureCard") :: Frame
 	local emptyLabel = panel:WaitForChild("EmptyLabel") :: TextLabel
 
 	local closeBtn = (panel:WaitForChild("TitleBar") :: Frame):WaitForChild("CloseButton") :: TextButton
@@ -57,21 +60,45 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		table.clear(spawned)
 	end
 
-	local function renderCard(offer: any, parent: Frame, order: number)
-		local card = cardTemplate:Clone()
-		card.Name = "offer_" .. offer.id
-		card.Visible = true
-		card.LayoutOrder = order
+	-- BUY / OWNED state + purchase click. The button carries a green gradient
+	-- from the template; OWNED disables it and greys it out.
+	local function wireBuy(btn: TextButton, offer: any)
+		if offer.owned then
+			btn.Text = "OWNED"
+			btn.AutoButtonColor = false
+			local g = btn:FindFirstChildOfClass("UIGradient")
+			if g then
+				g.Enabled = false
+			end
+			btn.BackgroundColor3 = Theme.BgLight
+			return
+		end
+		-- Roblox renders the real price in its own prompt, so the button just
+		-- invites the click rather than restating a price we'd have to sync.
+		btn.Activated:Connect(function()
+			if busy then
+				return
+			end
+			busy = true
+			local result = Net.invoke("PromptPurchase", offer.id)
+			busy = false
+			if result and not result.ok then
+				toast("Couldn't open that purchase.", Theme.Bad)
+			end
+		end)
+	end
 
-		local nameLabel = card:WaitForChild("OfferName") :: TextLabel
+	-- Fields both card kinds share: name, art, gem/blurb line, bonus pill,
+	-- strikethrough price, optional accent tint, and the buy button.
+	local function fillCommon(cardInst: Frame, offer: any)
+		local nameLabel = cardInst:WaitForChild("OfferName") :: TextLabel
 		nameLabel.Text = offer.name
 		if offer.nameColor then
 			nameLabel.TextColor3 = Color3.fromRGB(offer.nameColor[1], offer.nameColor[2], offer.nameColor[3])
 		end
-		Components.setIcon(card:WaitForChild("Icon") :: ImageLabel, { imageId = offer.imageId, name = offer.name })
+		Components.setIcon(cardInst:WaitForChild("Icon") :: ImageLabel, { imageId = offer.imageId, name = offer.name })
 
-		-- contents: gems get the cyan treatment, everything else its blurb
-		local contents = card:WaitForChild("Contents") :: TextLabel
+		local contents = cardInst:WaitForChild("Contents") :: TextLabel
 		if offer.gems then
 			contents.Text = comma(offer.gems) .. " Gems"
 			contents.TextColor3 = Theme.Gem
@@ -80,14 +107,15 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			contents.TextColor3 = Theme.TextPrimary
 		end
 
-		local bonus = card:WaitForChild("Bonus") :: TextLabel
-		bonus.Text = offer.bonusPercent and ("+%d%% BONUS"):format(offer.bonusPercent) or ""
+		local bonus = cardInst:WaitForChild("Bonus") :: TextLabel
+		if offer.bonusPercent then
+			bonus.Text = ("+%d%% BONUS"):format(offer.bonusPercent)
+			bonus.Visible = true
+		else
+			bonus.Visible = false
+		end
 
-		local timeLeft = card:WaitForChild("TimeLeft") :: TextLabel
-		timeLeft.Text = offer.availableUntil and timeLeftText(offer.availableUntil) or ""
-
-		-- strikethrough original price
-		local wasPrice = card:WaitForChild("WasPrice") :: TextLabel
+		local wasPrice = cardInst:WaitForChild("WasPrice") :: TextLabel
 		local strike = wasPrice:WaitForChild("Strike") :: Frame
 		if offer.wasRobux then
 			wasPrice.Text = "R$" .. comma(offer.wasRobux)
@@ -97,33 +125,46 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			strike.Visible = false
 		end
 
+		-- per-offer accent recolors the card's border (falls back to template)
+		if offer.accent then
+			local s = cardInst:FindFirstChildOfClass("UIStroke")
+			if s then
+				s.Color = Color3.fromRGB(offer.accent[1], offer.accent[2], offer.accent[3])
+			end
+		end
+
+		wireBuy(cardInst:WaitForChild("BuyButton") :: TextButton, offer)
+	end
+
+	-- medium card (grid)
+	local function renderCard(offer: any, parent: Frame, order: number)
+		local card = cardTemplate:Clone()
+		card.Name = "offer_" .. offer.id
+		card.Visible = true
+		card.LayoutOrder = order
+		fillCommon(card, offer)
+
+		local timeLeft = card:WaitForChild("TimeLeft") :: TextLabel
+		timeLeft.Text = offer.availableUntil and timeLeftText(offer.availableUntil) or ""
+
 		local badge = card:WaitForChild("Badge") :: TextLabel
 		badge.Visible = offer.badge ~= nil
 		badge.Text = offer.badge or ""
 
-		local buyBtn = card:WaitForChild("BuyButton") :: TextButton
-		if offer.owned then
-			buyBtn.Text = "OWNED"
-			buyBtn.BackgroundColor3 = Theme.BgLight
-			buyBtn.AutoButtonColor = false
-		else
-			-- Roblox renders the real price in its own purchase prompt, so the
-			-- button just invites the click rather than restating a price we'd
-			-- have to keep in sync with the product.
-			buyBtn.Text = "BUY"
-			buyBtn.BackgroundColor3 = Theme.Good
-			buyBtn.Activated:Connect(function()
-				if busy or offer.owned then
-					return
-				end
-				busy = true
-				local result = Net.invoke("PromptPurchase", offer.id)
-				busy = false
-				if result and not result.ok then
-					toast("Couldn't open that purchase.", Theme.Bad)
-				end
-			end)
-		end
+		card.Parent = parent
+		table.insert(spawned, card)
+	end
+
+	-- wide hero card (feature). The badge becomes the ribbon headline.
+	local function renderFeature(offer: any, parent: Frame, order: number)
+		local card = featureTemplate:Clone()
+		card.Name = "offer_" .. offer.id
+		card.Visible = true
+		card.LayoutOrder = order
+		fillCommon(card, offer)
+
+		local ribbon = card:WaitForChild("Ribbon") :: Frame
+		;(ribbon:WaitForChild("RibbonText") :: TextLabel).Text = offer.badge or "FEATURED"
 
 		card.Parent = parent
 		table.insert(spawned, card)
@@ -161,16 +202,33 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			sec.Name = "section_" .. sectionName
 			sec.Visible = true
 			sec.LayoutOrder = order
-			;(sec:WaitForChild("SectionHeader") :: TextLabel).Text = sectionName
+			;((sec:WaitForChild("SectionHeader") :: Frame):WaitForChild("Label") :: TextLabel).Text = sectionName
+
+			local features = sec:WaitForChild("Features") :: Frame
 			local grid = sec:WaitForChild("Grid") :: Frame
-			-- drop the template clone that came along for the ride
-			local tmpl = grid:FindFirstChild("OfferCard")
-			if tmpl then
-				tmpl:Destroy()
+			-- drop the template clones that rode along
+			for _, holder in { features, grid } do
+				for _, child in holder:GetChildren() do
+					if child:IsA("Frame") and (child.Name == "FeatureCard" or child.Name == "OfferCard") then
+						child:Destroy()
+					end
+				end
 			end
-			for i, offer in list do
-				renderCard(offer, grid, i)
+
+			-- featured offers become hero cards; the rest fill the grid
+			local featOrder, gridOrder = 0, 0
+			for _, offer in list do
+				if offer.featured then
+					featOrder += 1
+					renderFeature(offer, features, featOrder)
+				else
+					gridOrder += 1
+					renderCard(offer, grid, gridOrder)
+				end
 			end
+			features.Visible = featOrder > 0
+			grid.Visible = gridOrder > 0
+
 			sec.Parent = body
 			table.insert(spawned, sec)
 		end

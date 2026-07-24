@@ -1489,29 +1489,72 @@ end
 -- RollsPanel) so it fits phones without a FitScale.
 --------------------------------------------------------------------------------
 
+-- ── shop-specific "juice" helpers (gradients / gloss / text stroke) ─────────
+-- These give the store its premium, shiny feel — Blox-Fruits-style — instead of
+-- the flat panels the rest of the UI uses. Kept local to the shop so nothing
+-- else changes.
+local function grad(inst: Instance, top: Color3, bottom: Color3, rot: number?)
+	return new("UIGradient", {
+		Color = ColorSequence.new(top, bottom),
+		Rotation = rot or 90,
+	}, inst)
+end
+-- glossy highlight across the top of a card — a white gradient that fades out
+local function sheen(cardFrame: Instance, radius: number)
+	local s = new("Frame", {
+		Name = "Sheen",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 0.5),
+		ZIndex = 1,
+	}, cardFrame)
+	corner(s, radius)
+	new("UIGradient", {
+		Color = ColorSequence.new(Color3.new(1, 1, 1)),
+		Rotation = 90,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.78),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	}, s)
+	return s
+end
+local function textStroke(lbl: Instance, thickness: number?, transparency: number?)
+	new("UIStroke", {
+		Color = Color3.fromRGB(15, 16, 22),
+		Thickness = thickness or 1.6,
+		Transparency = transparency or 0.25,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,
+	}, lbl)
+end
+
 local function buildShopPanel(parent: Instance)
 	local shop = panel("ShopPanel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromScale(0.66, 0.84),
+		BackgroundColor3 = C.Bg,
 		Visible = false,
 	}, parent)
-	new("UISizeConstraint", { MaxSize = Vector2.new(900, 680) }, shop)
-	-- gold frame: the shop should read as the premium screen
-	stroke(shop, C.Gold, 2.5)
+	new("UISizeConstraint", { MaxSize = Vector2.new(900, 700) }, shop)
+	corner(shop, 14)
+	-- thick gold frame + a subtle vertical gradient: reads as the premium screen
+	stroke(shop, C.Gold, 3)
+	grad(shop, Color3.fromRGB(40, 42, 54), Color3.fromRGB(22, 23, 30), 90)
 
 	local function capText(inst: Instance, maxSize: number)
 		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
 	end
 
-	-- title bar
+	-- title bar (gradient, gold title with a dark stroke, red X)
 	local titleBar = new("Frame", {
 		Name = "TitleBar",
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(1, 0.082),
 	}, shop)
-	corner(titleBar, 10)
+	corner(titleBar, 12)
+	grad(titleBar, Color3.fromRGB(46, 48, 60), Color3.fromRGB(28, 29, 38), 90)
 	local title = label("Title", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
@@ -1521,125 +1564,186 @@ local function buildShopPanel(parent: Instance)
 		TextColor3 = C.Gold,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, titleBar)
-	capText(title, 24)
-	button("CloseButton", {
+	textStroke(title, 2, 0.15)
+	capText(title, 26)
+	local close = button("CloseButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -8, 0.5, 0),
+		Position = UDim2.new(1, -10, 0.5, 0),
 		Size = UDim2.fromOffset(30, 30),
 		Text = "✕",
+		TextScaled = true,
 		BackgroundColor3 = C.Bad,
 	}, titleBar)
+	textStroke(close, 1.5, 0.2)
+	capText(close, 18)
 
-	-- scrolling body: SectionTemplate cloned per section, each holding a grid
+	-- scrolling body: SectionTemplate cloned per section
 	local body = new("ScrollingFrame", {
 		Name = "Body",
-		Position = UDim2.fromScale(0.02, 0.095),
-		Size = UDim2.fromScale(0.96, 0.895),
+		Position = UDim2.fromScale(0.025, 0.1),
+		Size = UDim2.fromScale(0.95, 0.88),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 	}, shop)
-	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, body)
+	new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }, body)
 
+	-- SectionTemplate: gold ribbon header, then a column of feature cards, then a
+	-- grid of the smaller packs. Renderer fills whichever it needs and hides the rest.
 	local section = new("Frame", {
 		Name = "SectionTemplate",
 		BackgroundTransparency = 1,
-		Size = UDim2.new(1, 0, 0, 210),
+		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		Visible = false, -- template
+		Visible = false,
 	}, body)
-	label("SectionHeader", {
-		Size = UDim2.new(1, 0, 0, 26),
-		Text = "SECTION",
-		TextSize = 15,
-		TextColor3 = C.Gold,
+	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, section)
+
+	-- gold ribbon header
+	local header = new("Frame", {
+		Name = "SectionHeader",
+		BackgroundColor3 = C.Gold,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 30),
+		LayoutOrder = 1,
 	}, section)
+	corner(header, 8)
+	grad(header, Color3.fromRGB(255, 208, 92), Color3.fromRGB(238, 150, 24), 90)
+	local headerLbl = label("Label", {
+		Position = UDim2.fromScale(0.02, 0),
+		Size = UDim2.fromScale(0.96, 1),
+		Text = "SECTION",
+		TextColor3 = Color3.fromRGB(40, 28, 6),
+		TextSize = 16,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, header)
+	textStroke(headerLbl, 1, 0.7)
+
+	-- feature-card column (wide hero cards)
+	local features = new("Frame", {
+		Name = "Features",
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = 2,
+	}, section)
+	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, features)
+
+	-- grid of medium cards
 	local grid = new("Frame", {
 		Name = "Grid",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(0, 30),
-		Size = UDim2.new(1, 0, 0, 180),
+		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
+		LayoutOrder = 3,
 	}, section)
 	new("UIGridLayout", {
-		CellSize = UDim2.fromOffset(150, 180),
-		CellPadding = UDim2.fromOffset(10, 10),
+		CellSize = UDim2.fromOffset(150, 196),
+		CellPadding = UDim2.fromOffset(12, 12),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, grid)
 
-	-- ── the one card template ────────────────────────────────────────────
+	--------------------------------------------------------------------------
+	-- MEDIUM CARD template (art on top, name/price below) — one per small pack
+	--------------------------------------------------------------------------
 	local card = new("Frame", {
 		Name = "OfferCard",
-		BackgroundColor3 = C.BgLight,
+		BackgroundColor3 = Color3.fromRGB(48, 44, 74),
 		BorderSizePixel = 0,
-		Visible = false, -- template
+		Visible = false,
 	}, grid)
-	corner(card, 8)
-	stroke(card, C.Stroke, 1.5)
-	local cardIcon = new("ImageLabel", {
+	corner(card, 12)
+	grad(card, Color3.fromRGB(62, 56, 100), Color3.fromRGB(32, 30, 46), 90)
+	stroke(card, C.Gem, 2)
+	sheen(card, 12)
+	-- soft circular halo behind the icon
+	local glow = new("Frame", {
+		Name = "IconGlow",
+		BackgroundColor3 = C.Gem,
+		BackgroundTransparency = 0.72,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.26),
+		Size = UDim2.fromScale(0.62, 0.34),
+		ZIndex = 2,
+	}, card)
+	corner(glow, 100)
+	new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.13),
-		Size = UDim2.fromScale(0.52, 0.38),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.26),
+		Size = UDim2.fromScale(0.5, 0.34),
 		ScaleType = Enum.ScaleType.Fit,
+		ZIndex = 3,
 	}, card)
 	local cardName = label("OfferName", {
-		Position = UDim2.fromScale(0.05, 0.025),
-		Size = UDim2.fromScale(0.9, 0.1),
+		Position = UDim2.fromScale(0.05, 0.46),
+		Size = UDim2.fromScale(0.9, 0.09),
 		Text = "Offer",
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 3,
 	}, card)
-	capText(cardName, 14)
-	-- contents line: gem amount tinted cyan
+	textStroke(cardName)
+	capText(cardName, 15)
 	local contents = label("Contents", {
-		Position = UDim2.fromScale(0.05, 0.53),
-		Size = UDim2.fromScale(0.9, 0.09),
+		Position = UDim2.fromScale(0.05, 0.55),
+		Size = UDim2.fromScale(0.9, 0.1),
 		Text = "",
 		TextScaled = true,
 		TextColor3 = C.Gem,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 3,
 	}, card)
-	capText(contents, 15)
-	-- gold "+N% BONUS" flourish
+	textStroke(contents)
+	capText(contents, 19)
+	-- gold "+N% BONUS" pill
 	local bonus = label("Bonus", {
-		Position = UDim2.fromScale(0.05, 0.625),
-		Size = UDim2.fromScale(0.9, 0.075),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.66),
+		Size = UDim2.fromScale(0.66, 0.08),
 		Text = "",
 		Font = FONT,
+		BackgroundColor3 = C.Gold,
+		BackgroundTransparency = 0,
 		TextScaled = true,
-		TextColor3 = C.Gold,
+		TextColor3 = Color3.fromRGB(40, 28, 6),
 		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+		ZIndex = 3,
 	}, card)
-	capText(bonus, 11)
-	-- limited-offer countdown
+	corner(bonus, 6)
+	grad(bonus, Color3.fromRGB(255, 208, 92), Color3.fromRGB(240, 160, 30), 90)
+	capText(bonus, 12)
 	local timeLeft = label("TimeLeft", {
-		Position = UDim2.fromScale(0.05, 0.70),
-		Size = UDim2.fromScale(0.9, 0.07),
+		Position = UDim2.fromScale(0.05, 0.745),
+		Size = UDim2.fromScale(0.9, 0.06),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,
 		TextColor3 = C.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 3,
 	}, card)
 	capText(timeLeft, 10)
-	-- strikethrough "was" price
 	local wasPrice = label("WasPrice", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.fromScale(0.5, 0.845),
-		Size = UDim2.fromScale(0.28, 0.07),
+		Position = UDim2.fromScale(0.5, 0.86),
+		Size = UDim2.fromScale(0.28, 0.06),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,
 		TextColor3 = C.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = 3,
 	}, card)
 	capText(wasPrice, 11)
-	new("Frame", { -- the strike line, shown/hidden with the label
+	new("Frame", {
 		Name = "Strike",
 		BackgroundColor3 = C.TextDim,
 		BorderSizePixel = 0,
@@ -1648,32 +1752,169 @@ local function buildShopPanel(parent: Instance)
 		Size = UDim2.new(1, 2, 0, 1),
 		Visible = false,
 	}, wasPrice)
-	-- green price CTA
+	-- green gradient BUY CTA
 	local buyBtn = button("BuyButton", {
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -8),
-		Size = UDim2.fromScale(0.86, 0.16),
+		Size = UDim2.fromScale(0.86, 0.15),
 		Text = "BUY",
 		TextScaled = true,
 		BackgroundColor3 = C.Good,
+		ZIndex = 3,
 	}, card)
-	capText(buyBtn, 14)
-	-- corner ribbon (BEST VALUE / LIMITED / -30%): sits on the icon's top-right
-	-- like a sticker, clear of the centered name label above it
+	grad(buyBtn, Color3.fromRGB(120, 232, 158), Color3.fromRGB(58, 178, 104), 90)
+	stroke(buyBtn, Color3.fromRGB(36, 130, 74), 1.5)
+	textStroke(buyBtn, 1.4, 0.2)
+	capText(buyBtn, 15)
 	local badge = label("Badge", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(1, 0.135),
-		Size = UDim2.fromScale(0.5, 0.1),
+		Position = UDim2.fromScale(1.01, 0.03),
+		Size = UDim2.fromScale(0.56, 0.11),
 		Text = "",
 		BackgroundColor3 = C.Warn,
 		BackgroundTransparency = 0,
 		TextScaled = true,
-		TextColor3 = C.Bg,
+		TextColor3 = Color3.fromRGB(40, 28, 6),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Visible = false,
+		ZIndex = 4,
 	}, card)
 	corner(badge, 6)
-	capText(badge, 10)
+	grad(badge, Color3.fromRGB(255, 208, 92), Color3.fromRGB(240, 150, 24), 90)
+	stroke(badge, Color3.fromRGB(180, 110, 10), 1)
+	capText(badge, 11)
+
+	--------------------------------------------------------------------------
+	-- FEATURE CARD template (wide hero: ribbon, big art left, text right)
+	--------------------------------------------------------------------------
+	local feat = new("Frame", {
+		Name = "FeatureCard",
+		BackgroundColor3 = Color3.fromRGB(52, 46, 82),
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 160),
+		Visible = false,
+	}, features)
+	corner(feat, 14)
+	grad(feat, Color3.fromRGB(70, 60, 116), Color3.fromRGB(34, 31, 50), 90)
+	stroke(feat, C.Gold, 2.5)
+	sheen(feat, 14)
+	-- ribbon header
+	local ribbon = new("Frame", {
+		Name = "Ribbon",
+		BackgroundColor3 = C.Gold,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 32),
+		ZIndex = 3,
+	}, feat)
+	corner(ribbon, 12)
+	grad(ribbon, Color3.fromRGB(255, 208, 92), Color3.fromRGB(238, 150, 24), 90)
+	local ribbonLbl = label("RibbonText", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.96, 0.9),
+		Text = "FEATURED",
+		TextColor3 = Color3.fromRGB(40, 28, 6),
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 4, -- Global ZIndexBehavior: must beat the ribbon frame (3)
+	}, ribbon)
+	textStroke(ribbonLbl, 1, 0.6)
+	capText(ribbonLbl, 17)
+	-- big art on the left, with halo
+	new("Frame", {
+		Name = "IconGlow",
+		BackgroundColor3 = C.Gem,
+		BackgroundTransparency = 0.7,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.18, 0.62),
+		Size = UDim2.fromOffset(104, 104),
+		ZIndex = 2,
+	}, feat)
+	corner(feat:FindFirstChild("IconGlow") :: any, 100)
+	new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.18, 0.62),
+		Size = UDim2.fromOffset(96, 96),
+		ScaleType = Enum.ScaleType.Fit,
+		ZIndex = 3,
+	}, feat)
+	-- text block on the right
+	local fName = label("OfferName", {
+		Position = UDim2.fromScale(0.36, 0.28),
+		Size = UDim2.fromScale(0.6, 0.16),
+		Text = "Offer",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 3,
+	}, feat)
+	textStroke(fName)
+	capText(fName, 22)
+	local fContents = label("Contents", {
+		Position = UDim2.fromScale(0.36, 0.46),
+		Size = UDim2.fromScale(0.6, 0.15),
+		Text = "",
+		TextScaled = true,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 3,
+	}, feat)
+	textStroke(fContents)
+	capText(fContents, 24)
+	local fBonus = label("Bonus", {
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.fromScale(0.36, 0.63),
+		Size = UDim2.fromScale(0.26, 0.15),
+		Text = "",
+		Font = FONT,
+		BackgroundColor3 = C.Gold,
+		BackgroundTransparency = 0,
+		TextScaled = true,
+		TextColor3 = Color3.fromRGB(40, 28, 6),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+		ZIndex = 3,
+	}, feat)
+	corner(fBonus, 6)
+	grad(fBonus, Color3.fromRGB(255, 208, 92), Color3.fromRGB(240, 160, 30), 90)
+	capText(fBonus, 13)
+	local fWas = label("WasPrice", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.fromScale(0.7, 0.87),
+		Size = UDim2.fromScale(0.16, 0.1),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		ZIndex = 3,
+	}, feat)
+	capText(fWas, 13)
+	new("Frame", {
+		Name = "Strike",
+		BackgroundColor3 = C.TextDim,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, 2, 0, 1),
+		Visible = false,
+	}, fWas)
+	local fBuy = button("BuyButton", {
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -14, 1, -14),
+		Size = UDim2.fromScale(0.26, 0.26),
+		Text = "BUY",
+		TextScaled = true,
+		BackgroundColor3 = C.Good,
+		ZIndex = 3,
+	}, feat)
+	grad(fBuy, Color3.fromRGB(120, 232, 158), Color3.fromRGB(58, 178, 104), 90)
+	stroke(fBuy, Color3.fromRGB(36, 130, 74), 1.5)
+	textStroke(fBuy, 1.4, 0.2)
+	capText(fBuy, 18)
 
 	label("EmptyLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
