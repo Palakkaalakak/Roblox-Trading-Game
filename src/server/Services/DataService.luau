@@ -98,6 +98,98 @@ local function mailboxKey(userId: number): string
 end
 
 --------------------------------------------------------------------------------
+-- Offline debit
+--------------------------------------------------------------------------------
+
+-- Take goods/gems from a player who is NOT in this server.
+--
+-- The mailbox can credit an absent player, but a debit has to be conditional —
+-- it must fail if they no longer hold the goods — so it goes straight at the
+-- profile key with a CAS transform. That is safe precisely because the profile
+-- is session-locked: a live lock owned by another server means that server has
+-- the profile in memory and would clobber our write on its next save, so we
+-- refuse ("busy") and the caller retries later. No lock (or an expired one)
+-- means nobody owns it and the detached write is authoritative.
+--
+-- `claimId` is recorded in ClaimedIds exactly like InventoryService.applyDelta,
+-- so a retried debit is a no-op success rather than a double charge.
+--
+-- Returns (true) on success, or (false, reason) where reason is one of
+-- "loaded_here" (use the normal path), "busy", "insufficient", "store_error".
+function DataService.debitOffline(
+	userId: number,
+	items: { [string]: number },
+	gems: number,
+	claimId: string
+): (boolean, string?)
+	if loadedPlayers[userId] then
+		return false, "loaded_here"
+	end
+
+	local key = profileKey(userId)
+	local record = profileStore:peek(key)
+	local now = os.time()
+	if record and record.Lock and record.Lock.expiry and record.Lock.expiry > now then
+		return false, "busy" -- live somewhere else; their save would overwrite us
+	end
+	if record == nil or record.Data == nil then
+		return false, "insufficient" -- never played / nothing to take
+	end
+
+	local outcome: string? = nil
+	local ok = profileStore:updateDetached(key, function(old)
+		if old == nil or old.Data == nil then
+			outcome = "insufficient"
+			return nil
+		end
+		-- re-check the lock inside the transform: they may have joined a server
+		-- between the peek above and this write
+		if old.Lock and old.Lock.expiry and old.Lock.expiry > os.time() then
+			outcome = "busy"
+			return nil
+		end
+		local data = migrate(old.Data)
+		data.ClaimedIds = data.ClaimedIds or {}
+		if data.ClaimedIds[claimId] then
+			outcome = nil -- already taken; treat as success
+			return nil
+		end
+		-- affordability, checked against the stored profile
+		if gems > 0 and (data.Gems or 0) < gems then
+			outcome = "insufficient"
+			return nil
+		end
+		data.Inventory = data.Inventory or {}
+		for itemId, count in items do
+			if (data.Inventory[itemId] or 0) < count then
+				outcome = "insufficient"
+				return nil
+			end
+		end
+		-- commit
+		if gems > 0 then
+			data.Gems -= gems
+		end
+		for itemId, count in items do
+			local left = (data.Inventory[itemId] or 0) - count
+			data.Inventory[itemId] = left ~= 0 and left or nil
+		end
+		data.ClaimedIds[claimId] = true
+		old.Data = data
+		return old
+	end)
+
+	if not ok then
+		return false, "store_error"
+	end
+	if outcome ~= nil then
+		return false, outcome
+	end
+	AnalyticsService.log("offline_debit", { userId = userId, gems = gems, items = items, claimId = claimId })
+	return true, nil
+end
+
+--------------------------------------------------------------------------------
 -- Mailbox
 --------------------------------------------------------------------------------
 

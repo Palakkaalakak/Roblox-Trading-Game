@@ -166,6 +166,22 @@ function BotService.applyDelta(botId: number, delta: { items: { [string]: number
 	return true, nil
 end
 
+-- Dry run of applyDelta's sufficiency rules: can this bot cover a POSITIVE
+-- offer right now? Mirrors InventoryService.canAfford so board code can check a
+-- bot and a player through one path.
+function BotService.canAfford(botId: number, offer: { items: { [string]: number }, gems: number }): (boolean, string?)
+	local state = getState(botId)
+	if state.gems < (offer.gems or 0) then
+		return false, "insufficient_gems"
+	end
+	for itemId, count in offer.items do
+		if (state.inventory[itemId] or 0) < count then
+			return false, "insufficient_items:" .. itemId
+		end
+	end
+	return true, nil
+end
+
 function BotService.credit(botId: number, items: { [string]: number }, gems: number, claimId: string): boolean
 	return (BotService.applyDelta(botId, { items = items, gems = gems }, "board", claimId))
 end

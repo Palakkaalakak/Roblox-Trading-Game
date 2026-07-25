@@ -1,9 +1,24 @@
 --!strict
 -- TradeBoardService: the central pillar of outstanding trades.
 --
+-- NO ESCROW. A listing is a PROMISE, not a deposit: posting only checks you
+-- currently hold the goods, and they stay in your inventory — still usable,
+-- still tradeable, still rollable — until something actually settles. The take
+-- happens at settlement, and it is the real check:
+--   * poster is in this server  -> normal profile delta
+--   * poster is offline         -> conditional CAS write straight at their
+--                                  profile key (safe because the profile is
+--                                  session-locked, so "no live lock" means
+--                                  nobody owns it) — see DataService.debitOffline
+--   * poster is live elsewhere  -> we refuse ("busy") and the listing goes back
+--                                  on the board to settle on a later attempt
+-- If the take fails for any other reason, the poster can't cover the promise
+-- any more (they spent it, traded it, burned it), so the LISTING IS CANCELLED
+-- and nobody is paid for something that isn't there.
+--
 -- SWAP listings — "this for that", posted when nobody in the server wants it:
---   * posting ESCROWS the give-side immediately (removed from the poster's
---     inventory into the listing), so offline settlement is always safe
+--   * posting checks the give-side is held; it is taken at settlement, from
+--     both sides, before either delivery happens
 --   * autoTrade = true : anyone who can pay the want-side accepts instantly;
 --     works with the poster offline (goods delivered via mailbox)
 --   * autoTrade = false: accepting registers INTEREST — the poster gets a
@@ -13,22 +28,22 @@
 --     instead of concrete items; any token forces the listing to ask-first,
 --     because a fuzzy want can't auto-settle. Tokens never appear on the give
 --     side and are never items.
---   * cancel/expiry refunds the escrow
+--   * cancel/expiry just withdraws the promise — there is nothing to refund
 --
 -- BULK listings — gems-only buy orders for many copies of ONE item:
---   * posting escrows count x gemsPerCopy
+--   * posting checks you can cover count x gemsPerCopy; the gems stay spendable
 --   * anyone contributes copies; each copy pays out gemsPerCopy, minus the
 --     house gem tax; the poster's copies arrive via mailbox/direct
---   * order completes when filled; cancel refunds the remaining escrow
+--   * order completes when filled; cancel just withdraws it
 --
 -- SELL listings — gems-only SHOP: sell Z copies of ONE item at Y gems each:
---   * posting escrows the Z copies
+--   * posting checks you hold the Z copies; they stay yours until sold
 --   * any buyer purchases N (N<=remaining): pays N x Y gems, gets the copies;
 --     the seller receives N x Y minus house tax
 --   * this is a CLEAN gem-denominated price per item (the Robux-resale
 --     analogue) and is recorded straight into RAP — the most precise price
 --     signal in the economy, since no barter imputation is needed
---   * completes when sold out; cancel refunds remaining copies
+--   * completes when sold out; cancel just withdraws the remaining copies
 --
 -- All records live in a MemoryStore map (cross-server); every state change is
 -- a CAS transform, so double-accepts / double-fills are impossible.
@@ -167,6 +182,64 @@ local function actorDelta(userId: number, delta: any, source: string, key: strin
 		return false, "loading"
 	end
 	return InventoryService.applyDelta(player, delta, source, key)
+end
+
+-- Take goods/gems from a listing's poster, wherever they are. This is what
+-- replaces escrow: nothing is held when a listing is posted, so the goods are
+-- only moved at settlement, and the take is what proves the poster can still
+-- honour the listing.
+--
+--   bot            -> in-memory bot state
+--   loaded here    -> normal profile delta
+--   anywhere else  -> conditional CAS write straight at the profile key
+--
+-- Returns (true) or (false, reason). "busy" means the poster is live on another
+-- server right now and the caller should leave the listing alone and retry;
+-- anything else means they can no longer cover it and the listing is dead.
+local function takeFromPoster(
+	userId: number,
+	items: { [string]: number },
+	gems: number,
+	source: string,
+	claimId: string
+): (boolean, string?)
+	if userId < 0 then
+		local neg = {}
+		for itemId, count in items do
+			neg[itemId] = -count
+		end
+		return bots().applyDelta(userId, { items = neg, gems = -gems }, source, claimId)
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	if player and DataService.isLoaded(player) then
+		local neg = {}
+		for itemId, count in items do
+			neg[itemId] = -count
+		end
+		local ok, err = InventoryService.applyDelta(player, { items = neg, gems = -gems }, source, claimId)
+		if ok then
+			task.spawn(function()
+				DataService.saveNow(player)
+			end)
+		end
+		return ok, err
+	end
+	return DataService.debitOffline(userId, items, gems, claimId)
+end
+
+-- Does this user hold all of it right now? Used at POST time only — a listing
+-- is a promise, and this stops you promising something you never had. It is
+-- deliberately not a reservation: the goods stay yours until settlement, and
+-- the take at settlement is the real check.
+local function posterHolds(userId: number, items: { [string]: number }, gems: number): (boolean, string?)
+	if userId < 0 then
+		return bots().canAfford(userId, { items = items, gems = gems })
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	if player == nil or not DataService.isLoaded(player) then
+		return false, "loading"
+	end
+	return InventoryService.canAfford(player, { items = items, gems = gems })
 end
 
 local function actorSave(userId: number)
@@ -319,9 +392,10 @@ end
 -- poster, and bid price >= ask price — return the execution terms, else nil.
 --
 -- Execution is at the RESTING (maker) order's price, so the taker gets price
--- improvement: a seller who crosses a higher resting bid is paid the bid; a
--- buyer who crosses a lower resting ask pays the ask and is refunded the
--- difference from their escrow (refundPerCopy). Pure — fully unit-testable.
+-- improvement: a seller who crosses a higher resting bid is paid the bid, and a
+-- buyer who crosses a lower resting ask pays only the ask. Nothing is escrowed,
+-- so the buyer is simply charged the execution price — there is no difference to
+-- refund. Pure — fully unit-testable.
 function TradeBoardService.crossTerms(incoming: any, resting: any): any?
 	if incoming.itemId ~= resting.itemId or incoming.posterId == resting.posterId then
 		return nil
@@ -337,16 +411,15 @@ function TradeBoardService.crossTerms(incoming: any, resting: any): any?
 	if bid.gemsPerCopy < ask.gemsPerCopy then
 		return nil -- spread not crossed
 	end
-	local execPrice = resting.gemsPerCopy
 	return {
 		askId = ask.id,
 		bidId = bid.id,
-		execPrice = execPrice,
-		refundPerCopy = bid.gemsPerCopy - execPrice, -- 0 unless the ask is the maker
+		execPrice = resting.gemsPerCopy,
 	}
 end
 
 local cancelListing -- fwd decl (defined below; scan lazy-expires through it)
+local reopenOrCancel -- fwd decl (defined with the crossing code, used by tryMatch)
 
 -- Newest-first scan over the WHOLE board: in-memory bot listings merged with
 -- the paged MemoryStore player map (both key-sorted descending; ids are
@@ -430,19 +503,8 @@ cancelListing = function(listing: any, reason: string): boolean
 		return false
 	end
 	BookIndex.apply(bookIndex, committed)
-	if committed.kind == "swap" then
-		deliver(committed.posterId, committed.give.items, committed.give.gems, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
-	elseif committed.kind == "sell" then
-		-- return the unsold copies
-		if committed.remainingCount > 0 then
-			deliver(committed.posterId, { [committed.itemId] = committed.remainingCount }, 0, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
-		end
-	else -- bulk
-		local refund = committed.remainingCount * committed.gemsPerCopy
-		if refund > 0 then
-			deliver(committed.posterId, {}, refund, Enums.GrantSource.Refund, "board_refund_" .. committed.id)
-		end
-	end
+	-- Nothing to refund: without escrow a resting listing never held anything.
+	-- Cancelling (or expiring) just withdraws the promise.
 	AnalyticsService.log("board_cancelled", { id = committed.id, reason = reason })
 	-- Terminal: drop the key entirely. The MemoryStore memory quota is
 	-- experience-wide and small — leaving cancelled/done rows in place
@@ -640,18 +702,12 @@ local function postCore(userId: number, userName: string, payload: any)
 			return { ok = false, err = offersErr }
 		end
 
-		-- escrow the give side NOW (this is what makes offline auto-trade safe)
-		local negItems = {}
-		for itemId, count in payload.give.items do
-			negItems[itemId] = -count
-		end
-		local escrowed, escrowErr = actorDelta(
-			userId,
-			{ items = negItems, gems = -payload.give.gems },
-			Enums.GrantSource.Board
-		)
-		if not escrowed then
-			return { ok = false, err = escrowErr }
+		-- NO ESCROW: the give side stays in the poster's inventory and remains
+		-- theirs to use. We only check they hold it right now, so you can't list
+		-- what you don't have; it's taken at settlement instead.
+		local holdsIt, holdErr = posterHolds(userId, payload.give.items, payload.give.gems)
+		if not holdsIt then
+			return { ok = false, err = holdErr }
 		end
 
 		listing = {
@@ -682,9 +738,10 @@ local function postCore(userId: number, userName: string, payload: any)
 			return { ok = false, err = "gems_too_low" } -- must pay >= 1 gem per copy
 		end
 
-		local escrowed, escrowErr = actorDelta(userId, { gems = -escrow }, Enums.GrantSource.Bulk)
-		if not escrowed then
-			return { ok = false, err = escrowErr }
+		-- no escrow: the gems stay spendable until copies actually arrive
+		local holdsIt, holdErr = posterHolds(userId, {}, escrow)
+		if not holdsIt then
+			return { ok = false, err = holdErr }
 		end
 
 		listing = {
@@ -711,14 +768,10 @@ local function postCore(userId: number, userName: string, payload: any)
 			return { ok = false, err = "bad_price" }
 		end
 
-		-- escrow the copies being sold
-		local escrowed, escrowErr = actorDelta(
-			userId,
-			{ items = { [payload.itemId] = -payload.count } },
-			Enums.GrantSource.Board
-		)
-		if not escrowed then
-			return { ok = false, err = escrowErr }
+		-- no escrow: the copies stay usable/tradeable while they sit for sale
+		local holdsIt, holdErr = posterHolds(userId, { [payload.itemId] = payload.count }, 0)
+		if not holdsIt then
+			return { ok = false, err = holdErr }
 		end
 
 		listing = {
@@ -757,14 +810,7 @@ local function postCore(userId: number, userName: string, payload: any)
 		BookIndex.apply(bookIndex, listing)
 	end
 	if not stored then
-		-- give the escrow back; posting failed
-		if listing.kind == "swap" then
-			actorDelta(userId, { items = listing.give.items, gems = listing.give.gems }, Enums.GrantSource.Refund)
-		elseif listing.kind == "sell" then
-			actorDelta(userId, { items = { [listing.itemId] = listing.remainingCount } }, Enums.GrantSource.Refund)
-		else -- bulk
-			actorDelta(userId, { gems = listing.remainingCount * listing.gemsPerCopy }, Enums.GrantSource.Refund)
-		end
+		-- nothing to give back: without escrow the goods never left the poster
 		return { ok = false, err = "store_error" }
 	end
 	actorSave(userId)
@@ -837,7 +883,27 @@ function TradeBoardService.tryMatch(listing: any)
 		return
 	end
 
-	-- swap the escrows (gem tax on each receiving side)
+	-- No escrow, so take BOTH give-sides first and only deliver if both succeed.
+	-- If either poster can no longer cover their side, that listing is dead: it
+	-- gets cancelled and anything already taken is handed straight back.
+	local tookMine, mineErr = takeFromPoster(
+		mine.posterId, mine.give.items, mine.give.gems, Enums.GrantSource.Board, "board_match_take_" .. mine.id)
+	if not tookMine then
+		reopenOrCancel(mine, mineErr)
+		reopenOrCancel(theirs, "partner_gone")
+		return
+	end
+	local tookTheirs, theirsErr = takeFromPoster(
+		theirs.posterId, theirs.give.items, theirs.give.gems, Enums.GrantSource.Board, "board_match_take_" .. theirs.id)
+	if not tookTheirs then
+		-- give the first side back untouched, then drop whichever listing failed
+		deliver(mine.posterId, mine.give.items, mine.give.gems, Enums.GrantSource.Refund, "board_match_undo_" .. mine.id)
+		reopenOrCancel(theirs, theirsErr)
+		reopenOrCancel(mine, "partner_gone")
+		return
+	end
+
+	-- both sides secured: deliver (gem tax on each receiving side)
 	local aNet = Tax.split(theirs.give.gems)
 	deliver(mine.posterId, theirs.give.items, aNet, Enums.GrantSource.Board, "board_match_" .. mine.id)
 	local bNet = Tax.split(mine.give.gems)
@@ -899,11 +965,34 @@ local function unreserveCopies(id: string, qty: number): any
 	end)
 end
 
+-- A settlement take failed. "busy" is transient — the poster is live on another
+-- server this instant — so the listing goes back on the board and will settle on
+-- a later attempt. Any other reason means they can't cover it any more (spent,
+-- traded away, deleted), so the listing is cancelled: this is the promise-based
+-- model's whole point, per "if the item's gone, just remove the offer".
+reopenOrCancel = function(listing: any, reason: string?)
+	if reason == "busy" or reason == "loading" then
+		local reopened = mutate(listing.id, function(l)
+			if l.status == "claimed" then
+				l.status = "open"
+				l.v += 1
+				return l
+			end
+			return nil, "not_claimed"
+		end)
+		if reopened then
+			BookIndex.apply(bookIndex, reopened)
+		end
+		return
+	end
+	cancelListing(listing, "poster_cannot_cover")
+end
+
 -- Execute ONE cross between a resting ask (sell) and bid (bulk) at execPrice.
 -- Reserves min-available on both (revert on shortfall), delivers copies to the
 -- buyer, taxed gems to the seller, refunds the buyer's over-escrow, records the
 -- clean price into RAP, and drops any listing that filled. Returns copies traded.
-local function crossFillOnce(askId: string, bidId: string, execPrice: number, refundPerCopy: number): number
+local function crossFillOnce(askId: string, bidId: string, execPrice: number): number
 	local a = getListing(askId)
 	local b = getListing(bidId)
 	if a == nil or b == nil or a.status ~= "open" or b.status ~= "open" then
@@ -942,16 +1031,42 @@ local function crossFillOnce(askId: string, bidId: string, execPrice: number, re
 
 	-- unique per fill between this pair: remaining strictly decreases each time
 	local nonce = ("%d_%d"):format(askCommit.remainingCount, bidCommit.remainingCount)
+
+	-- No escrow: take the copies off the seller and the gems off the buyer
+	-- BEFORE anything is delivered. The buyer is only ever charged the execution
+	-- price, so there is no over-escrow to refund any more.
+	local gross = q * execPrice
+	local tookCopies, copiesErr = takeFromPoster(
+		askCommit.posterId, { [itemId] = q }, 0, Enums.GrantSource.Board,
+		("cross_take_copies_%s_%s_%s"):format(askId, bidId, nonce))
+	if not tookCopies then
+		local revA = unreserveCopies(askId, q)
+		if revA then BookIndex.apply(bookIndex, revA) end
+		local revB = unreserveCopies(bidId, q)
+		if revB then BookIndex.apply(bookIndex, revB) end
+		reopenOrCancel(askCommit, copiesErr)
+		return 0
+	end
+	local tookGems, gemsErr = takeFromPoster(
+		bidCommit.posterId, {}, gross, Enums.GrantSource.Board,
+		("cross_take_gems_%s_%s_%s"):format(askId, bidId, nonce))
+	if not tookGems then
+		-- hand the seller's copies straight back, then restore both books
+		deliver(askCommit.posterId, { [itemId] = q }, 0, Enums.GrantSource.Refund,
+			("cross_undo_copies_%s_%s_%s"):format(askId, bidId, nonce))
+		local revA = unreserveCopies(askId, q)
+		if revA then BookIndex.apply(bookIndex, revA) end
+		local revB = unreserveCopies(bidId, q)
+		if revB then BookIndex.apply(bookIndex, revB) end
+		reopenOrCancel(bidCommit, gemsErr)
+		return 0
+	end
+
 	-- copies to the buyer
 	deliver(bidCommit.posterId, { [itemId] = q }, 0, Enums.GrantSource.Board, ("cross_copies_%s_%s_%s"):format(askId, bidId, nonce))
 	-- taxed gems to the seller
-	local gross = q * execPrice
 	local net, cut = Tax.split(gross)
 	deliver(askCommit.posterId, {}, net, Enums.GrantSource.Board, ("cross_pay_%s_%s_%s"):format(askId, bidId, nonce))
-	-- refund the buyer's over-escrow (their bid above the exec price), untaxed
-	if refundPerCopy > 0 then
-		deliver(bidCommit.posterId, {}, refundPerCopy * q, Enums.GrantSource.Refund, ("cross_refund_%s_%s_%s"):format(askId, bidId, nonce))
-	end
 	actorSave(askCommit.posterId)
 	actorSave(bidCommit.posterId)
 
@@ -998,7 +1113,7 @@ function TradeBoardService.tryCross(incoming: any)
 		if terms == nil then
 			return -- nothing crosses; the remainder rests on the book
 		end
-		local q = crossFillOnce(terms.askId, terms.bidId, terms.execPrice, terms.refundPerCopy)
+		local q = crossFillOnce(terms.askId, terms.bidId, terms.execPrice)
 		if q <= 0 then
 			-- the index row was stale (filled elsewhere); resync it from the
 			-- authoritative record, or evict it, then try the next maker
@@ -1176,8 +1291,31 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 		return { ok = false, err = payErr }
 	end
 
-	-- pay out (taxed) + ship copies to the poster
+	-- No escrow: take the gems off the buy-order's poster before paying anyone.
+	-- If they can't cover it any more, undo the contributor's copies and drop
+	-- the order.
 	local gross = taken * committed.gemsPerCopy
+	local tookGems, gemsErr = takeFromPoster(
+		committed.posterId, {}, gross, Enums.GrantSource.Bulk,
+		("bulk_take_%s_%d_%d"):format(id, userId, committed.remainingCount))
+	if not tookGems then
+		actorDelta(userId, { items = { [committed.itemId] = taken } }, Enums.GrantSource.Refund)
+		local reverted = mutate(id, function(l)
+			l.remainingCount += taken
+			if l.status == "done" then
+				l.status = "open"
+			end
+			l.v += 1
+			return l
+		end)
+		if reverted then
+			BookIndex.apply(bookIndex, reverted)
+			reopenOrCancel(reverted, gemsErr)
+		end
+		return { ok = false, err = gemsErr == "busy" and "poster_busy" or "poster_cannot_pay" }
+	end
+
+	-- pay out (taxed) + ship copies to the poster
 	local net, cut = Tax.split(gross)
 	actorDelta(userId, { gems = net }, Enums.GrantSource.Bulk)
 	actorSave(userId)
@@ -1252,6 +1390,29 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 			BookIndex.apply(bookIndex, reverted)
 		end
 		return { ok = false, err = payErr }
+	end
+
+	-- No escrow: take the copies off the seller before handing them over. If the
+	-- seller no longer has them, refund the buyer's gems and drop the listing —
+	-- the promise went stale, so the offer disappears.
+	local tookCopies, copiesErr = takeFromPoster(
+		committed.posterId, { [committed.itemId] = taken }, 0, Enums.GrantSource.Board,
+		("sell_take_%s_%d_%d"):format(id, userId, committed.remainingCount))
+	if not tookCopies then
+		actorDelta(userId, { gems = spent }, Enums.GrantSource.Refund)
+		local reverted = mutate(id, function(l)
+			l.remainingCount += taken
+			if l.status == "done" then
+				l.status = "open"
+			end
+			l.v += 1
+			return l
+		end)
+		if reverted then
+			BookIndex.apply(bookIndex, reverted)
+			reopenOrCancel(reverted, copiesErr)
+		end
+		return { ok = false, err = copiesErr == "busy" and "seller_busy" or "seller_no_longer_has_it" }
 	end
 
 	-- deliver copies to the buyer, pay the seller (taxed)
