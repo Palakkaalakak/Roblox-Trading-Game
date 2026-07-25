@@ -2095,10 +2095,10 @@ local function buildFreeGemsPanel(parent: Instance)
 	local free = panel("FreeGemsPanel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.46, 0.5),
+		Size = UDim2.fromScale(0.46, 0.6),
 		Visible = false,
 	}, parent)
-	new("UISizeConstraint", { MaxSize = Vector2.new(560, 420) }, free)
+	new("UISizeConstraint", { MaxSize = Vector2.new(560, 500) }, free)
 	stroke(free, C.Gem, 2.5) -- cyan frame: visually its own thing
 
 	local function capText(inst: Instance, maxSize: number)
@@ -2140,8 +2140,8 @@ local function buildFreeGemsPanel(parent: Instance)
 		Name = "BarTrack",
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Position = UDim2.fromScale(0, 0.24),
-		Size = UDim2.fromScale(1, 0.14),
+		Position = UDim2.fromScale(0, 0.17),
+		Size = UDim2.fromScale(1, 0.12),
 	}, goal)
 	corner(track, 8)
 	stroke(track, C.Stroke, 1)
@@ -2153,17 +2153,37 @@ local function buildFreeGemsPanel(parent: Instance)
 	}, track)
 	corner(fill, 8)
 	local progress = label("ProgressLabel", {
-		Position = UDim2.fromScale(0, 0.42),
-		Size = UDim2.fromScale(1, 0.12),
+		Position = UDim2.fromScale(0, 0.31),
+		Size = UDim2.fromScale(1, 0.1),
 		Text = "0 / 2,000 players",
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, goal)
 	capText(progress, 16)
 	local blurb = label("GoalBlurb", {
-		Position = UDim2.fromScale(0, 0.58),
-		Size = UDim2.fromScale(1, 0.34),
-		Text = "When we reach 2,000 players, free gems unlock for everyone — watch a short ad, get gems.",
+		Position = UDim2.fromScale(0, 0.43),
+		Size = UDim2.fromScale(1, 0.15),
+		Text = "When we reach 2000 players ANYONE will be able to get gems with just a few ads!",
+		TextScaled = true,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, goal)
+	capText(blurb, 14)
+	-- invite: the one thing a player can actually DO to move the bar
+	local inviteBtn = button("InviteButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.75),
+		Size = UDim2.fromScale(0.72, 0.14),
+		Text = "INVITE FRIENDS",
+		TextScaled = true,
+		BackgroundColor3 = C.Gem,
+	}, goal)
+	capText(inviteBtn, 17)
+	local inviteBlurb = label("InviteBlurb", {
+		Position = UDim2.fromScale(0, 0.905),
+		Size = UDim2.fromScale(1, 0.095),
+		Text = "Invite your friends to get to the goal faster!",
 		Font = FONT_LIGHT,
 		TextScaled = true,
 		TextColor3 = C.TextDim,
@@ -2171,7 +2191,18 @@ local function buildFreeGemsPanel(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextYAlignment = Enum.TextYAlignment.Top,
 	}, goal)
-	capText(blurb, 13)
+	capText(inviteBlurb, 12)
+	local bonusBlurb = label("BonusBlurb", {
+		Position = UDim2.fromScale(0, 0.59),
+		Size = UDim2.fromScale(1, 0.14),
+		Text = "",
+		TextScaled = true,
+		TextColor3 = C.Gold,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, goal)
+	capText(bonusBlurb, 12)
 
 	-- ── unlocked (watch-ad) state ────────────────────────────────────────
 	local watch = new("Frame", {

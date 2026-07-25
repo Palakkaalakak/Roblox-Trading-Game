@@ -217,6 +217,70 @@ return {
 			eq(TBS.crossTerms(ask, ask2), nil, "ask vs ask never crosses")
 		end,
 
+		["ads: community goal gates the reward and the bar clamps"] = function()
+			local AdConfig = require(ReplicatedStorage.Shared.Config.AdConfig)
+			local target = AdConfig.CommunityGoalTarget
+			assert(target > 0, "goal target must be positive")
+
+			eq(AdConfig.goalMet(0), false, "no players: locked")
+			eq(AdConfig.goalMet(target - 1), false, "one short: still locked")
+			eq(AdConfig.goalMet(target), true, "exactly on target: unlocked")
+			eq(AdConfig.goalMet(target * 3), true, "past target: unlocked")
+
+			eq(AdConfig.goalProgress(0), 0, "empty bar")
+			eq(AdConfig.goalProgress(target), 1, "full bar")
+			-- never overflows the bar once the goal is passed
+			eq(AdConfig.goalProgress(target * 5), 1, "progress clamps at 1")
+			local half = AdConfig.goalProgress(target / 2)
+			assert(half > 0.49 and half < 0.51, "half way, got " .. tostring(half))
+
+			-- the reward must be worth claiming and the cap must be finite,
+			-- otherwise the faucet is either pointless or unbounded
+			assert(AdConfig.RewardGems > 0, "reward must be positive")
+			assert(AdConfig.DailyCap > 0, "daily cap must be positive")
+			assert(AdConfig.CooldownSeconds >= 0, "cooldown cannot be negative")
+		end,
+
+		["ads: referral bonus pays extra only for the first N watches"] = function()
+			local AdConfig = require(ReplicatedStorage.Shared.Config.AdConfig)
+			local base = AdConfig.RewardGems
+			local cap = AdConfig.ReferralBonusWatches
+			local boosted = math.floor(base * (1 + AdConfig.ReferralBonusPercent / 100))
+			assert(boosted > base, "bonus must actually pay more")
+
+			-- no bonus earned: always the base reward, however many watches
+			eq(AdConfig.rewardFor(false, 0), base, "unearned, first watch")
+			eq(AdConfig.rewardFor(false, cap + 99), base, "unearned, later watch")
+
+			-- earned: boosted right up to the cap, base from the cap onward
+			eq(AdConfig.rewardFor(true, 0), boosted, "earned, first watch")
+			eq(AdConfig.rewardFor(true, cap - 1), boosted, "earned, last bonus watch")
+			eq(AdConfig.rewardFor(true, cap), base, "cap reached: back to base")
+			eq(AdConfig.rewardFor(true, cap + 5), base, "well past the cap")
+
+			-- the threshold itself
+			eq(AdConfig.referralBonusEarned(AdConfig.ReferralsNeeded - 1), false, "one friend short")
+			eq(AdConfig.referralBonusEarned(AdConfig.ReferralsNeeded), true, "exactly enough friends")
+			eq(AdConfig.referralBonusEarned(AdConfig.ReferralsNeeded + 10), true, "more than enough")
+		end,
+
+		["referrals: only well-formed invite data names an inviter"] = function()
+			local Referral = require(script.Parent.Parent.Services.ReferralService)
+			eq(Referral.parseReferrer("ref_12345"), 12345, "valid referral tag")
+			eq(Referral.launchDataFor(12345), "ref_12345", "round-trips")
+			eq(Referral.parseReferrer(Referral.launchDataFor(777)), 777, "round-trip parse")
+			-- anything else means "nobody referred them", never an error
+			eq(Referral.parseReferrer(nil), nil, "no launch data")
+			eq(Referral.parseReferrer(""), nil, "empty")
+			eq(Referral.parseReferrer("12345"), nil, "missing prefix")
+			eq(Referral.parseReferrer("ref_"), nil, "missing id")
+			eq(Referral.parseReferrer("ref_abc"), nil, "non-numeric id")
+			eq(Referral.parseReferrer("ref_12345_extra"), nil, "trailing junk")
+			eq(Referral.parseReferrer("xref_12345"), nil, "leading junk")
+			eq(Referral.parseReferrer("ref_0"), nil, "zero is not a user")
+			eq(Referral.parseReferrer(12345), nil, "non-string")
+		end,
+
 		["perks: listing order honors boost then recency"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
 			local order = TradeBoardService.listingOrder

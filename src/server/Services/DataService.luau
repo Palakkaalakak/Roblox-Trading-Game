@@ -17,7 +17,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local SessionStore = require(script.Parent.Parent.Stores.SessionStore)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
-local SCHEMA_VERSION = 2
+local SCHEMA_VERSION = 3
 
 local DataService = {}
 
@@ -48,6 +48,15 @@ local function template()
 		Status = "",
 		Privacy = { hideValue = false, hideShowcase = false },
 		Lifetime = { gemsEarned = 0, trades = 0 },
+		-- v3: rewarded-ad counters. `day` is a UTC day stamp, so the daily cap
+		-- resets simply by no longer matching — no scheduled job needed.
+		Ads = { day = "", count = 0, lastAt = 0, bonusUsed = 0 },
+		-- v3: referrals. `ids` is the set of players this account brought in
+		-- (deduped, so re-inviting the same friend can't farm the bonus);
+		-- `referredBy` is who brought THIS account, set once on first join.
+		Referrals = { count = 0, ids = {} },
+		ReferredBy = 0,
+		ReferralBonus = false, -- earned the +% on first watches
 	}
 end
 
@@ -60,6 +69,15 @@ local migrations: { [number]: (any) -> any } = {
 		data.Privacy = data.Privacy or { hideValue = false, hideShowcase = false }
 		data.Lifetime = data.Lifetime or { gemsEarned = 0, trades = 0 }
 		data.SchemaVersion = 2
+		return data
+	end,
+	[2] = function(data)
+		data.Ads = data.Ads or { day = "", count = 0, lastAt = 0, bonusUsed = 0 }
+		data.Ads.bonusUsed = data.Ads.bonusUsed or 0
+		data.Referrals = data.Referrals or { count = 0, ids = {} }
+		data.ReferredBy = data.ReferredBy or 0
+		data.ReferralBonus = data.ReferralBonus or false
+		data.SchemaVersion = 3
 		return data
 	end,
 }
@@ -206,6 +224,18 @@ local function refreshSeenCache(force: boolean?)
 			seenCache = all
 		end
 	end)
+end
+
+-- How many DISTINCT players have ever joined. The seen directory is already a
+-- userId-keyed table kept warm by refreshSeenCache, so this is a count of keys,
+-- not a new DataStore read. Drives the community goal on the Free Gems screen.
+function DataService.uniquePlayerCount(): number
+	refreshSeenCache()
+	local n = 0
+	for _ in seenCache do
+		n += 1
+	end
+	return n
 end
 
 -- Search every player that has EVER joined the game: userId exact/prefix or

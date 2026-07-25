@@ -74,6 +74,8 @@ local Enums = {
 		"PromptPurchase", -- (offerId) -> {ok, err?} — server-side purchase prompt
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
 		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
+		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
+		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)
