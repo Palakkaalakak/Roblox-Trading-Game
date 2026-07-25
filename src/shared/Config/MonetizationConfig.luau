@@ -66,6 +66,19 @@ local MonetizationConfig = {
 	-- are skipped, so unreleased categories simply don't render yet.
 	SectionOrder = { "💎 GEM PACKS", "🎟 PASSES", "⭐ SUBSCRIPTIONS", "🎁 BUNDLES" },
 
+	-- Per-section card size, in pixels. Real shops don't use one card size for
+	-- everything — small packs sit 5-across, chunkier items get wide 3-across
+	-- cards with room for a longer name. Any section without an entry falls
+	-- back to the template's own size, so this is optional everywhere.
+	--   width  — cell width; the grid fits as many per row as the panel allows
+	--   height — cell height
+	SectionLayout = {
+		["💎 GEM PACKS"] = { width = 150, height = 196 },
+		["🎟 PASSES"] = { width = 236, height = 250 },
+		["⭐ SUBSCRIPTIONS"] = { width = 236, height = 250 },
+		["🎁 BUNDLES"] = { width = 236, height = 250 },
+	} :: { [string]: { width: number, height: number } },
+
 	Offers = {
 		-- ── Gem packs ────────────────────────────────────────────────────
 		-- Escalating bonus % gives players a reason to buy the bigger pack;

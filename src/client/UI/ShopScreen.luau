@@ -214,6 +214,8 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			table.insert(list, offer)
 		end
 
+		local layouts = payload.sectionLayout or {}
+
 		local order = 0
 		local seen: { [string]: boolean } = {}
 		local function emitSection(sectionName: string)
@@ -231,6 +233,16 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 
 			local features = sec:WaitForChild("Features") :: Frame
 			local grid = sec:WaitForChild("Grid") :: Frame
+
+			-- per-section card size, so packs and passes aren't forced into one
+			-- cell shape; sections without an entry keep the template's size
+			local sizing = layouts[sectionName]
+			if sizing then
+				local gridLayout = grid:FindFirstChildOfClass("UIGridLayout")
+				if gridLayout then
+					gridLayout.CellSize = UDim2.fromOffset(sizing.width, sizing.height)
+				end
+			end
 			-- drop the template clones that rode along
 			for _, holder in { features, grid } do
 				for _, child in holder:GetChildren() do

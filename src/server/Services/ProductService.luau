@@ -259,7 +259,12 @@ function ProductService.Start()
 				owned = owned,
 			})
 		end
-		return { ok = true, offers = offers, sectionOrder = MonetizationConfig.SectionOrder }
+		return {
+			ok = true,
+			offers = offers,
+			sectionOrder = MonetizationConfig.SectionOrder,
+			sectionLayout = MonetizationConfig.SectionLayout,
+		}
 	end)
 
 	-- Purchases must be prompted server-side so the client can't invent products.
