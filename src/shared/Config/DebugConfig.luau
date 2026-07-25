@@ -11,6 +11,11 @@ local DebugConfig = {
 	AdminUserIds = {
 		[2397876414] = true, -- ingap (owner)
 	},
+
+	-- "Force Goal" button on the Free Gems panel: pretends the community goal
+	-- is already met so the unlocked (watch-ad) view can be eyeballed without
+	-- 2,000 real players. Remove this flag + the button wiring for release.
+	ForceGoalMetEnabled = true,
 }
 
 return DebugConfig

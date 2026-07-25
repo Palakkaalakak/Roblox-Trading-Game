@@ -2120,6 +2120,18 @@ local function buildFreeGemsPanel(parent: Instance)
 		Text = "✕",
 		BackgroundColor3 = C.Bad,
 	}, free)
+	-- DEBUG ONLY — remove this button + FreeGemsScreen's wiring for it, and
+	-- DebugConfig.ForceGoalMetEnabled, before release. Previews the unlocked
+	-- (watch-ad) view without needing 2,000 real players.
+	local debugForceBtn = button("DebugForceGoalButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -44, 0, 8),
+		Size = UDim2.fromOffset(30, 30),
+		Text = "🐞",
+		TextScaled = true,
+		BackgroundColor3 = C.Warn,
+	}, free)
+	capText(debugForceBtn, 16)
 
 	-- ── community goal state ─────────────────────────────────────────────
 	local goal = new("Frame", {

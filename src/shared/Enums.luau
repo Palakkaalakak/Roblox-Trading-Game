@@ -76,6 +76,7 @@ local Enums = {
 		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
+		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)

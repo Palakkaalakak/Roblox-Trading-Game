@@ -13,10 +13,12 @@
 
 local Players = game:GetService("Players")
 local SocialService = game:GetService("SocialService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
+local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
 
 local FreeGemsScreen = {}
 
@@ -144,6 +146,22 @@ function FreeGemsScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3
 				render(result)
 			end
 		end)
+	end
+
+	-- DEBUG ONLY — remove this block + the button (GuiBuilder.luau) and
+	-- DebugConfig.ForceGoalMetEnabled before release.
+	local debugForceBtn = panel:FindFirstChild("DebugForceGoalButton") :: TextButton?
+	if debugForceBtn then
+		if DebugConfig.ForceGoalMetEnabled then
+			debugForceBtn.Activated:Connect(function()
+				task.spawn(function()
+					Net.invoke("DebugForceGoal")
+					refresh()
+				end)
+			end)
+		else
+			debugForceBtn.Visible = false
+		end
 	end
 
 	watchBtn.Activated:Connect(function()

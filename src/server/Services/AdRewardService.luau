@@ -30,6 +30,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local AdConfig = require(ReplicatedStorage.Shared.Config.AdConfig)
+local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
 local Net = require(script.Parent.Parent.Net)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
@@ -37,6 +38,11 @@ local ProductService = require(script.Parent.ProductService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local AdRewardService = {}
+
+-- DEBUG ONLY — remove this table and every reference to it for release. Lets a
+-- dev preview the post-goal (watch-ad) UI without 2,000 real players. In-memory
+-- per-session, never persisted, and gated behind DebugConfig.ForceGoalMetEnabled.
+local debugForcedGoal: { [number]: boolean } = {}
 
 -- AdService doesn't exist in older clients / some Studio builds, and calling a
 -- missing service would break the whole screen. Resolve it defensively once.
@@ -86,7 +92,7 @@ end
 -- What the Free Gems screen needs to render itself, in one payload.
 function AdRewardService.snapshot(player: Player): any
 	local players = DataService.uniquePlayerCount()
-	local unlocked = AdConfig.goalMet(players)
+	local unlocked = AdConfig.goalMet(players) or debugForcedGoal[player.UserId] == true
 	local ads = counters(player)
 	local used = ads and ads.count or 0
 	local lastAt = ads and ads.lastAt or 0
@@ -154,6 +160,21 @@ end
 function AdRewardService.Start()
 	Net.bindFunction("GetFreeGems", function(player)
 		return AdRewardService.snapshot(player)
+	end)
+
+	-- DEBUG ONLY — remove this bindFunction for release, alongside the button
+	-- that calls it and DebugConfig.ForceGoalMetEnabled.
+	Net.bindFunction("DebugForceGoal", function(player)
+		if not DebugConfig.ForceGoalMetEnabled then
+			return { ok = false, err = "disabled" }
+		end
+		local forced = not debugForcedGoal[player.UserId]
+		debugForcedGoal[player.UserId] = forced or nil
+		return { ok = true, forced = forced }
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		debugForcedGoal[player.UserId] = nil
 	end)
 
 	Net.bindFunction("WatchAd", function(player)
