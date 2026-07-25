@@ -104,24 +104,24 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		end)
 	end
 
-	-- Fields both card kinds share: name, art, gem/blurb line, bonus pill,
+	-- Fields both card kinds share: name, art, gem/blurb line, bonus line,
 	-- strikethrough price, optional accent tint, and the buy button.
+	--
+	-- The Blox-Fruits card nests things (the name lives in the coloured banner,
+	-- the old price sits inside the green price bar), so these are found
+	-- recursively rather than as direct children.
 	local function fillCommon(cardInst: Frame, offer: any)
-		local nameLabel = cardInst:WaitForChild("OfferName") :: TextLabel
+		local nameLabel = cardInst:FindFirstChild("OfferName", true) :: TextLabel
 		nameLabel.Text = offer.name
 		if offer.nameColor then
 			nameLabel.TextColor3 = Color3.fromRGB(offer.nameColor[1], offer.nameColor[2], offer.nameColor[3])
 		end
 		Components.setIcon(cardInst:WaitForChild("Icon") :: ImageLabel, { imageId = offer.imageId, name = offer.name })
 
+		-- the art panel is light, so these read as dark ink (the reference does
+		-- the same); gem counts stay the emphasis line, just not cyan-on-white
 		local contents = cardInst:WaitForChild("Contents") :: TextLabel
-		if offer.gems then
-			contents.Text = comma(offer.gems) .. " Gems"
-			contents.TextColor3 = Theme.Gem
-		else
-			contents.Text = offer.description or ""
-			contents.TextColor3 = Theme.TextPrimary
-		end
+		contents.Text = offer.gems and (comma(offer.gems) .. " Gems") or (offer.description or "")
 
 		local bonus = cardInst:WaitForChild("Bonus") :: TextLabel
 		if offer.bonusPercent then
@@ -131,21 +131,27 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			bonus.Visible = false
 		end
 
-		local wasPrice = cardInst:WaitForChild("WasPrice") :: TextLabel
+		local wasPrice = cardInst:FindFirstChild("WasPrice", true) :: TextLabel
 		local strike = wasPrice:WaitForChild("Strike") :: Frame
 		if offer.wasRobux then
-			wasPrice.Text = "R$" .. comma(offer.wasRobux)
+			wasPrice.Text = comma(offer.wasRobux)
 			strike.Visible = true
 		else
 			wasPrice.Text = ""
 			strike.Visible = false
 		end
 
-		-- per-offer accent recolors the card's border (falls back to template)
+		-- per-offer accent recolors the card's border AND its name banner, so a
+		-- card reads as one colour the way the reference's do
 		if offer.accent then
+			local tint = Color3.fromRGB(offer.accent[1], offer.accent[2], offer.accent[3])
 			local s = cardInst:FindFirstChildOfClass("UIStroke")
 			if s then
-				s.Color = Color3.fromRGB(offer.accent[1], offer.accent[2], offer.accent[3])
+				s.Color = tint
+			end
+			local bannerInst = cardInst:FindFirstChild("NameBanner") :: Frame?
+			if bannerInst then
+				bannerInst.BackgroundColor3 = tint
 			end
 		end
 
@@ -178,6 +184,9 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		card.Visible = true
 		card.LayoutOrder = order
 		fillCommon(card, offer)
+
+		local timeLeft = card:WaitForChild("TimeLeft") :: TextLabel
+		timeLeft.Text = offer.availableUntil and timeLeftText(offer.availableUntil) or ""
 
 		local ribbon = card:WaitForChild("Ribbon") :: Frame
 		;(ribbon:WaitForChild("RibbonText") :: TextLabel).Text = offer.badge or "FEATURED"

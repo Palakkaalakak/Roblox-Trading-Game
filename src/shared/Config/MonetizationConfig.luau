@@ -106,8 +106,7 @@ local MonetizationConfig = {
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 1200 },
 			bonusPercent = 20,
-			badge = "BEST VALUE",
-			featured = true, -- the hero card at the top of the section
+			badge = "MOST POPULAR", -- decoy anchor: pulls buyers up the ladder
 			sortOrder = 3,
 		},
 		{
@@ -134,6 +133,8 @@ local MonetizationConfig = {
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 6000 },
 			bonusPercent = 40,
+			badge = "BEST VALUE",
+			featured = true, -- hero card: anchor high with the biggest pack
 			sortOrder = 5,
 		},
 
