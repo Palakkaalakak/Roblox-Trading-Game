@@ -2224,26 +2224,38 @@ local function buildFreeGemsPanel(parent: Instance)
 		Size = UDim2.fromScale(0.88, 0.74),
 		Visible = false,
 	}, free)
+	-- big gem art so the view isn't a wall of text with one button floating in it
+	local rewardArt = new("ImageLabel", {
+		Name = "RewardArt",
+		Image = ICONS.Gem,
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.02),
+		Size = UDim2.fromScale(0.3, 0.26),
+		ScaleType = Enum.ScaleType.Fit,
+	}, watch)
+	new("UIAspectRatioConstraint", { AspectRatio = 1 }, rewardArt)
 	local reward = label("RewardLabel", {
-		Size = UDim2.fromScale(1, 0.2),
+		Position = UDim2.fromScale(0, 0.31),
+		Size = UDim2.fromScale(1, 0.13),
 		Text = "Watch a short ad for +50 gems",
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextWrapped = true,
 	}, watch)
-	capText(reward, 17)
+	capText(reward, 19)
 	local watchBtn = button("WatchButton", {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.28),
-		Size = UDim2.fromScale(0.8, 0.24),
-		Text = "WATCH AD",
+		Position = UDim2.fromScale(0.5, 0.47),
+		Size = UDim2.fromScale(0.78, 0.17),
+		Text = "▶  WATCH AD",
 		TextScaled = true,
 		BackgroundColor3 = C.Good,
 	}, watch)
-	capText(watchBtn, 20)
+	capText(watchBtn, 22)
 	local remaining = label("RemainingLabel", {
-		Position = UDim2.fromScale(0, 0.58),
-		Size = UDim2.fromScale(1, 0.12),
+		Position = UDim2.fromScale(0, 0.67),
+		Size = UDim2.fromScale(1, 0.1),
 		Text = "",
 		TextScaled = true,
 		TextColor3 = C.TextDim,
@@ -2251,8 +2263,8 @@ local function buildFreeGemsPanel(parent: Instance)
 	}, watch)
 	capText(remaining, 14)
 	local status = label("StatusLabel", {
-		Position = UDim2.fromScale(0, 0.72),
-		Size = UDim2.fromScale(1, 0.22),
+		Position = UDim2.fromScale(0, 0.79),
+		Size = UDim2.fromScale(1, 0.2),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,

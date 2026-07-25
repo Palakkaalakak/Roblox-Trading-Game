@@ -30,9 +30,17 @@ local AdConfig = {
 
 	-- The dev product the ad reward is attached to. Roblox mints the reward from
 	-- a dev product id via CreateAdRewardFromDevProductId; the player is never
-	-- charged for it. 0 = not created yet, which makes the screen report itself
-	-- as unavailable rather than erroring.
-	RewardProductId = 0,
+	-- charged for it, and the gems are granted in ProcessReceipt (the receipt
+	-- arrives with ProductPurchaseChannel = AdReward). 0 = not created yet, which
+	-- makes the screen report itself as unavailable rather than erroring.
+	--
+	-- Points at the shared development placeholder for now, like everything else
+	-- monetized. AT PUBLISH this MUST become its own dedicated product: receipt
+	-- handlers are keyed by product id, so while the id is shared only the first
+	-- registration wins (ProductService warns and keeps it), meaning the ad
+	-- reward doesn't actually pay in development. That's fine — rewarded video
+	-- can't be served in Studio anyway.
+	RewardProductId = require(script.Parent.MonetizationConfig).PlaceholderProductId,
 
 	-- ── Referrals ────────────────────────────────────────────────────────
 	-- Invite friends and the goal arrives sooner for everybody. Land this many

@@ -77,17 +77,11 @@ local function counters(player: Player): any?
 	return profile.Ads
 end
 
--- Is a rewarded video actually fillable right now? False whenever the game
--- isn't ads-eligible yet, which is the normal case during development.
-local function adAvailable(player: Player): boolean
-	if adService == nil or AdConfig.RewardProductId == 0 then
-		return false
-	end
-	local ok, available = pcall(function()
-		return adService:GetAdAvailabilityNowAsync(player, Enum.AdFormat.RewardedVideo)
-	end)
-	return ok and available == true
-end
+-- NOTE: whether an ad is actually fillable can only be answered on the CLIENT
+-- (AdService:GetAdAvailabilityNowAsync is Client-RunContext only), so that check
+-- lives in FreeGemsScreen. The server owns everything it can actually enforce —
+-- the goal gate, the daily cap and the cooldown — and re-checks all of them
+-- before showing an ad, because a client is free to lie about its own state.
 
 -- What the Free Gems screen needs to render itself, in one payload.
 function AdRewardService.snapshot(player: Player): any
@@ -118,9 +112,14 @@ function AdRewardService.snapshot(player: Player): any
 		cap = AdConfig.DailyCap,
 		remaining = math.max(0, AdConfig.DailyCap - used),
 		cooldown = cooldown,
-		-- only true when Roblox will really serve an ad; the client hides the
-		-- button on false rather than showing one that fails
-		available = unlocked and adAvailable(player),
+		-- everything the SERVER can vouch for. The client ANDs this with its own
+		-- ad-availability check (which only it can perform) to decide whether to
+		-- offer the button.
+		canWatch = unlocked
+			and AdConfig.RewardProductId ~= 0
+			and math.max(0, AdConfig.DailyCap - used) > 0
+			and cooldown <= 0,
+		configured = AdConfig.RewardProductId ~= 0,
 	}
 end
 
@@ -189,7 +188,7 @@ function AdRewardService.Start()
 		if snap.cooldown > 0 then
 			return { ok = false, err = "cooldown" }
 		end
-		if not snap.available then
+		if adService == nil or AdConfig.RewardProductId == 0 then
 			return { ok = false, err = "no_ad" }
 		end
 
@@ -201,21 +200,26 @@ function AdRewardService.Start()
 			return { ok = false, err = "no_ad" }
 		end
 
+		-- placementId is an optional int64; omitted here since we only have the
+		-- one placement. Add a numeric id if per-placement reporting is wanted.
 		local shown, result = pcall(function()
-			return adService:ShowRewardedVideoAdAsync(player, reward, "free_gems")
+			return adService:ShowRewardedVideoAdAsync(player, reward)
 		end)
 		if not shown then
 			return { ok = false, err = "ad_failed" }
 		end
-		-- Roblox reports how the view ended. Only a completed view pays, and the
-		-- payment itself arrives through ProcessReceipt — we never grant here.
-		-- The result enum has been renamed across engine versions, so compare by
-		-- name rather than naming an enum member that may not exist.
-		if result ~= nil and tostring(result):find("Success") then
+		-- The docs are explicit that this result must NOT be used to grant the
+		-- reward — the gems come from ProcessReceipt (where the receipt arrives
+		-- with ProductPurchaseChannel = AdReward). This is only used to tell the
+		-- player what happened and whether to re-check availability.
+		if result == Enum.ShowAdResult.ShowCompleted then
 			AnalyticsService.log("ad_watched", { userId = player.UserId })
 			return { ok = true }
 		end
 		AnalyticsService.log("ad_incomplete", { userId = player.UserId, result = tostring(result) })
+		if result == Enum.ShowAdResult.AdNotReady then
+			return { ok = false, err = "no_ad" }
+		end
 		return { ok = false, err = "not_completed" }
 	end)
 end

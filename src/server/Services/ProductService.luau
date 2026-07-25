@@ -134,6 +134,22 @@ function ProductService.registerDevProduct(productId: number, label: string, gra
 	if productId == 0 then
 		return
 	end
+	-- Handlers are keyed by product id, so a second registration for the same id
+	-- would silently replace the first and pay out the wrong thing. Refuse it
+	-- loudly instead: this is real money, and the failure is otherwise invisible
+	-- until a player buys something and gets someone else's reward.
+	local existing = devProductHandlers[productId]
+	if existing then
+		-- During development everything monetized points at one placeholder
+		-- product, so collisions here are expected and harmless: the first
+		-- handler keeps the id and the rest simply don't pay out yet. A collision
+		-- between two REAL products is a money bug, so that one is shouted about.
+		if productId ~= MonetizationConfig.PlaceholderProductId then
+			warn(("[ProductService] dev product %d already grants %q; refusing to re-register it as %q")
+				:format(productId, existing.label, label))
+		end
+		return
+	end
 	devProductHandlers[productId] = { grant = grant, label = label }
 end
 

@@ -14,6 +14,7 @@
 local Players = game:GetService("Players")
 local SocialService = game:GetService("SocialService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local AdService = game:GetService("AdService")
 
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
@@ -35,6 +36,31 @@ local function mmss(seconds: number): string
 		return ("%dm %02ds"):format(m, s)
 	end
 	return ("%ds"):format(s)
+end
+
+-- "Ineligible" means this player/device/game can never be served an ad right
+-- now — as opposed to simply having no ad in stock this second. Worth telling
+-- the two apart, because only the second is worth retrying.
+local INELIGIBLE = {
+	[Enum.AdAvailabilityResult.PlayerIneligible] = true,
+	[Enum.AdAvailabilityResult.DeviceIneligible] = true,
+	[Enum.AdAvailabilityResult.PublisherIneligible] = true,
+	[Enum.AdAvailabilityResult.ExperienceIneligible] = true,
+}
+
+-- Whether Roblox will serve a rewarded video RIGHT NOW. This can only be asked
+-- from the client (GetAdAvailabilityNowAsync is Client-RunContext only), and the
+-- answer is good for a SINGLE play — so it's re-checked before every watch.
+-- Returns (available, ineligible).
+local function checkAdAvailability(): (boolean, boolean)
+	local ok, result = pcall(function()
+		return AdService:GetAdAvailabilityNowAsync(Enum.AdFormat.RewardedVideo)
+	end)
+	if not ok or typeof(result) ~= "table" then
+		return false, false
+	end
+	local status = result.AdAvailabilityResult
+	return status == Enum.AdAvailabilityResult.IsAvailable, INELIGIBLE[status] == true
 end
 
 function FreeGemsScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3) -> ())
@@ -130,21 +156,33 @@ function FreeGemsScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3
 		elseif snap.cooldown > 0 then
 			watchBtn.Visible = false
 			statusLbl.Text = ("Next ad in %s."):format(mmss(snap.cooldown))
-		elseif not snap.available then
+		elseif not snap.configured then
 			watchBtn.Visible = false
-			statusLbl.Text = "No ad available right now. Try again in a bit."
-		else
+			statusLbl.Text = "Ad rewards aren't set up in this experience yet."
+		elseif snap.adAvailable then
 			watchBtn.Visible = true
 			statusLbl.Text = ""
+		elseif snap.adIneligible then
+			watchBtn.Visible = false
+			statusLbl.Text = "Ads aren't available on this account or device."
+		else
+			watchBtn.Visible = false
+			statusLbl.Text = "No ad available right now. Try again in a bit."
 		end
 	end
 
+	-- Ask the server what IT can vouch for, then add the one thing only the
+	-- client can answer: whether an ad is actually in stock this second.
 	local function refresh()
 		task.spawn(function()
 			local result = Net.invoke("GetFreeGems")
-			if result and result.ok and panel.Visible then
-				render(result)
+			if not (result and result.ok and panel.Visible) then
+				return
 			end
+			if result.canWatch then
+				result.adAvailable, result.adIneligible = checkAdAvailability()
+			end
+			render(result)
 		end)
 	end
 

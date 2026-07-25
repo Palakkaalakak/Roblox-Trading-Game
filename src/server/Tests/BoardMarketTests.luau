@@ -264,6 +264,25 @@ return {
 			eq(AdConfig.referralBonusEarned(AdConfig.ReferralsNeeded + 10), true, "more than enough")
 		end,
 
+		["ads: the reward product must not collide with a shop offer"] = function()
+			local AdConfig = require(ReplicatedStorage.Shared.Config.AdConfig)
+			local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
+			local adId = AdConfig.RewardProductId
+			-- 0 = not set up; the shared dev placeholder is deliberate and every
+			-- monetized system points at it until real products exist.
+			if adId == 0 or adId == MonetizationConfig.PlaceholderProductId then
+				return
+			end
+			-- Two REAL products sharing an id is a money bug: receipt handlers are
+			-- keyed by id, so buying that pack would pay out the ad reward.
+			for _, offer in MonetizationConfig.Offers do
+				assert(
+					offer.productId ~= adId,
+					("ad reward product %d is also used by offer %q"):format(adId, offer.id)
+				)
+			end
+		end,
+
 		["referrals: only well-formed invite data names an inviter"] = function()
 			local Referral = require(script.Parent.Parent.Services.ReferralService)
 			eq(Referral.parseReferrer("ref_12345"), 12345, "valid referral tag")

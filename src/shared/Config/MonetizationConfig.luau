@@ -61,7 +61,14 @@ export type Offer = {
 -- id, so the correct pack grants on purchase.
 local PLACEHOLDER_PRODUCT_ID = 3611275062
 
+-- Exported so other monetized systems (e.g. the ad reward) can point at the same
+-- stand-in during development and so tests can tell "shared placeholder" apart
+-- from "two real products collided", which is a genuine bug.
+local PlaceholderProductId = PLACEHOLDER_PRODUCT_ID
+
 local MonetizationConfig = {
+	PlaceholderProductId = PlaceholderProductId,
+
 	-- Section order in the shop, top to bottom. Sections with no live offers
 	-- are skipped, so unreleased categories simply don't render yet.
 	SectionOrder = { "💎 GEM PACKS", "🎟 PASSES", "⭐ SUBSCRIPTIONS", "🎁 BUNDLES" },
