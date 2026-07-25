@@ -1931,9 +1931,11 @@ local function buildShopPanel(parent: Instance)
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 		BackgroundTransparency = 0.25,
 		BorderSizePixel = 0,
+		-- centred in the gap between the ribbon and the price bar; any bigger and
+		-- the art clips into the green bar
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.17, 0.55),
-		Size = UDim2.fromOffset(116, 116),
+		Position = UDim2.fromScale(0.17, 0.49),
+		Size = UDim2.fromOffset(104, 104),
 		ZIndex = 2,
 	}, feat)
 	corner(fglow, 100)
@@ -1943,8 +1945,8 @@ local function buildShopPanel(parent: Instance)
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.17, 0.55),
-		Size = UDim2.fromOffset(102, 102),
+		Position = UDim2.fromScale(0.17, 0.49),
+		Size = UDim2.fromOffset(92, 92),
 		ScaleType = Enum.ScaleType.Fit,
 		ZIndex = 3,
 	}, feat)
