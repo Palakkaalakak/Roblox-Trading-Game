@@ -334,6 +334,31 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 		;(sellers:WaitForChild("EmptyLabel") :: TextLabel).Visible = #asks == 0
 		;(buyers:WaitForChild("EmptyLabel") :: TextLabel).Visible = #bids == 0
+
+		-- Middle: halfway between the best bid and the best ask — the price the
+		-- item is really "worth" right now. The server sorts asks cheapest-first
+		-- and bids highest-first, so the best of each is simply the first row.
+		-- With only one side quoted there is no midpoint, and inventing one from
+		-- a single price would be a made-up number, so say which side is missing.
+		local mid = book:WaitForChild("MidLabel") :: TextLabel
+		local bestAsk = asks[1] and asks[1].gemsPerCopy
+		local bestBid = bids[1] and bids[1].gemsPerCopy
+		if bestAsk and bestBid then
+			local m = (bestAsk + bestBid) / 2
+			-- halves happen whenever the spread is odd; keep one decimal then
+			local shown = m % 1 == 0 and tostring(math.floor(m)) or ("%.1f"):format(m)
+			mid.Text = ("Middle: %s gems   (buy %d / sell %d)"):format(shown, bestAsk, bestBid)
+			mid.TextColor3 = Theme.Gem
+		elseif bestAsk then
+			mid.Text = ("Middle: — no buy orders   (cheapest %d gems)"):format(bestAsk)
+			mid.TextColor3 = Theme.TextDim
+		elseif bestBid then
+			mid.Text = ("Middle: — nothing for sale   (best offer %d gems)"):format(bestBid)
+			mid.TextColor3 = Theme.TextDim
+		else
+			mid.Text = "Middle: — no orders yet"
+			mid.TextColor3 = Theme.TextDim
+		end
 	end
 
 	local function clearOrderRows()

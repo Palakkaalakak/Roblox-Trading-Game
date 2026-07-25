@@ -1238,6 +1238,18 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Accent,
 	}, book)
 
+	-- mid price: the midpoint of the best bid and best ask, centred over both
+	-- columns. It's the number traders actually quote an item at — halfway
+	-- between what you can buy for and what you can sell for.
+	label("MidLabel", {
+		Position = UDim2.fromOffset(0, 80),
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = "",
+		TextSize = 14,
+		TextColor3 = C.Gem,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, book)
+
 	-- two half-width panels: sellers (asks) and buyers (bids)
 	local function bookSide(name: string, headerText: string, x: UDim2)
 		local sidePanel = new("Frame", {
@@ -1245,7 +1257,7 @@ local function buildBoardPanel(parent: Instance)
 			BackgroundColor3 = C.Bg,
 			BorderSizePixel = 0,
 			Position = x,
-			Size = UDim2.new(0.5, -6, 1, -86),
+			Size = UDim2.new(0.5, -6, 1, -104),
 		}, book)
 		corner(sidePanel, 6)
 		stroke(sidePanel, C.Stroke, 1)
@@ -1334,8 +1346,8 @@ local function buildBoardPanel(parent: Instance)
 		}, brow)
 		return sidePanel
 	end
-	bookSide("SellersPanel", "FOR SALE — cheapest first", UDim2.fromOffset(0, 86))
-	bookSide("BuyersPanel", "BUY ORDERS — best price first", UDim2.new(0.5, 6, 0, 86))
+	bookSide("SellersPanel", "FOR SALE — cheapest first", UDim2.fromOffset(0, 104))
+	bookSide("BuyersPanel", "BUY ORDERS — best price first", UDim2.new(0.5, 6, 0, 104))
 
 	--------------------------------------------------------------------------
 	-- Post modal (Market only: sell listing / buy order for ONE known item —
