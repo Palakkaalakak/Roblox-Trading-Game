@@ -17,6 +17,18 @@ local DataStoreService = game:GetService("DataStoreService")
 local MemoryStoreService = game:GetService("MemoryStoreService")
 local MessagingService = game:GetService("MessagingService")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+-- STUDIO: MemoryStore is used for the cross-server order book, and under bot
+-- load Studio's implementation throws "InternalError ... SortedMap.GetRange /
+-- SortedMap.Get" constantly. Those come from inside the service and Studio logs
+-- them itself, so our pcall/withRetry can swallow the failure but cannot stop
+-- the log line — the output drowns in them (and it evicts everything else from
+-- the buffer). A single Studio session has no other server to coordinate with
+-- anyway, so the sorted map runs on the in-memory mock here. DataStore is
+-- untouched, and production (IsStudio() == false) keeps the real MemoryStore.
+-- Same rationale as SessionStore skipping lock contention in Studio.
+local IN_STUDIO = RunService:IsStudio()
 
 local Signal = require(game:GetService("ReplicatedStorage").Shared.Util.Signal)
 
@@ -248,7 +260,9 @@ end
 
 function StoreAdapters.sortedMap(name: string)
 	assert(StoreAdapters.mode ~= "unknown", "StoreAdapters.init() not called")
-	if StoreAdapters.mode == "live" then
+	-- see IN_STUDIO at the top of this file: Studio's MemoryStore spams internal
+	-- errors under load and we cannot suppress its own logging
+	if StoreAdapters.mode == "live" and not IN_STUDIO then
 		return liveSortedMap(name)
 	end
 	return mockSortedMap(name)

@@ -290,6 +290,21 @@ local function atWork(bot: any, now: number): boolean
 	return true
 end
 
+-- GROWTH TEST: gems a bot is willing to spend right now.
+--
+-- A bot banks a share of everything it has ever earned and only trades with what
+-- is left over. Without this the pool is pinned at Count * MinGemsKept, because
+-- a fixed floor means every gem above it always gets spent — so extra income
+-- can't grow the pool, it only speeds up conversion into items. Tying savings to
+-- lifetime earnings makes the reserve grow as work is done.
+--
+-- Remove alongside the rest of the growth profile: drop this and go back to
+-- `state.gems - BotConfig.MinGemsKept` at the call sites.
+local function spendableGems(state: any): number
+	local saved = (state.lifetime and state.lifetime.earned or 0) * (BotConfig.SavingsRateOfEarnings or 0)
+	return math.max(0, math.floor(state.gems - BotConfig.MinGemsKept - saved))
+end
+
 -- ROLLING: the bot's reasoned way to acquire new goods. It costs gems, so the
 -- item was PAID for — no free items appearing on a timer. A bot rolls when it
 -- can afford a tier and the pull is worth more than the ticket (expected value
@@ -301,7 +316,7 @@ local function tryRoll(bot: any, state: any, sweep: number): string?
 	if not RollConfig.Enabled then
 		return nil
 	end
-	local spendable = state.gems - BotConfig.MinGemsKept
+	local spendable = spendableGems(state)
 	-- Rolls carry a mild house edge (each tier's EV sits under its price), so
 	-- a purely margin-positive bot would never roll and the goods faucet would
 	-- die. Bots accept a bounded expected loss — goods carry trading utility
@@ -567,7 +582,7 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	local starved = sweep - (bot.lastFillSweep or 0)
 	local acceptEdge = math.max(0, bot.acceptEdge / (1 + BotConfig.HungerEdgeDecay * starved))
 	local actions: { string } = {}
-	local spendable = state.gems - BotConfig.MinGemsKept
+	local spendable = spendableGems(state)
 
 	local candidates: { { profit: number, tag: string, run: () -> boolean } } = {}
 
@@ -774,7 +789,7 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 			taken += 1
 			table.insert(actions, c.tag)
 			bot.lastFillSweep = sweep
-			spendable = state.gems - BotConfig.MinGemsKept
+			spendable = spendableGems(state)
 		end
 	end
 
@@ -906,11 +921,11 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	-- handed out. Rolling is gated behind having gems, and gems only come from
 	-- selling something someone wanted, so production is earned all the way down.
 	----------------------------------------------------------------------
-	if state.gems - BotConfig.MinGemsKept > 0 then
+	if spendableGems(state) > 0 then
 		local rolled = tryRoll(bot, state, sweep)
 		if rolled then
 			table.insert(actions, rolled)
-			spendable = state.gems - BotConfig.MinGemsKept
+			spendable = spendableGems(state)
 		end
 	end
 

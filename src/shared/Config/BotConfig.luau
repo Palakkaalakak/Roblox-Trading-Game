@@ -185,7 +185,26 @@ local BotConfig = {
 	-- move (the seller wants gems, so it goes slightly under value).
 	MinSellVsValue = 0.85,
 
-	MinGemsKept = 10, -- with 50 starting gems, keep the spendable buffer usable
+	-- GROWTH TEST: was 10. The hard floor a bot never spends below.
+	MinGemsKept = 30,
+
+	-- GROWTH TEST addition. MEASURED: with only a FIXED floor the gem pool is
+	-- pinned near Count * MinGemsKept — bots spend everything above it, so
+	-- raising WorkGems didn't grow the pool, it just converted gems into items
+	-- faster (value +30% while gems went -4.5%).
+	--
+	-- So savings have to GROW with what a bot has earned: the effective floor is
+	-- MinGemsKept + SavingsRateOfEarnings * lifetime gems earned. A bot banks a
+	-- quarter of everything it has ever worked for and trades with the rest, so
+	-- the pool climbs steadily in step with work instead of finding a ceiling.
+	--
+	-- MEASURED: this rate sets BOTH curves, in opposite directions. Banked gems
+	-- are gems not spent, so a high rate grows the gem pool fast while starving
+	-- the crafting that creates value — at 0.25 gems ran +18.8% against value at
+	-- +6.9%, which is just inflation. Goods must outpace money, so the rate is
+	-- kept low: enough that savings still accumulate (gems rise smoothly, never
+	-- dipping) but small enough that most income reaches the craft engine.
+	SavingsRateOfEarnings = 0.06,
 	MaxHoldPerItem = 12, -- GROWTH TEST: was 8 — room to stockpile recipe inputs
 
 	-- WORK — the gem faucet, and the only one. Every WorkIntervalSeconds a bot
@@ -203,13 +222,26 @@ local BotConfig = {
 	-- in minutes) and the whole economy winds down. Faucet + sink is the pair.
 	-- Shifts are staggered by bot index, so the market never all downs tools at
 	-- the same moment.
-	-- GROWTH TEST: was 600 / 10 / 15. Craft fees and store buys are gem sinks, so
-	-- a slow faucet caps how often anyone can craft. Shifts are frequent, well
-	-- paid and short. Note this DOES inflate the gem pool — acceptable here
-	-- because the test measures ITEM value, and gems are the fuel, not the score.
-	WorkIntervalSeconds = 120, -- clock in every 2 minutes
-	WorkGems = 60, -- earned per shift
-	WorkDurationSeconds = 4, -- time spent out of the market, per shift
+	-- GROWTH TEST: was 600 / 10 / 15.
+	--
+	-- Work is the ONLY net gem faucet — board sales just move gems between
+	-- traders, so the pool's whole trajectory is set here. Craft fees, store buys
+	-- and rolls are the sinks. At 120s/60 gems the faucet exactly cancelled them
+	-- and the pool sat flat near 2,500, so income is raised modestly to sit a
+	-- little AHEAD of the sinks: gems should climb steadily, not explode.
+	--
+	-- The idle time is the price of the money and is deliberately kept real — a
+	-- working bot cannot trade, roll, craft or buy — so gems stay earned rather
+	-- than handed out.
+	-- MEASURED, in order: at 90s/55 with only a fixed floor the pool hovered at
+	-- breakeven; raising it to 72 did NOT help (the pool is pinned by the floor,
+	-- so extra income just converted to items faster). Once SavingsRateOfEarnings
+	-- below made the reserve grow, 72 overshot — gems ran +28%/min against value
+	-- at +13%/min, i.e. gem inflation outpacing goods. 40 keeps the climb steady
+	-- and below the rate at which real value is created.
+	WorkIntervalSeconds = 90, -- clock in every 90s
+	WorkGems = 40, -- earned per shift
+	WorkDurationSeconds = 8, -- time spent out of the market, per shift
 
 	-- GROWTH TEST: was 25. Every sweep, so the growth curve is readable over a
 	-- short run (a 500-bot sweep is far slower than SweepSeconds, so sweeps are
