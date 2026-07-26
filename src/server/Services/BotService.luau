@@ -1153,9 +1153,24 @@ function BotService.Start()
 
 					if sweep % BotConfig.NetworthLogEvery == 0 then
 						local totalGems, richest, richestId = 0, -1, 0
+						-- total ITEM value at live Est. Value. Gems alone can't
+						-- show whether the economy is actually growing: crafting
+						-- creates value by minting above input cost and burning
+						-- the inputs, and neither of those moves the gem pool.
+						local totalItemValue, totalItems = 0, 0
+						local valueCache: { [string]: number } = {}
 						for _, bot in bots do
 							local s = getState(bot.userId)
 							totalGems += s.gems
+							for itemId, count in s.inventory do
+								local v = valueCache[itemId]
+								if v == nil then
+									v = EconomyService.valueOf(itemId)
+									valueCache[itemId] = v
+								end
+								totalItemValue += v * count
+								totalItems += count
+							end
 							if s.gems > richest then
 								richest = s.gems
 								richestId = bot.userId
@@ -1165,9 +1180,19 @@ function BotService.Start()
 							sweep = sweep,
 							actions = sweepActions,
 							totalGems = totalGems,
+							totalItemValue = math.floor(totalItemValue),
+							totalItems = totalItems,
 							richestId = richestId,
 							richestGems = richest,
 						})
+						-- GROWTH TEST telemetry: the analytics log is flooded by
+						-- bot chatter and Studio's buffer evicts these lines, so
+						-- mirror the aggregate onto DataModel state where it can
+						-- be read reliably. Remove with the rest of the profile.
+						ReplicatedStorage:SetAttribute("BotSweep", sweep)
+						ReplicatedStorage:SetAttribute("BotTotalItemValue", math.floor(totalItemValue))
+						ReplicatedStorage:SetAttribute("BotTotalItems", totalItems)
+						ReplicatedStorage:SetAttribute("BotTotalGems", totalGems)
 					end
 
 					local elapsed = os.clock() - sweepStart
