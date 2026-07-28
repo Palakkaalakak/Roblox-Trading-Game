@@ -5,17 +5,25 @@
 -- LIMITED output item. Output stock is the item's reserve, taken with the
 -- same atomic cross-server CAS as store buys and starter draws — when the
 -- last copy is crafted the recipe stops working everywhere at once
--- ("Fully crafted!"). Consumed input items are RETIRED from circulation (a
--- real sink: existence counts drop). Outputs are ordinary tradeable items
--- with Store Cost "N/A (Event Item)".
+-- ("Fully crafted!"). Consumed input items are REDISTRIBUTED back into that
+-- same shared reserve, not destroyed — exactly like a roll item-payment —
+-- so a common eaten by the hundreds at the top of the ladder recycles
+-- straight back to new players' free starter grants instead of ever running
+-- out. Outputs are ordinary tradeable items with Store Cost "N/A (Event Item)".
+--
+-- An item's Est. Value never reacts to this cycling (see EconomyService.
+-- computeValue) — only its fixed totalSupply cap and live demand set its
+-- price, so no single item can be inflated or deflated by crafting activity.
+-- The economy still grows, just by COUNT: new items and new recipes, each
+-- with their own cap, entering over time.
 --
 -- Active-recipe resolution is a PURE function of the wall clock (enabled
 -- flags + start/end windows + deterministic rotation), so every server
 -- agrees with zero coordination.
 --
 -- Craft flow: resolve active recipe -> charge inputs (atomic in-memory) ->
--- reserve output copy (CAS; refund inputs if it lost the race) -> retire
--- consumed copies -> grant output -> async save.
+-- reserve output copy (CAS; refund inputs if it lost the race) -> redistribute
+-- consumed copies back to the reserve -> grant output -> async save.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -43,8 +51,10 @@ end
 -- Recipe graph sanity
 --------------------------------------------------------------------------------
 
--- Who makes each event item? Shared lookup on EventConfig (client uses the
--- same one); drives the "get it from X" UI hint and the reachability check.
+-- Who makes each event item? Static config lookup (client uses the same one)
+-- used ONLY by validateRecipeGraph's reachability check, which is deliberately
+-- window-agnostic — a recipe is "reachable" if some window could ever produce
+-- its input, not just this one.
 local function producerName(itemId: string): string?
 	local producer = EventConfig.producerOf(itemId)
 	return producer and producer.name or nil
@@ -164,6 +174,37 @@ function CraftingService.activeEvents(now: number): { any }
 	return out
 end
 
+-- Window-aware producer lookup for the "need X? craft it at Y" UI hint.
+-- EventConfig.producerOf (the static index) doesn't know which rotating
+-- recipes are picked THIS window, so it used to point players at a station
+-- that was, in practice, closed — the recipe existed in the pool but simply
+-- wasn't one of this window's ActiveCount picks. This checks the actual
+-- active set first; if a rotating recipe makes the item but isn't active
+-- right now, it says so and gives the time the window rotates next, instead
+-- of claiming it's craftable when it isn't.
+function CraftingService.liveProducerOf(itemId: string, now: number): { name: string, availableNow: boolean, rotatesAt: number? }?
+	for _, event in CraftingService.activeEvents(now) do
+		for _, recipe in event.recipes do
+			if outputItemId(recipe.output.sku) == itemId then
+				return { name = event.name, availableNow = true }
+			end
+		end
+	end
+	local rot = EventConfig.RotatingRecipes
+	if rot and rot.enabled then
+		for _, recipe in rot.Pool do
+			if outputItemId(recipe.output.sku) == itemId then
+				return {
+					name = "Rotating Recipes",
+					availableNow = false,
+					rotatesAt = Rotation.windowEndsAt(now, rot.RotationIntervalSeconds),
+				}
+			end
+		end
+	end
+	return nil
+end
+
 -- Expose for tests: pure pick-with-guarantee for an arbitrary window.
 function CraftingService.rotationPicksFor(windowIdx: number): { number }
 	local rot = EventConfig.RotatingRecipes
@@ -189,7 +230,7 @@ end
 -- Remotes
 --------------------------------------------------------------------------------
 
-local function describeRecipe(recipe: any, profile: any): any
+local function describeRecipe(recipe: any, profile: any, now: number): any
 	local inputs = {}
 	local craftable = true
 	for itemId, count in recipe.inputs do
@@ -204,9 +245,10 @@ local function describeRecipe(recipe: any, profile: any): any
 			imageId = item and item.imageId or nil,
 			count = count,
 			owned = owned,
-			-- event-item inputs say WHERE they're made, so the UI can point a
-			-- player at the source instead of leaving them to hunt
-			from = producerName(itemId),
+			-- event-item inputs say WHERE they're made (and whether that's
+			-- actually open THIS rotation), so the UI can point a player at a
+			-- real source instead of a dead end
+			from = itemId:sub(1, 4) == "evt_" and CraftingService.liveProducerOf(itemId, now) or nil,
 		})
 	end
 	table.sort(inputs, function(a, b)
@@ -242,7 +284,7 @@ local function handleGetEvents(player: Player)
 	for _, event in CraftingService.activeEvents(now) do
 		local recipes = {}
 		for _, recipe in event.recipes do
-			table.insert(recipes, describeRecipe(recipe, profile))
+			table.insert(recipes, describeRecipe(recipe, profile, now))
 		end
 		table.insert(events, {
 			id = event.id,
@@ -255,6 +297,40 @@ local function handleGetEvents(player: Player)
 		})
 	end
 	return { ok = true, events = events, now = now }
+end
+
+-- The FULL static ladder — every recipe that exists, regardless of whether
+-- this rotation window happens to have it active. GetEvents only ever shows
+-- what's craftable RIGHT NOW; the recipe-chain view needs the whole graph so
+-- a player can see what a Tier 3 grail eats even when the Tier 1/2 recipes
+-- feeding it aren't this window's picks. Read-only, no gating — this is what
+-- makes the ladder legible.
+local function handleGetRecipeGraph(player: Player)
+	local profile = DataService.getProfile(player)
+	local now = os.time()
+	local out = {}
+	for _, event in EventConfig.Events do
+		if event.enabled then
+			for _, recipe in event.recipes do
+				table.insert(out, {
+					eventId = event.id,
+					eventName = event.name,
+					recipe = describeRecipe(recipe, profile, now),
+				})
+			end
+		end
+	end
+	local rot = EventConfig.RotatingRecipes
+	if rot and rot.enabled then
+		for _, recipe in rot.Pool do
+			table.insert(out, {
+				eventId = ROTATING_EVENT_ID,
+				eventName = "Rotating Recipes",
+				recipe = describeRecipe(recipe, profile, now),
+			})
+		end
+	end
+	return { ok = true, recipes = out }
 end
 
 -- Bots craft too; their charges/grants live in BotService state.
@@ -313,13 +389,14 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		return { ok = false, err = "recipe_soldout" }
 	end
 
-	-- consumed inputs leave existence (the sink). Bots retire lazily (see above).
+	-- consumed inputs go back to the shared reserve — redistributed, never
+	-- destroyed (see the file header). Bots restock lazily (see reserveOneLazy).
 	local touched = {}
 	for itemId, count in recipe.inputs do
 		if isBot then
-			EconomyService.retireCopiesLazy(itemId, count)
+			EconomyService.restockCopiesLazy(itemId, count)
 		else
-			EconomyService.retireCopies(itemId, count)
+			EconomyService.restockCopies(itemId, count)
 		end
 		table.insert(touched, itemId)
 	end
@@ -396,6 +473,7 @@ end
 
 function CraftingService.Start()
 	Net.bindFunction("GetEvents", handleGetEvents)
+	Net.bindFunction("GetRecipeGraph", handleGetRecipeGraph)
 	Net.bindFunction("CraftItem", handleCraft)
 
 	-- prewarm output records so the events screen opens instantly

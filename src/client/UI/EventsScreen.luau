@@ -1,19 +1,21 @@
 --!strict
--- Events screen (crafting / sacrifices / rotating recipes) — the value engine's
--- front end. Panel + row templates live in StarterGui (GuiBuilder); the tab bar
--- and the per-row extras (tier badge, blurb, value-created line) are built here
--- so the shared builder stays untouched.
+-- Crafting screen (stations / rotating recipes / seasonal events) — the value
+-- engine's front end. Panel + row templates live in StarterGui (GuiBuilder);
+-- the tab bar and the per-row extras (tier badge, blurb, chain-view button)
+-- are built here so the shared builder stays untouched.
 --
--- Four tabs, in the order a player actually thinks:
+-- Three tabs, in the order a player actually thinks — no "Stations" jargon; a
+-- player doesn't care whether something is a permanent fixture or this week's
+-- rotation, only whether it's something to make right now or a one-off:
 --   ⚡ Can Craft — only what I can make RIGHT NOW (the default; no hunting)
---   🏛 Stations  — the permanent crafting stations (always here)
---   ⏳ Rotating  — this window's recipes + a live countdown to the swap
+--   📜 Recipes   — everything craftable in general (permanent + rotating)
 --   🎉 Limited   — temporary/seasonal events, each with its end countdown
 --
 -- Every row states the deal plainly: what it eats -> what it mints, how much
--- stock is left, and the VALUE CREATED (output value minus everything it burns).
--- That gap is why crafting exists — it's the only thing in the game that makes
--- worth instead of moving it around.
+-- stock is left. A small chain button opens the full recipe LADDER for that
+-- output (see GetRecipeGraph) so a player can see what feeds a grail all the
+-- way down to base commons, instead of staring at an ingredient with no idea
+-- where it comes from.
 
 local RunService = game:GetService("RunService")
 local Theme = require(script.Parent.Theme)
@@ -78,8 +80,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 
 	local TABS = {
 		{ id = "craft", text = "⚡ Can Craft" },
-		{ id = "stations", text = "🏛 Stations" },
-		{ id = "rotating", text = "⏳ Rotating" },
+		{ id = "recipes", text = "📜 Recipes" },
 		{ id = "limited", text = "🎉 Limited" },
 	}
 	local activeTab = "craft"
@@ -106,6 +107,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local crafting = false
 	local refresh -- fwd decl
 	local renderEvents -- fwd decl
+	local openChain -- fwd decl
 	-- headers whose countdown ticks live: { label, untilUnix, prefix }
 	local ticking: { { label: TextLabel, at: number, prefix: string } } = {}
 
@@ -115,6 +117,242 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 		table.clear(spawned)
 		table.clear(ticking)
+	end
+
+	----------------------------------------------------------------------
+	-- Recipe chain view: the full static ladder for one output, so a player
+	-- can see what a grail eats all the way down to base commons — even for
+	-- tiers that aren't this rotation's active picks (GetRecipeGraph ignores
+	-- the rotation window entirely; GetEvents only ever shows what's live).
+	-- Built once per open, destroyed on close — bounded depth (the ladder is
+	-- at most 3 tiers), so this is a handful of frames, never a per-frame cost.
+	----------------------------------------------------------------------
+	local recipeGraph: { any }? = nil
+	local fetchingGraph = false
+
+	local function ensureRecipeGraph(onReady: () -> ())
+		if recipeGraph then
+			onReady()
+			return
+		end
+		if fetchingGraph then
+			return
+		end
+		fetchingGraph = true
+		task.spawn(function()
+			local result = Net.invoke("GetRecipeGraph")
+			fetchingGraph = false
+			if result and result.ok then
+				recipeGraph = result.recipes
+				onReady()
+			end
+		end)
+	end
+
+	-- First recipe in the graph that makes this output (one representative
+	-- route — the rotating refinery deliberately has several, e.g. 4 recipes
+	-- all producing Refined Essence; showing all of them would turn a linear
+	-- ladder into a wide, confusing fan for no benefit to reading the chain).
+	local function findRecipeForOutput(outItemId: string): (any?, number)
+		if recipeGraph == nil then
+			return nil, 0
+		end
+		local found, altCount = nil, 0
+		for _, entry in recipeGraph do
+			if entry.recipe.output.itemId == outItemId then
+				altCount += 1
+				if found == nil then
+					found = entry
+				end
+			end
+		end
+		return found, altCount
+	end
+
+	local chainOverlay = Instance.new("Frame")
+	chainOverlay.Name = "ChainOverlay"
+	chainOverlay.BackgroundColor3 = Theme.Bg
+	chainOverlay.BorderSizePixel = 0
+	-- covers the same content area as the main list, below the tab row
+	chainOverlay.Position = UDim2.fromOffset(12, 80)
+	chainOverlay.Size = UDim2.new(1, -24, 1, -92)
+	chainOverlay.Visible = false
+	chainOverlay.ZIndex = 10
+	chainOverlay.Parent = panel
+
+	local chainHeader = Instance.new("Frame")
+	chainHeader.Name = "ChainHeader"
+	chainHeader.BackgroundTransparency = 1
+	chainHeader.Size = UDim2.new(1, 0, 0, 30)
+	chainHeader.ZIndex = 10
+	chainHeader.Parent = chainOverlay
+	local chainTitle = Instance.new("TextLabel")
+	chainTitle.Name = "ChainTitle"
+	chainTitle.BackgroundTransparency = 1
+	chainTitle.Position = UDim2.fromOffset(4, 0)
+	chainTitle.Size = UDim2.new(1, -100, 1, 0)
+	chainTitle.Font = Theme.Font
+	chainTitle.TextSize = 16
+	chainTitle.TextColor3 = Theme.TextPrimary
+	chainTitle.TextXAlignment = Enum.TextXAlignment.Left
+	chainTitle.Text = "Recipe Ladder"
+	chainTitle.ZIndex = 10
+	chainTitle.Parent = chainHeader
+	local chainClose = Instance.new("TextButton")
+	chainClose.Name = "ChainClose"
+	chainClose.AnchorPoint = Vector2.new(1, 0)
+	chainClose.Position = UDim2.new(1, 0, 0, 0)
+	chainClose.Size = UDim2.fromOffset(90, 28)
+	chainClose.BackgroundColor3 = Theme.BgLight
+	chainClose.Font = Theme.Font
+	chainClose.TextSize = 13
+	chainClose.TextColor3 = Theme.TextPrimary
+	chainClose.Text = "← Back"
+	chainClose.ZIndex = 10
+	chainClose.Parent = chainHeader
+	local chainCloseCorner = Instance.new("UICorner")
+	chainCloseCorner.CornerRadius = Theme.CornerSmall
+	chainCloseCorner.Parent = chainClose
+	chainClose.Activated:Connect(function()
+		chainOverlay.Visible = false
+	end)
+
+	local chainList = Instance.new("ScrollingFrame")
+	chainList.Name = "ChainList"
+	chainList.Position = UDim2.fromOffset(0, 36)
+	chainList.Size = UDim2.new(1, 0, 1, -36)
+	chainList.BackgroundTransparency = 1
+	chainList.BorderSizePixel = 0
+	chainList.ScrollBarThickness = 6
+	chainList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	chainList.CanvasSize = UDim2.new()
+	chainList.ZIndex = 10
+	chainList.Parent = chainOverlay
+	local chainListLayout = Instance.new("UIListLayout")
+	chainListLayout.Padding = UDim.new(0, 10)
+	chainListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	chainListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	chainListLayout.Parent = chainList
+
+	-- one tier's node: icon + name + owned/needed, used for both the output
+	-- being explained and each of its inputs
+	local function chainNode(parentFrame: Instance, order: number, itemId: string, name: string, imageId: string?, owned: number?, count: number?): Frame
+		local node = Instance.new("Frame")
+		node.Name = "node_" .. itemId
+		node.LayoutOrder = order
+		node.BackgroundColor3 = Theme.BgLight
+		node.BorderSizePixel = 0
+		node.Size = UDim2.fromOffset(96, 96)
+		node.ZIndex = 10
+		node.Parent = parentFrame
+		local nodeCorner = Instance.new("UICorner")
+		nodeCorner.CornerRadius = Theme.CornerSmall
+		nodeCorner.Parent = node
+		local icon = Instance.new("ImageLabel")
+		icon.Name = "Icon"
+		icon.BackgroundTransparency = 1
+		icon.Position = UDim2.fromOffset(16, 6)
+		icon.Size = UDim2.fromOffset(64, 48)
+		icon.ScaleType = Enum.ScaleType.Fit
+		icon.ZIndex = 10
+		icon.Parent = node
+		EconomyController.ensure({ itemId })
+		Components.setIcon(icon, { imageId = imageId, name = name })
+		tooltip.attach(icon, function()
+			return EconomyController.get(itemId) or { name = name, imageId = imageId }, owned
+		end)
+		local nameLbl = Instance.new("TextLabel")
+		nameLbl.Name = "NameLabel"
+		nameLbl.BackgroundTransparency = 1
+		nameLbl.Position = UDim2.fromOffset(2, 56)
+		nameLbl.Size = UDim2.new(1, -4, 0, 26)
+		nameLbl.Font = Theme.FontLight
+		nameLbl.TextSize = 10
+		nameLbl.TextWrapped = true
+		nameLbl.TextColor3 = Theme.TextPrimary
+		nameLbl.TextXAlignment = Enum.TextXAlignment.Center
+		nameLbl.Text = name
+		nameLbl.ZIndex = 10
+		nameLbl.Parent = node
+		if count then
+			local countLbl = Instance.new("TextLabel")
+			countLbl.Name = "CountLabel"
+			countLbl.BackgroundTransparency = 1
+			countLbl.Position = UDim2.fromOffset(2, 80)
+			countLbl.Size = UDim2.new(1, -4, 0, 14)
+			countLbl.Font = Theme.Font
+			countLbl.TextSize = 11
+			countLbl.TextXAlignment = Enum.TextXAlignment.Center
+			countLbl.Text = ("%d/%d"):format(owned or 0, count)
+			countLbl.TextColor3 = (owned or 0) >= count and Theme.Good or Theme.Bad
+			countLbl.ZIndex = 10
+			countLbl.Parent = node
+		end
+		return node
+	end
+
+	-- one tier's ROW: the recipe's inputs, side by side, feeding UP into its
+	-- output (rendered as the row below this one — the ladder reads bottom to
+	-- top, commons at the bottom, the grail at the very top, matching how the
+	-- recipes actually chain).
+	local function chainTierRow(entry: any, order: number, depth: number): Frame
+		local tierRow = Instance.new("Frame")
+		tierRow.Name = "tier_" .. order
+		tierRow.LayoutOrder = order
+		tierRow.BackgroundTransparency = 1
+		tierRow.Size = UDim2.new(1, 0, 0, 96)
+		tierRow.AutomaticSize = Enum.AutomaticSize.None
+		tierRow.Parent = chainList
+		local rowLayout = Instance.new("UIListLayout")
+		rowLayout.FillDirection = Enum.FillDirection.Horizontal
+		rowLayout.Padding = UDim.new(0, 8)
+		rowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		rowLayout.Parent = tierRow
+
+		local inputOrder = 0
+		for _, input in entry.recipe.inputs do
+			inputOrder += 1
+			chainNode(tierRow, inputOrder, input.itemId, input.name, input.imageId, input.owned, input.count)
+		end
+		return tierRow
+	end
+
+	-- recurse UP through each input that's itself a crafted event item,
+	-- bounded by the ladder's own depth (tier only ever goes 1/2/3) so this
+	-- can never loop even on a config mistake
+	local function buildChain(rootOutId: string)
+		local order = 0
+		local function walk(outId: string, depth: number)
+			if depth > 4 then
+				return
+			end
+			local entry = findRecipeForOutput(outId)
+			if entry == nil then
+				return -- base commons: a leaf, nothing feeds it
+			end
+			order += 1
+			chainTierRow(entry, order, depth)
+			for _, input in entry.recipe.inputs do
+				if input.itemId:sub(1, 4) == "evt_" then
+					walk(input.itemId, depth + 1)
+				end
+			end
+		end
+		walk(rootOutId, 1)
+	end
+
+	openChain = function(itemId: string, name: string)
+		ensureRecipeGraph(function()
+			for _, inst in chainList:GetChildren() do
+				if inst:IsA("Frame") then
+					inst:Destroy()
+				end
+			end
+			chainTitle.Text = "Recipe Ladder — " .. name
+			buildChain(itemId)
+			chainOverlay.Visible = true
+		end)
 	end
 
 	local function renderChip(chip: Frame, input: any)
@@ -173,14 +411,40 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		badge.Text = TIER_NAME[recipe.tier] or ""
 		badge.Parent = row
 
+		-- chain button: top-right corner, clear of the output/action area below
+		-- it — opens the full recipe LADDER for this output (see openChain)
+		local chainBtn = Instance.new("TextButton")
+		chainBtn.Name = "ChainButton"
+		chainBtn.AnchorPoint = Vector2.new(1, 0)
+		chainBtn.Position = UDim2.new(1, -8, 0, 4)
+		chainBtn.Size = UDim2.fromOffset(24, 24)
+		chainBtn.BackgroundColor3 = Theme.BgLight
+		chainBtn.Font = Theme.Font
+		chainBtn.TextSize = 14
+		chainBtn.TextColor3 = Theme.TextPrimary
+		chainBtn.Text = "🌳"
+		chainBtn.Parent = row
+		local chainCorner = Instance.new("UICorner")
+		chainCorner.CornerRadius = Theme.CornerSmall
+		chainCorner.Parent = chainBtn
+		chainBtn.Activated:Connect(function()
+			openChain(recipe.output.itemId, recipe.output.name)
+		end)
+
 		-- bottom line: normally the blurb, but a missing event-item input takes
-		-- priority — point the player at WHERE that input is crafted instead of
-		-- leaving them staring at an ingredient they can't buy or roll
+		-- priority — point the player at WHERE that input is crafted, and
+		-- whether that's actually open THIS rotation (see CraftingService.
+		-- liveProducerOf) instead of sending them to a station that's closed
 		local bottomText = recipe.blurb
 		local bottomColor = Theme.TextDim
 		for _, input in recipe.inputs do
 			if input.from and input.owned < input.count then
-				bottomText = ("Need %s? Craft it at %s."):format(input.name, input.from)
+				if input.from.availableNow then
+					bottomText = ("Need %s? Craft it at %s."):format(input.name, input.from.name)
+				else
+					bottomText = ("Need %s? %s makes it — not this rotation, back in %s.")
+						:format(input.name, input.from.name, timeText(input.from.rotatesAt))
+				end
 				bottomColor = Theme.Warn
 				break
 			end
@@ -245,10 +509,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			local keep
 			if activeTab == "craft" then
 				keep = recipe.craftable and recipe.output.remaining > 0
-			elseif activeTab == "stations" then
-				keep = event.category == "permanent"
-			elseif activeTab == "rotating" then
-				keep = event.category == "rotating"
+			elseif activeTab == "recipes" then
+				keep = event.category == "permanent" or event.category == "rotating"
 			else -- limited
 				keep = event.category == "limited"
 			end
@@ -262,10 +524,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local function emptyMessage(): string
 		if activeTab == "craft" then
 			return "Nothing you can craft yet — trade for the inputs, then come back!"
-		elseif activeTab == "stations" then
-			return "No crafting stations are open right now."
-		elseif activeTab == "rotating" then
-			return "No rotating recipes right now, check back soon!"
+		elseif activeTab == "recipes" then
+			return "No recipes available right now, check back soon!"
 		end
 		return "No limited events running — new seasons land here!"
 	end

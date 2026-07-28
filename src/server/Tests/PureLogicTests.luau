@@ -112,42 +112,29 @@ return {
 			assert(not Guard.checkOfferShape({ items = { itm_a = 10 }, gems = 0 }), "copy cap not enforced")
 		end,
 
-		["value: fundamentals only — base, scarcity(burned), demand"] = function()
+		["value: fundamentals only — base (fixed by totalSupply cap) + demand"] = function()
 			local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
-			-- computeValue(base, circulating, burned, demand)
-			-- nothing burned, no demand -> sits exactly on its anchor
-			eq(EconomyService.computeValue(100, 500, 0, 0), 100, "unburned, cold = base")
+			-- computeValue(base, demand). No circulating/burned term any more:
+			-- crafting a common by the hundreds must NEVER move its own price,
+			-- since the whole point of redistribution is that a single item can
+			-- neither be inflated nor deflated by how much gets crafted.
+			-- cold (no demand) -> sits exactly on its anchor, whatever base is
+			eq(EconomyService.computeValue(100, 0), 100, "cold = base")
+			eq(EconomyService.computeValue(7, 0), 7, "cold = base, another anchor")
 
-			-- A SINK LIFTS EVERY HOLDER: destroy half the copies ever made and
-			-- the survivors are worth strictly more, with nobody having traded.
-			local burnt = EconomyService.computeValue(100, 500, 500, 0)
-			assert(burnt > 100, "burning must raise value: " .. burnt)
-			local burntHarder = EconomyService.computeValue(100, 100, 900, 0)
-			assert(burntHarder > burnt, "more burned = scarcer = worth more")
-
-			-- PRODUCTION doesn't inflate the unit price: minting more copies
-			-- pushes scarcity back toward 1.0x, so value settles at base while
-			-- COUNT (and thus total worth) is what grows.
-			local flooded = EconomyService.computeValue(100, 5000, 500, 0)
-			assert(flooded < burnt, "abundance must not price above scarcity")
-			assert(flooded >= 100, "value floors at its anchor, never below")
-
-			-- demand lifts value, and is capped by DemandCoefficient
-			local hot = EconomyService.computeValue(100, 500, 0, EconomyConfig.DemandRef * 10)
+			-- demand lifts value, and is capped by DemandCoefficient — this is
+			-- the ONLY thing that can move a price day to day
+			local hot = EconomyService.computeValue(100, EconomyConfig.DemandRef * 10)
 			eq(hot, math.floor(100 * (1 + EconomyConfig.DemandCoefficient) + 0.5), "demand caps at DemandCoefficient")
-			assert(hot > EconomyService.computeValue(100, 500, 0, 0), "demand must raise value")
+			assert(hot > EconomyService.computeValue(100, 0), "demand must raise value")
 
-			-- scarcity is clamped: burning can't 100x an item
-			local absurd = EconomyService.computeValue(100, 1, 1000000, 0)
-			assert(absurd <= 100 * EconomyConfig.ScarcityMax, "scarcity clamped to ScarcityMax")
-
-			-- Value NEVER reads RAP: it isn't even an argument any more. That
-			-- feedback loop (Value -> price -> RAP -> Value) is what made Value
-			-- meaningless. Guard the signature so it can't creep back in.
-			eq(debug.info(EconomyService.computeValue, "a"), 4, "computeValue takes exactly (base, circulating, burned, demand)")
+			-- Value NEVER reads RAP, and no longer reads circulating/burned
+			-- either — guard the signature so a scarcity term can't creep back
+			-- in without a deliberate decision (see the file header on why).
+			eq(debug.info(EconomyService.computeValue, "a"), 2, "computeValue takes exactly (base, demand)")
 
 			-- never below 1
-			eq(EconomyService.computeValue(0, 0, 0, 0), 1)
+			eq(EconomyService.computeValue(0, 0), 1)
 		end,
 
 		["value: event-item scarcity seed — scarcer cap worth more"] = function()

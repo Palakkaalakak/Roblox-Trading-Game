@@ -2724,7 +2724,7 @@ local function buildEventsPanel(parent: Instance)
 	label("Title", {
 		Position = UDim2.fromOffset(14, 8),
 		Size = UDim2.new(1, -60, 0, 24),
-		Text = "🎉 Events",
+		Text = "🔨 Crafting",
 		TextSize = 18,
 	}, events)
 	button("CloseButton", {

@@ -83,6 +83,37 @@ return {
 			end
 		end,
 
+		["events: liveProducerOf reflects the ACTIVE window, not the whole pool"] = function()
+			-- The bug this guards: the static index used to list every recipe in
+			-- RotatingRecipes.Pool as a producer, so the "craft it at X" hint
+			-- pointed players at recipes that were in the pool but NOT one of
+			-- this window's ActiveCount picks — a dead end. liveProducerOf must
+			-- only claim "available now" for what's actually active this window.
+			local CraftingService = require(script.Parent.Parent.Services.CraftingService)
+			local now = os.time()
+			local activeOutputs = {}
+			for _, event in CraftingService.activeEvents(now) do
+				for _, recipe in event.recipes do
+					activeOutputs["evt_" .. recipe.output.sku] = true
+				end
+			end
+			for _, recipe in EventConfig.RotatingRecipes.Pool do
+				local outId = "evt_" .. recipe.output.sku
+				local info = CraftingService.liveProducerOf(outId, now)
+				assert(info ~= nil, outId .. " must resolve to SOME producer info")
+				eq(info.availableNow, activeOutputs[outId] == true, outId .. " availableNow must match this window's actual picks")
+				if not info.availableNow then
+					assert(info.rotatesAt ~= nil and info.rotatesAt > now, outId .. " must say when it returns")
+				end
+			end
+			-- a permanent station's output is always available, never rotation-gated
+			local stationInfo = CraftingService.liveProducerOf("evt_transmutation_stone", now)
+			assert(stationInfo ~= nil and stationInfo.availableNow == true, "permanent station always available")
+			-- a base (non-event) item has no producer at all
+			eq(CraftingService.liveProducerOf("itm_1_1_stone_relic", now), nil, "base items have no producer")
+			eq(CraftingService.liveProducerOf("evt_totally_made_up", now), nil, "unknown event item has no producer")
+		end,
+
 		["rolls: empty payment is worth zero"] = function()
 			local RollService = require(script.Parent.Parent.Services.RollService)
 			eq(RollService.paymentValue({}), 0, "empty payment")

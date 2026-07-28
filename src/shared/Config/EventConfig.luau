@@ -3,29 +3,37 @@
 --
 -- WHY EVENTS EXIST (read this before tuning anything):
 -- Item-for-item trading is zero-sum: it moves worth around, it never creates
--- any. Crafting is the only thing that MAKES value, and it does it twice over:
---   1. THE PREMIUM. A recipe burns its inputs and mints an output seeded at
---      (input value) * EconomyConfig.CraftValuePremium. Every craft mints more
---      worth than it destroys. Crafting costs ITEMS ONLY — no gem fee.
---   2. THE SINK (the big one). Burned copies leave existence forever. The
---      ROTATING refinery deliberately points that sink at a couple of specific
---      commons per window, so crafters all bid for the SAME items at once —
---      those spike, then the window rotates and the next ones spike. Supply
---      only ever ratchets down, so values trend up for EVERYONE holding them,
---      not just whoever crafted. That is how the whole economy grows instead
---      of a few traders getting rich off everyone else.
+-- any. Crafting is the only thing that MAKES value: a recipe consumes its
+-- inputs and mints an output seeded at (input value) * EconomyConfig.
+-- CraftValuePremium — every craft mints more worth than it consumes. Crafting
+-- costs ITEMS ONLY — no gem fee (gems only ever enter the game via ads/Robux,
+-- so they're never a raw material).
 --
--- THE LADDER (each rung is +10% and a demand sink for the rung below):
---   commons --3x--> Refined Essence --3x + a rare--> Artifact --2x--> Grail
--- Input counts are deliberately small. Every count here must stay <=
--- BotConfig.MaxHoldPerItem AND be reachable given BotConfig.StarterDraws — a
--- recipe wanting more of one item than the population can concentrate into one
--- pair of hands simply never fires, and the whole value engine stalls.
--- Every rung is SUPPLY-CAPPED, including the material. That is not a nicety:
--- net worth is sum(count * value), and value is whatever the market pays, so
--- minting an unlimited material just prices it to nothing and DESTROYS worth
--- faster than the premium creates it (measured: 137 Essence flooded out and its
--- value fell 50 -> 39). Scarcity is what makes a craft's premium stick.
+-- Consumed inputs are REDISTRIBUTED back into the shared reserve, not
+-- destroyed (same mechanism rolls already use for item-payments) — so a
+-- common eaten by the hundreds up at the top of the ladder recycles straight
+-- back to new players' free starter grants instead of the world ever running
+-- dry. An item's price never reacts to this cycling either way (see
+-- EconomyService.computeValue): only its fixed totalSupply cap and live
+-- demand set what it's worth, so no single item can be inflated or deflated
+-- by crafting activity. The economy still grows overall, just by COUNT — new
+-- items and new recipes, each with their own cap, entering over time (via
+-- events, rolls, the gem-store NPC, or the starter pool).
+--
+-- THE LADDER (each rung is +10% value and a source of REAL demand for the
+-- rung below): commons --> Refined Essence --> Artifact --> Grail.
+-- This is where "pro" players buy in bulk from everyone else: a capstone
+-- recipe's input counts are meant to be steep — often more than one player
+-- could ever farm alone — so satisfying it means buying hundreds of a common
+-- off the market, not grinding it out solo. That demand is what makes a
+-- beginner's cheapest items worth anything at all: nothing else does.
+-- Every rung is still SUPPLY-CAPPED (totalSupply), including the material —
+-- net worth is sum(count * value), and an uncapped material prices itself to
+-- nothing and destroys worth faster than any premium creates it.
+--
+-- One exception on purpose: the Alchemist's Lab stays CHEAP and always-on.
+-- Every new player needs at least one thing they can always make, win or
+-- lose on rotation — that's the on-ramp, not a whale target.
 --
 -- Each event may carry `npc = { position = {x, y, z} }`: the server spawns an
 -- event NPC there at boot; triggering its prompt opens the Events panel.
@@ -58,9 +66,9 @@ local EventConfig: any = {
 				{
 					rid = "ancient_grail",
 					tier = 3,
-					blurb = "Two artifacts and a crown, forged into something the server remembers.",
+					blurb = "Five storm artifacts and a crown, forged into something the server remembers.",
 					inputs = {
-						["evt_storm_artifact"] = 2,
+						["evt_storm_artifact"] = 5,
 						["itm_1_8_crimson_crown"] = 1,
 					},
 					output = {
@@ -75,7 +83,7 @@ local EventConfig: any = {
 					tier = 3,
 					blurb = "The rarest thing anyone can make. The Void does not give it up cheaply.",
 					inputs = {
-						["evt_ember_artifact"] = 2,
+						["evt_ember_artifact"] = 5,
 						["itm_1_11_void_shard"] = 1,
 					},
 					output = {
@@ -101,10 +109,8 @@ local EventConfig: any = {
 				{
 					rid = "shadow_crown",
 					tier = 2,
-					blurb = "Feed the dark six coins. Ask no questions.",
-					-- NOTE: keep every input count <= BotConfig.MaxHoldPerItem (8),
-					-- or no bot can ever physically stockpile enough to craft it.
-					inputs = { ["itm_1_2_copper_coin"] = 6 },
+					blurb = "Feed the dark thirty coins. Ask no questions.",
+					inputs = { ["itm_1_2_copper_coin"] = 30 },
 					output = {
 						sku = "shadow_crown",
 						name = "Shadow Crown",
@@ -115,8 +121,8 @@ local EventConfig: any = {
 				{
 					rid = "hollow_effigy",
 					tier = 2,
-					blurb = "Six relics of stone for one hollow thing.",
-					inputs = { ["itm_1_1_stone_relic"] = 6 },
+					blurb = "Thirty relics of stone for one hollow thing.",
+					inputs = { ["itm_1_1_stone_relic"] = 30 },
 					output = {
 						sku = "hollow_effigy",
 						name = "Hollow Effigy",
@@ -223,7 +229,7 @@ local EventConfig: any = {
 				rid = "refine_stone",
 				tier = 1,
 				blurb = "Stone Relics are wanted this window. Grind them down.",
-				inputs = { ["itm_1_1_stone_relic"] = 3 },
+				inputs = { ["itm_1_1_stone_relic"] = 15 },
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -235,7 +241,7 @@ local EventConfig: any = {
 				rid = "refine_copper",
 				tier = 1,
 				blurb = "Copper is in demand. Melt it down.",
-				inputs = { ["itm_1_2_copper_coin"] = 3 },
+				inputs = { ["itm_1_2_copper_coin"] = 15 },
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -247,7 +253,7 @@ local EventConfig: any = {
 				rid = "refine_amber",
 				tier = 1,
 				blurb = "Amber Idols burn hot this window.",
-				inputs = { ["itm_1_3_amber_idol"] = 3 },
+				inputs = { ["itm_1_3_amber_idol"] = 15 },
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -259,7 +265,7 @@ local EventConfig: any = {
 				rid = "refine_clay",
 				tier = 1,
 				blurb = "Clay Totems are the ask right now.",
-				inputs = { ["itm_1_4_clay_totem"] = 3 },
+				inputs = { ["itm_1_4_clay_totem"] = 15 },
 				output = {
 					sku = "refined_essence",
 					name = "Refined Essence",
@@ -273,7 +279,7 @@ local EventConfig: any = {
 				rid = "artifact_storm",
 				tier = 2,
 				blurb = "Bind essence to a serpent and it holds a storm.",
-				inputs = { ["evt_refined_essence"] = 3, ["itm_1_5_jade_serpent"] = 1 },
+				inputs = { ["evt_refined_essence"] = 10, ["itm_1_5_jade_serpent"] = 1 },
 				output = {
 					sku = "storm_artifact",
 					name = "Storm Artifact",
@@ -285,7 +291,7 @@ local EventConfig: any = {
 				rid = "artifact_ember",
 				tier = 2,
 				blurb = "Sunstone and essence. Warm to the touch, forever.",
-				inputs = { ["evt_refined_essence"] = 3, ["itm_1_6_sunstone_charm"] = 1 },
+				inputs = { ["evt_refined_essence"] = 10, ["itm_1_6_sunstone_charm"] = 1 },
 				output = {
 					sku = "ember_artifact",
 					name = "Ember Artifact",
@@ -297,7 +303,7 @@ local EventConfig: any = {
 				rid = "artifact_frost",
 				tier = 2,
 				blurb = "A lantern that never thaws.",
-				inputs = { ["evt_refined_essence"] = 3, ["itm_1_7_frost_lantern"] = 1 },
+				inputs = { ["evt_refined_essence"] = 10, ["itm_1_7_frost_lantern"] = 1 },
 				output = {
 					sku = "frost_artifact",
 					name = "Frost Artifact",
@@ -309,7 +315,7 @@ local EventConfig: any = {
 				rid = "artifact_gilded",
 				tier = 2,
 				blurb = "Essence poured over a fang. Obscene, and worth it.",
-				inputs = { ["evt_refined_essence"] = 4, ["itm_1_10_obsidian_fang"] = 1 },
+				inputs = { ["evt_refined_essence"] = 14, ["itm_1_10_obsidian_fang"] = 1 },
 				output = {
 					sku = "gilded_artifact",
 					name = "Gilded Artifact",

@@ -67,7 +67,9 @@
 --
 -- To revert: restore the ORIGINAL values noted on each line.
 local BotConfig = {
-	Enabled = true,
+	-- Final phases: real players are the target now, bots were a dev-time
+	-- simulation aid only. false stops all brains and clears bot listings.
+	Enabled = false,
 
 	-- GROWTH TEST: was 500. MEASURED: at 500 a single sweep did not finish inside
 	-- 45s, so the population only ever got ONE round of decisions and nothing

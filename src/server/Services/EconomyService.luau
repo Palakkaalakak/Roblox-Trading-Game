@@ -85,19 +85,23 @@ function EconomyService.scarcitySeed(totalSupply: number): number
 	return math.max(1, math.floor(EconomyConfig.ValueBase * scarcity + 0.5))
 end
 
--- value = base * scarcity(burned) * demandFactor
---   `circulating` copies exist right now; `burned` have been destroyed forever
---   (crafting/sacrifice inputs). Scarcity is the ratio of everything ever
---   distributed to what survives, so a sink lifts every holder at once, while
---   fresh production pushes it back toward 1.0x and grows the economy by COUNT
---   rather than by inflating the unit price.
-function EconomyService.computeValue(base: number, circulating: number, burned: number, demand: number): number
-	local alive = math.max(circulating, 1)
-	local everMade = alive + math.max(burned, 0)
-	local scarcity = (everMade / alive) ^ EconomyConfig.SupplyExponent
-	scarcity = math.clamp(scarcity, 1, EconomyConfig.ScarcityMax)
+-- value = base * demandFactor.
+--
+-- `base` already prices the item from its fixed totalSupply cap (see
+-- scarcitySeed / displayStoreCost) — a small cap means a high base, a huge cap
+-- means a low one, and that number never moves once set. Deliberately no
+-- separate scarcity term reacting to circulating/burned counts: an item's
+-- price must not run away or collapse from crafting activity alone. The
+-- economy still grows in aggregate as more items and item TYPES enter the
+-- world (each with its own capped base), just never by inflating one item's
+-- unit price. Demand is the only thing that moves a price day to day, and
+-- it's capped at +DemandCoefficient so it can only ever nudge, not spiral.
+--
+-- (Revisit if the game reaches a scale where a circulation-aware term is
+-- worth the added complexity — deliberately left simple for now.)
+function EconomyService.computeValue(base: number, demand: number): number
 	local demandFactor = 1 + EconomyConfig.DemandCoefficient * math.min(demand / EconomyConfig.DemandRef, 1)
-	return math.max(1, math.floor(base * scarcity * demandFactor + 0.5))
+	return math.max(1, math.floor(base * demandFactor + 0.5))
 end
 
 -- Live rarity->gems lookup against the CURRENT config — never frozen into
@@ -473,14 +477,32 @@ function EconomyService.bumpDemand(itemId: string, amount: number, countAsSample
 end
 
 -- Return copies from circulation to the RESERVE (the roll/draw pool) — the
--- inverse of reserveOne. Used by roll item-payments: traded-in copies are
--- redistributed, not destroyed, so someone else can roll them back out.
+-- inverse of reserveOne. Used by roll item-payments AND crafting inputs:
+-- consumed copies are redistributed, not destroyed, so someone else (a new
+-- player's free starter grant, a roll, a store restock) can draw them back out.
 -- Strong CAS like reserveOne; never moves more than circulation holds.
 function EconomyService.restockCopies(itemId: string, count: number)
 	if count <= 0 then
 		return
 	end
 	mutateRecord(itemId, function(old)
+		local back = math.min(count, old.circulating or 0)
+		old.circulating = math.max(0, (old.circulating or 0) - back)
+		old.reserveRemaining = (old.reserveRemaining or 0) + back
+		old.updatedAt = os.time()
+		return old
+	end)
+	EconomyService.broadcastStats({ itemId })
+end
+
+-- Lazy counterpart of restockCopies (in-memory + dirty flush) — same rationale
+-- as reserveOneLazy/retireCopiesLazy: a synchronous DataStore UpdateAsync per
+-- craft, across many bots, starves the shared request budget.
+function EconomyService.restockCopiesLazy(itemId: string, count: number)
+	if count <= 0 then
+		return
+	end
+	mutateRecordLocal(itemId, function(old)
 		local back = math.min(count, old.circulating or 0)
 		old.circulating = math.max(0, (old.circulating or 0) - back)
 		old.reserveRemaining = (old.reserveRemaining or 0) + back
@@ -503,6 +525,22 @@ function EconomyService.retireCopies(itemId: string, count: number)
 		-- destroyed copies are what make the survivors scarcer, and thus what
 		-- lifts every holder's Est. Value. Without this the sink is invisible.
 		old.burned = (old.burned or 0) + gone
+		old.updatedAt = os.time()
+		return old
+	end)
+	EconomyService.broadcastStats({ itemId })
+end
+
+-- Return copies to the reserve the LAZY way (in-memory + dirty flush). Bot
+-- equivalent of restockCopies — same rationale as reserveOneLazy.
+function EconomyService.restockCopiesLazy(itemId: string, count: number)
+	if count <= 0 then
+		return
+	end
+	mutateRecordLocal(itemId, function(old)
+		local back = math.min(count, old.circulating or 0)
+		old.circulating = math.max(0, (old.circulating or 0) - back)
+		old.reserveRemaining = (old.reserveRemaining or 0) + back
 		old.updatedAt = os.time()
 		return old
 	end)
@@ -586,7 +624,7 @@ function EconomyService.snapshot(itemId: string): any?
 	local now = os.time()
 	local demand = decayedDemand(rec, now)
 	local circulating = rec.circulating or 0
-	local value = EconomyService.computeValue(seedFor(item, itemId), circulating, rec.burned or 0, demand)
+	local value = EconomyService.computeValue(seedFor(item, itemId), demand)
 
 	return {
 		itemId = itemId,
@@ -611,12 +649,7 @@ function EconomyService.valueOf(itemId: string): number
 	if item == nil then
 		return 1
 	end
-	return EconomyService.computeValue(
-		seedFor(item, itemId),
-		rec and rec.circulating or 0,
-		rec and rec.burned or 0,
-		rec and decayedDemand(rec, os.time()) or 0
-	)
+	return EconomyService.computeValue(seedFor(item, itemId), rec and decayedDemand(rec, os.time()) or 0)
 end
 
 --------------------------------------------------------------------------------
