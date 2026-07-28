@@ -38,6 +38,7 @@ local ShopScreen = require(UI.ShopScreen)
 local ActivityFeed = require(UI.ActivityFeed)
 local AdminScreen = require(UI.AdminScreen)
 local FreeGemsScreen = require(UI.FreeGemsScreen)
+local WorldLeaderboards = require(UI.WorldLeaderboards)
 local LeaderboardScreen = require(UI.LeaderboardScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -61,6 +62,7 @@ ProfileScreen.wire(modalGui, tooltip)
 RollsScreen.wire(modalGui, tooltip, toast)
 ShopScreen.wire(modalGui, tooltip, toast)
 FreeGemsScreen.wire(modalGui, toast)
+WorldLeaderboards.start() -- fills the physical boards standing in the world
 LeaderboardScreen.wire(modalGui, toast)
 HUD.wire(hudGui, {
 	inventory = function()

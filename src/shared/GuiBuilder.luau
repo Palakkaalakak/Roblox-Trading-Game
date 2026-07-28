@@ -2297,7 +2297,7 @@ local function buildLeaderboardPanel(parent: Instance)
 	label("Title", {
 		Position = UDim2.fromOffset(14, 8),
 		Size = UDim2.new(1, -60, 0, 24),
-		Text = "🏆 Leaderboards",
+		Text = "Leaderboards",
 		TextSize = 18,
 	}, board)
 	button("CloseButton", {
@@ -2921,7 +2921,7 @@ local function buildEventsPanel(parent: Instance)
 	label("Title", {
 		Position = UDim2.fromOffset(14, 8),
 		Size = UDim2.new(1, -60, 0, 24),
-		Text = "🔨 Crafting",
+		Text = "Crafting",
 		TextSize = 18,
 	}, events)
 	button("CloseButton", {

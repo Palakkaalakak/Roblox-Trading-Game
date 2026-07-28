@@ -81,9 +81,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	tabLayout.Parent = tabRow
 
 	local TABS = {
-		{ id = "craft", text = "⚡ Can Craft" },
-		{ id = "recipes", text = "📜 Recipes" },
-		{ id = "limited", text = "🎉 Limited" },
+		{ id = "craft", text = "Can Craft" },
+		{ id = "recipes", text = "Recipes" },
+		{ id = "limited", text = "Limited" },
 	}
 	local activeTab = "craft"
 	local tabButtons: { [string]: TextButton } = {}
