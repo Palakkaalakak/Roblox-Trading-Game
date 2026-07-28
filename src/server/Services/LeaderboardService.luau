@@ -206,13 +206,6 @@ function LeaderboardService.Start()
 		return fetchBoard(boardId :: string, s, player.UserId)
 	end)
 
-	Net.bindFunction("GetLeaderboardList", function()
-		local out = {}
-		for i, board in LeaderboardConfig.Boards do
-			out[i] = { id = board.id, name = board.name, blurb = board.blurb, unit = board.unit }
-		end
-		return { ok = true, boards = out }
-	end)
 
 	-- staggered writer: every player's scores get pushed on their own cadence,
 	-- so a full server spreads its writes instead of spiking together
