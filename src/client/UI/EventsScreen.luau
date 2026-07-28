@@ -19,6 +19,7 @@
 -- instead of staring at an ingredient with no idea where it comes from.
 
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
@@ -210,10 +211,14 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local treeW, treeH = 0, 0
 	local applyZoom -- fwd decl (defined once the canvas exists)
 
+	-- Laid out right-to-left from the Back button: [−][ 100% ][+][Back]. The
+	-- readout is centred on the midpoint of the two buttons and given its own
+	-- clear span — it used to overlap the − button, which is what made it look
+	-- off-centre.
 	local zoomOut = Instance.new("TextButton")
 	zoomOut.Name = "ZoomOut"
 	zoomOut.AnchorPoint = Vector2.new(1, 0)
-	zoomOut.Position = UDim2.new(1, -166, 0, 0)
+	zoomOut.Position = UDim2.new(1, -182, 0, 0)
 	zoomOut.Size = UDim2.fromOffset(28, 28)
 	zoomOut.BackgroundColor3 = Theme.BgLight
 	zoomOut.Font = Theme.Font
@@ -229,8 +234,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local zoomLabel = Instance.new("TextLabel")
 	zoomLabel.Name = "ZoomLabel"
 	zoomLabel.AnchorPoint = Vector2.new(1, 0)
-	zoomLabel.Position = UDim2.new(1, -134, 0, 0)
-	zoomLabel.Size = UDim2.fromOffset(44, 28)
+	zoomLabel.Position = UDim2.new(1, -132, 0, 0)
+	zoomLabel.Size = UDim2.fromOffset(46, 28)
 	zoomLabel.BackgroundTransparency = 1
 	zoomLabel.Font = Theme.FontLight
 	zoomLabel.TextSize = 12
@@ -323,6 +328,27 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	end)
 	zoomIn.Activated:Connect(function()
 		applyZoom(zoom + ZOOM_STEP)
+	end)
+
+	-- Mouse wheel zooms the tree on PC. The ScrollingFrame would otherwise also
+	-- scroll on the same input, so the canvas position is captured and put back
+	-- (deferred, since the built-in scroll lands after this handler) — the wheel
+	-- reads as pure zoom while dragging and the scrollbars still pan normally.
+	UserInputService.InputChanged:Connect(function(input: InputObject)
+		if input.UserInputType ~= Enum.UserInputType.MouseWheel then
+			return
+		end
+		if not chainOverlay.Visible or chainScale == nil then
+			return
+		end
+		local held = chainList.CanvasPosition
+		applyZoom(zoom + input.Position.Z * ZOOM_STEP)
+		chainList.CanvasPosition = held
+		task.defer(function()
+			if chainOverlay.Visible then
+				chainList.CanvasPosition = held
+			end
+		end)
 	end)
 
 	-- Node geometry is fixed so the bracket connectors below can compute exactly
