@@ -199,6 +199,62 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	chainTitle.Text = "Recipe Ladder"
 	chainTitle.ZIndex = 10
 	chainTitle.Parent = chainHeader
+	-- Zoom. Big ladders (the Worldheart pyramid) don't fit at 1:1, so the canvas
+	-- carries a UIScale the player can drive. Clamped at both ends: below the
+	-- minimum the nodes are unreadable, above the maximum a wide tree scrolls
+	-- uselessly — and clamping is what stops repeated clicks from running the
+	-- scale (and the canvas size derived from it) away to a broken layout.
+	local ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 0.45, 1.5, 0.15
+	local zoom = 1
+	local chainScale: UIScale? = nil
+	local treeW, treeH = 0, 0
+	local applyZoom -- fwd decl (defined once the canvas exists)
+
+	local zoomOut = Instance.new("TextButton")
+	zoomOut.Name = "ZoomOut"
+	zoomOut.AnchorPoint = Vector2.new(1, 0)
+	zoomOut.Position = UDim2.new(1, -166, 0, 0)
+	zoomOut.Size = UDim2.fromOffset(28, 28)
+	zoomOut.BackgroundColor3 = Theme.BgLight
+	zoomOut.Font = Theme.Font
+	zoomOut.TextSize = 18
+	zoomOut.TextColor3 = Theme.TextPrimary
+	zoomOut.Text = "−"
+	zoomOut.ZIndex = 10
+	zoomOut.Parent = chainHeader
+	local zoomOutCorner = Instance.new("UICorner")
+	zoomOutCorner.CornerRadius = Theme.CornerSmall
+	zoomOutCorner.Parent = zoomOut
+
+	local zoomLabel = Instance.new("TextLabel")
+	zoomLabel.Name = "ZoomLabel"
+	zoomLabel.AnchorPoint = Vector2.new(1, 0)
+	zoomLabel.Position = UDim2.new(1, -134, 0, 0)
+	zoomLabel.Size = UDim2.fromOffset(44, 28)
+	zoomLabel.BackgroundTransparency = 1
+	zoomLabel.Font = Theme.FontLight
+	zoomLabel.TextSize = 12
+	zoomLabel.TextColor3 = Theme.TextDim
+	zoomLabel.Text = "100%"
+	zoomLabel.ZIndex = 10
+	zoomLabel.Parent = chainHeader
+
+	local zoomIn = Instance.new("TextButton")
+	zoomIn.Name = "ZoomIn"
+	zoomIn.AnchorPoint = Vector2.new(1, 0)
+	zoomIn.Position = UDim2.new(1, -100, 0, 0)
+	zoomIn.Size = UDim2.fromOffset(28, 28)
+	zoomIn.BackgroundColor3 = Theme.BgLight
+	zoomIn.Font = Theme.Font
+	zoomIn.TextSize = 18
+	zoomIn.TextColor3 = Theme.TextPrimary
+	zoomIn.Text = "+"
+	zoomIn.ZIndex = 10
+	zoomIn.Parent = chainHeader
+	local zoomInCorner = Instance.new("UICorner")
+	zoomInCorner.CornerRadius = Theme.CornerSmall
+	zoomInCorner.Parent = zoomIn
+
 	local chainClose = Instance.new("TextButton")
 	chainClose.Name = "ChainClose"
 	chainClose.AnchorPoint = Vector2.new(1, 0)
@@ -216,6 +272,39 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	chainCloseCorner.Parent = chainClose
 	chainClose.Activated:Connect(function()
 		chainOverlay.Visible = false
+	end)
+
+	-- Clamped so neither button can be spammed into a broken layout: the scale
+	-- stops at both ends and the canvas size is always derived from the clamped
+	-- value, never accumulated.
+	applyZoom = function(z: number)
+		zoom = math.clamp(z, ZOOM_MIN, ZOOM_MAX)
+		zoomLabel.Text = ("%d%%"):format(math.floor(zoom * 100 + 0.5))
+		zoomOut.AutoButtonColor = zoom > ZOOM_MIN
+		zoomIn.AutoButtonColor = zoom < ZOOM_MAX
+		zoomOut.TextColor3 = zoom > ZOOM_MIN and Theme.TextPrimary or Theme.TextDim
+		zoomIn.TextColor3 = zoom < ZOOM_MAX and Theme.TextPrimary or Theme.TextDim
+		if chainScale == nil then
+			return
+		end
+		chainScale.Scale = zoom
+		local scaledW, scaledH = treeW * zoom, treeH * zoom
+		chainList.CanvasSize = UDim2.fromOffset(scaledW + 24, scaledH + 24)
+		local canvas = chainList:FindFirstChild("Canvas")
+		if canvas then
+			-- centre a tree narrower than the view; otherwise pin left and scroll
+			if scaledW < chainList.AbsoluteSize.X then
+				canvas.Position = UDim2.fromOffset(math.floor((chainList.AbsoluteSize.X - scaledW) / 2), 8)
+			else
+				canvas.Position = UDim2.fromOffset(12, 8)
+			end
+		end
+	end
+	zoomOut.Activated:Connect(function()
+		applyZoom(zoom - ZOOM_STEP)
+	end)
+	zoomIn.Activated:Connect(function()
+		applyZoom(zoom + ZOOM_STEP)
 	end)
 
 	local chainList = Instance.new("ScrollingFrame")
@@ -263,7 +352,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		icon.Parent = node
 		EconomyController.ensure({ itemId })
 		Components.setIcon(icon, { imageId = imageId, name = name })
-		tooltip.attach(icon, function()
+		-- hover anywhere on the node (not just the icon) for the item's stats,
+		-- same tooltip every other screen uses
+		tooltip.attach(node, function()
 			return EconomyController.get(itemId) or { name = name, imageId = imageId }, owned
 		end)
 		local nameLbl = Instance.new("TextLabel")
@@ -438,13 +529,15 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		canvas.Size = UDim2.fromOffset(root.w, (maxDepth + 1) * ROW_H)
 		canvas.ZIndex = 10
 		canvas.Parent = chainList
-		chainList.CanvasSize = UDim2.fromOffset(root.w + 24, (maxDepth + 1) * ROW_H + 24)
-		-- centre a narrow tree, but let a wide one start at the left and scroll
-		if root.w < chainList.AbsoluteSize.X then
-			canvas.Position = UDim2.new(0.5, -math.floor(root.w / 2), 0, 8)
-		else
-			canvas.Position = UDim2.fromOffset(12, 8)
-		end
+
+		-- UIScale scales from the canvas's top-left, so the scrollable area is
+		-- just the tree's size times the zoom; recompute both together or
+		-- zooming out leaves dead space and zooming in clips the bottom.
+		treeW, treeH = root.w, (maxDepth + 1) * ROW_H
+		chainScale = Instance.new("UIScale")
+		chainScale.Scale = zoom
+		chainScale.Parent = canvas
+		applyZoom(zoom)
 
 		placeChain(root, 0, 0, maxDepth)
 		drawChain(canvas, root, true)
