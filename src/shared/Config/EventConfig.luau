@@ -193,6 +193,180 @@ local EventConfig: any = {
 		},
 
 		--------------------------------------------------------------------
+		-- THE REFINERY — commons into Refined Essence. PERMANENT on purpose:
+		-- Essence feeds most of the ladder, and anything that feeds another
+		-- recipe must be craftable at ANY moment (see the rotation rule at the
+		-- top of this file). Several roads, one shared material pool.
+		--------------------------------------------------------------------
+		{
+			id = "evt_refinery",
+			name = "The Refinery",
+			kind = "crafting",
+			enabled = true,
+			recipes = {
+				{
+					rid = "refine_stone",
+					tier = 1,
+					blurb = "Stone Relics, ground down to something purer.",
+					inputs = { ["itm_1_1_stone_relic"] = 15 },
+					output = {
+						sku = "refined_essence",
+						name = "Refined Essence",
+						totalSupply = 2500, -- scarce ON PURPOSE: flood it and it's worthless
+						imageId = "rbxassetid://15403265114", -- red potion
+					},
+				},
+				{
+					rid = "refine_copper",
+					tier = 1,
+					blurb = "Copper, melted down.",
+					inputs = { ["itm_1_2_copper_coin"] = 15 },
+					output = {
+						sku = "refined_essence",
+						name = "Refined Essence",
+						totalSupply = 2500,
+						imageId = "rbxassetid://15403265114",
+					},
+				},
+				{
+					rid = "refine_amber",
+					tier = 1,
+					blurb = "Amber Idols burn hot and clean.",
+					inputs = { ["itm_1_3_amber_idol"] = 15 },
+					output = {
+						sku = "refined_essence",
+						name = "Refined Essence",
+						totalSupply = 2500,
+						imageId = "rbxassetid://15403265114",
+					},
+				},
+				{
+					rid = "refine_clay",
+					tier = 1,
+					blurb = "Clay Totems, fired down to essence.",
+					inputs = { ["itm_1_4_clay_totem"] = 15 },
+					output = {
+						sku = "refined_essence",
+						name = "Refined Essence",
+						totalSupply = 2500,
+						imageId = "rbxassetid://15403265114",
+					},
+				},
+			},
+		},
+
+		--------------------------------------------------------------------
+		-- ARTISAN BENCH — every MIDDLE rung of the ladder: artifacts, the
+		-- Worldheart fragments, and the two cores. All permanent, for the same
+		-- reason as the Refinery: each one feeds something above it, so none of
+		-- them may ever be rotation-gated.
+		--------------------------------------------------------------------
+		{
+			id = "evt_artisan",
+			name = "Artisan Bench",
+			kind = "crafting",
+			enabled = true,
+			recipes = {
+				{
+					rid = "artifact_storm",
+					tier = 2,
+					blurb = "Bind essence to a serpent and it holds a storm.",
+					inputs = { ["evt_refined_essence"] = 10, ["itm_1_5_jade_serpent"] = 1 },
+					output = {
+						sku = "storm_artifact",
+						name = "Storm Artifact",
+						totalSupply = 900,
+						imageId = "rbxassetid://15403144723", -- fire
+					},
+				},
+				{
+					rid = "artifact_ember",
+					tier = 2,
+					blurb = "Sunstone and essence. Warm to the touch, forever.",
+					inputs = { ["evt_refined_essence"] = 10, ["itm_1_6_sunstone_charm"] = 1 },
+					output = {
+						sku = "ember_artifact",
+						name = "Ember Artifact",
+						totalSupply = 900,
+						imageId = "rbxassetid://17368097932", -- star
+					},
+				},
+				{
+					rid = "artifact_frost",
+					tier = 2,
+					blurb = "A lantern that never thaws.",
+					inputs = { ["evt_refined_essence"] = 10, ["itm_1_7_frost_lantern"] = 1 },
+					output = {
+						sku = "frost_artifact",
+						name = "Frost Artifact",
+						totalSupply = 900,
+						imageId = "rbxassetid://15402892798", -- gem bag
+					},
+				},
+				{
+					rid = "artifact_gilded",
+					tier = 2,
+					blurb = "Essence poured over a fang. Obscene, and worth it.",
+					inputs = { ["evt_refined_essence"] = 14, ["itm_1_10_obsidian_fang"] = 1 },
+					output = {
+						sku = "gilded_artifact",
+						name = "Gilded Artifact",
+						totalSupply = 500,
+						imageId = "rbxassetid://15402855334", -- coin chest
+					},
+				},
+				{
+					rid = "sun_fragment",
+					tier = 1,
+					blurb = "Sunstone ground fine and bound with essence.",
+					inputs = { ["evt_refined_essence"] = 4, ["itm_1_6_sunstone_charm"] = 2 },
+					output = {
+						sku = "sun_fragment",
+						name = "Sun Fragment",
+						totalSupply = 700,
+						imageId = "rbxassetid://17368097932", -- star
+					},
+				},
+				{
+					rid = "void_fragment",
+					tier = 1,
+					blurb = "A shard of nothing, held together by essence.",
+					inputs = { ["evt_refined_essence"] = 4, ["itm_1_11_void_shard"] = 1 },
+					output = {
+						sku = "void_fragment",
+						name = "Void Fragment",
+						totalSupply = 700,
+						imageId = "rbxassetid://15403027709", -- bomb
+					},
+				},
+				{
+					rid = "sunforged_core",
+					tier = 2,
+					blurb = "An ember artifact and three sun fragments, forged as one.",
+					inputs = { ["evt_ember_artifact"] = 1, ["evt_sun_fragment"] = 3 },
+					output = {
+						sku = "sunforged_core",
+						name = "Sunforged Core",
+						totalSupply = 300,
+						imageId = "rbxassetid://15403144723", -- fire
+					},
+				},
+				{
+					rid = "voidforged_core",
+					tier = 2,
+					blurb = "A storm artifact and three void fragments, forged as one.",
+					inputs = { ["evt_storm_artifact"] = 1, ["evt_void_fragment"] = 3 },
+					output = {
+						sku = "voidforged_core",
+						name = "Voidforged Core",
+						totalSupply = 300,
+						imageId = "rbxassetid://15402964203", -- void shard
+					},
+				},
+			},
+		},
+
+		--------------------------------------------------------------------
 		-- ALCHEMIST — always-on entry point. Cheap, common inputs, so there
 		-- is always SOMETHING to make even on a bad rotation.
 		--------------------------------------------------------------------
@@ -233,166 +407,95 @@ local EventConfig: any = {
 	-- ROTATING RECIPES — the live half of the economy.
 	-- ActiveCount recipes are craftable per window; the set changes every
 	-- RotationIntervalSeconds, deterministically, on every server at once.
-	-- The pool deliberately mixes:
-	--   * TIER 1 refinery (commons -> Refined Essence). Rotating WHICH common
-	--     is wanted is the whole point — it concentrates every crafter's demand
-	--     onto a couple of items at a time, spikes them, then moves on.
-	--   * TIER 2 artisan (essence + a rare -> an Artifact).
+	--
+	-- HARD RULE (enforced by CraftingService.validateRecipeGraph): a rotating
+	-- recipe may only ever produce a TERMINAL item — something no other recipe
+	-- consumes. If a rotating output fed another recipe, that recipe would be
+	-- uncraftable for everyone whenever its input wasn't one of this window's
+	-- picks, which is exactly the dead end players used to hit. Every middle
+	-- rung therefore lives on a permanent station (Refinery / Artisan Bench).
+	--
+	-- Rotating is where VARIETY and urgency live: these consume the ladder's
+	-- output and mint standalone trophies that nothing else eats, so a window
+	-- closing can never strand a chain.
 	RotatingRecipes = {
 		enabled = true,
 		RotationIntervalSeconds = 600, -- 10-minute windows
 		ActiveCount = 4,
 		Pool = {
-			-- TIER 1: the refinery. Many roads, ONE shared material pool.
+			-- TERMINAL TROPHIES ONLY. Each of these consumes the ladder's output
+			-- and produces something no other recipe eats, so a window closing
+			-- can never make another recipe uncraftable.
 			{
-				rid = "refine_stone",
-				tier = 1,
-				blurb = "Stone Relics are wanted this window. Grind them down.",
-				inputs = { ["itm_1_1_stone_relic"] = 15 },
+				rid = "storm_totem",
+				tier = 3,
+				blurb = "A storm, pinned to a totem. Wanted this window only.",
+				inputs = { ["evt_storm_artifact"] = 2, ["itm_1_4_clay_totem"] = 6 },
 				output = {
-					sku = "refined_essence",
-					name = "Refined Essence",
-					totalSupply = 2500, -- scarce ON PURPOSE: flood it and it's worthless
-					imageId = "rbxassetid://15403265114", -- red potion
-				},
-			},
-			{
-				rid = "refine_copper",
-				tier = 1,
-				blurb = "Copper is in demand. Melt it down.",
-				inputs = { ["itm_1_2_copper_coin"] = 15 },
-				output = {
-					sku = "refined_essence",
-					name = "Refined Essence",
-					totalSupply = 2500,
-					imageId = "rbxassetid://15403265114",
-				},
-			},
-			{
-				rid = "refine_amber",
-				tier = 1,
-				blurb = "Amber Idols burn hot this window.",
-				inputs = { ["itm_1_3_amber_idol"] = 15 },
-				output = {
-					sku = "refined_essence",
-					name = "Refined Essence",
-					totalSupply = 2500,
-					imageId = "rbxassetid://15403265114",
-				},
-			},
-			{
-				rid = "refine_clay",
-				tier = 1,
-				blurb = "Clay Totems are the ask right now.",
-				inputs = { ["itm_1_4_clay_totem"] = 15 },
-				output = {
-					sku = "refined_essence",
-					name = "Refined Essence",
-					totalSupply = 2500,
-					imageId = "rbxassetid://15403265114",
-				},
-			},
-
-			-- TIER 2b: the two halves of the Worldheart. Each core takes one
-			-- artifact plus its own sub-component, and each sub-component is
-			-- itself crafted — that's what makes the Worldheart's tree branch
-			-- into two equal-depth pyramids instead of one straight line.
-			{
-				rid = "sun_fragment",
-				tier = 1,
-				blurb = "Sunstone ground fine and bound with essence.",
-				inputs = { ["evt_refined_essence"] = 4, ["itm_1_6_sunstone_charm"] = 2 },
-				output = {
-					sku = "sun_fragment",
-					name = "Sun Fragment",
-					totalSupply = 700,
-					imageId = "rbxassetid://17368097932", -- star
-				},
-			},
-			{
-				rid = "void_fragment",
-				tier = 1,
-				blurb = "A shard of nothing, held together by essence.",
-				inputs = { ["evt_refined_essence"] = 4, ["itm_1_11_void_shard"] = 1 },
-				output = {
-					sku = "void_fragment",
-					name = "Void Fragment",
-					totalSupply = 700,
-					imageId = "rbxassetid://15403027709", -- bomb
-				},
-			},
-			{
-				rid = "sunforged_core",
-				tier = 2,
-				blurb = "An ember artifact and three sun fragments, forged as one.",
-				inputs = { ["evt_ember_artifact"] = 1, ["evt_sun_fragment"] = 3 },
-				output = {
-					sku = "sunforged_core",
-					name = "Sunforged Core",
-					totalSupply = 300,
+					sku = "storm_totem",
+					name = "Storm Totem",
+					totalSupply = 260,
 					imageId = "rbxassetid://15403144723", -- fire
 				},
 			},
 			{
-				rid = "voidforged_core",
-				tier = 2,
-				blurb = "A storm artifact and three void fragments, forged as one.",
-				inputs = { ["evt_storm_artifact"] = 1, ["evt_void_fragment"] = 3 },
+				rid = "ember_idol",
+				tier = 3,
+				blurb = "Amber wrapped around a captured ember.",
+				inputs = { ["evt_ember_artifact"] = 2, ["itm_1_3_amber_idol"] = 6 },
 				output = {
-					sku = "voidforged_core",
-					name = "Voidforged Core",
-					totalSupply = 300,
-					imageId = "rbxassetid://15402964203", -- void shard
-				},
-			},
-
-			-- TIER 2: the artisan bench. Essence + a rare -> an Artifact.
-			{
-				rid = "artifact_storm",
-				tier = 2,
-				blurb = "Bind essence to a serpent and it holds a storm.",
-				inputs = { ["evt_refined_essence"] = 10, ["itm_1_5_jade_serpent"] = 1 },
-				output = {
-					sku = "storm_artifact",
-					name = "Storm Artifact",
-					totalSupply = 900,
-					imageId = "rbxassetid://15403144723", -- fire
-				},
-			},
-			{
-				rid = "artifact_ember",
-				tier = 2,
-				blurb = "Sunstone and essence. Warm to the touch, forever.",
-				inputs = { ["evt_refined_essence"] = 10, ["itm_1_6_sunstone_charm"] = 1 },
-				output = {
-					sku = "ember_artifact",
-					name = "Ember Artifact",
-					totalSupply = 900,
+					sku = "ember_idol",
+					name = "Ember Idol",
+					totalSupply = 260,
 					imageId = "rbxassetid://17368097932", -- star
 				},
 			},
 			{
-				rid = "artifact_frost",
-				tier = 2,
-				blurb = "A lantern that never thaws.",
-				inputs = { ["evt_refined_essence"] = 10, ["itm_1_7_frost_lantern"] = 1 },
+				rid = "frost_crown",
+				tier = 3,
+				blurb = "It never melts, and it never warms.",
+				inputs = { ["evt_frost_artifact"] = 2, ["itm_1_7_frost_lantern"] = 3 },
 				output = {
-					sku = "frost_artifact",
-					name = "Frost Artifact",
-					totalSupply = 900,
+					sku = "frost_crown",
+					name = "Frost Crown",
+					totalSupply = 200,
+					imageId = "rbxassetid://16912465495", -- crown
+				},
+			},
+			{
+				rid = "gilded_mask",
+				tier = 3,
+				blurb = "Gold over bone. Worn once, remembered forever.",
+				inputs = { ["evt_gilded_artifact"] = 2, ["itm_1_10_obsidian_fang"] = 3 },
+				output = {
+					sku = "gilded_mask",
+					name = "Gilded Mask",
+					totalSupply = 160,
+					imageId = "rbxassetid://15402855334", -- coin chest
+				},
+			},
+			{
+				rid = "essence_lantern",
+				tier = 2,
+				blurb = "Cheap to make while it's up. Gone when the window turns.",
+				inputs = { ["evt_refined_essence"] = 6, ["itm_1_2_copper_coin"] = 8 },
+				output = {
+					sku = "essence_lantern",
+					name = "Essence Lantern",
+					totalSupply = 420,
 					imageId = "rbxassetid://15402892798", -- gem bag
 				},
 			},
 			{
-				rid = "artifact_gilded",
-				tier = 2,
-				blurb = "Essence poured over a fang. Obscene, and worth it.",
-				inputs = { ["evt_refined_essence"] = 14, ["itm_1_10_obsidian_fang"] = 1 },
+				rid = "relic_cairn",
+				tier = 1,
+				blurb = "A pile of relics, stacked with intent.",
+				inputs = { ["itm_1_1_stone_relic"] = 10, ["itm_1_5_jade_serpent"] = 2 },
 				output = {
-					sku = "gilded_artifact",
-					name = "Gilded Artifact",
+					sku = "relic_cairn",
+					name = "Relic Cairn",
 					totalSupply = 500,
-					imageId = "rbxassetid://15402855334", -- coin chest
+					imageId = "rbxassetid://15403027709", -- bomb
 				},
 			},
 		},

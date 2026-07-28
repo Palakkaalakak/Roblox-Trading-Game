@@ -89,6 +89,74 @@ function CraftingService.validateRecipeGraph(): { string }
 			checkRecipe(ROTATING_EVENT_ID, recipe)
 		end
 	end
+
+	-- A rotating recipe may only ever produce a TERMINAL item. If a rotating
+	-- output fed some other recipe, that recipe would be uncraftable for
+	-- everyone in every window where its input wasn't picked — the dead end
+	-- players used to hit. Middle rungs belong on permanent stations.
+	if rot and rot.enabled then
+		local consumed: { [string]: string } = {}
+		local function noteInputs(list: { any }, where: string)
+			for _, recipe in list do
+				for itemId in recipe.inputs do
+					consumed[itemId] = where .. "/" .. recipe.rid
+				end
+			end
+		end
+		for _, event in EventConfig.Events do
+			if event.enabled then
+				noteInputs(event.recipes, event.id)
+			end
+		end
+		noteInputs(rot.Pool, ROTATING_EVENT_ID)
+		for _, recipe in rot.Pool do
+			local outId = outputItemId(recipe.output.sku)
+			if consumed[outId] then
+				table.insert(
+					violations,
+					("rotating/%s makes %s, but %s consumes it — a rotating output must be terminal")
+						:format(recipe.rid, outId, consumed[outId])
+				)
+			end
+		end
+	end
+
+	-- An item that feeds another recipe may be LIMITED only when the thing it
+	-- feeds is limited too and expires with it; otherwise the moment the season
+	-- ends the recipe above it becomes permanently uncraftable.
+	local endsAtOf: { [string]: number? } = {}
+	local limitedOutputs: { [string]: any } = {}
+	for _, event in EventConfig.Events do
+		if event.enabled and (event.endsAt or event.startsAt) then
+			for _, recipe in event.recipes do
+				local outId = outputItemId(recipe.output.sku)
+				limitedOutputs[outId] = event
+				endsAtOf[outId] = event.endsAt
+			end
+		end
+	end
+	local function checkLimitedInputs(list: { any }, ownerEndsAt: number?, where: string)
+		for _, recipe in list do
+			for itemId in recipe.inputs do
+				local producer = limitedOutputs[itemId]
+				if producer and (ownerEndsAt == nil or endsAtOf[itemId] ~= ownerEndsAt) then
+					table.insert(
+						violations,
+						("%s/%s needs %s, which is limited and expires on a different schedule")
+							:format(where, recipe.rid, itemId)
+					)
+				end
+			end
+		end
+	end
+	for _, event in EventConfig.Events do
+		if event.enabled then
+			checkLimitedInputs(event.recipes, event.endsAt, event.id)
+		end
+	end
+	if rot and rot.enabled then
+		checkLimitedInputs(rot.Pool, nil, ROTATING_EVENT_ID)
+	end
 	return violations
 end
 
