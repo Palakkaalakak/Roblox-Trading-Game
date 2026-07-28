@@ -1,4 +1,11 @@
 --!strict
+-- DEPRECATED (final phases). Bots were a development-time simulation aid for
+-- exercising the market before real players existed. They are now OFF and are
+-- NOT maintained: they do not know about crafting's redistribution, the
+-- permanent-station restructure, referrals, or anything added after this note,
+-- and they will not be updated to. Do not use bot behaviour to judge the
+-- economy — the game is tuned for players. Re-enabling is a debug-only action.
+--
 -- Market bots v6: 500 deterministic agents that trade the way Roblox players
 -- actually trade — item-for-item barter judged Win/Fair/Lose on total value,
 -- driven by TRADING UP and TRADING DOWN. (v5 quoted gem sell/bulk orders like

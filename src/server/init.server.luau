@@ -25,6 +25,7 @@ local ordered = {
 	-- after Product: registers its reward on that service's receipt registry
 	{ "AdReward", require(Services.AdRewardService) },
 	{ "Referral", require(Services.ReferralService) },
+	{ "Leaderboard", require(Services.LeaderboardService) },
 	{ "TradeBoard", require(Services.TradeBoardService) },
 	{ "Trade", require(Services.TradeService) },
 	{ "Profile", require(Services.ProfileService) },

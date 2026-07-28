@@ -299,6 +299,49 @@ return {
 			eq(Referral.parseReferrer(12345), nil, "non-string")
 		end,
 
+		["leaderboard: rarest scores scarcer items higher"] = function()
+			local LB = require(script.Parent.Parent.Services.LeaderboardService)
+			local SUPPLY = { common = 52000, rare = 5000, grail = 40 }
+			local supplyOf = function(id)
+				return SUPPLY[id]
+			end
+
+			-- the score must RISE as supply falls, since OrderedDataStore only
+			-- sorts descending and "rarest" means smallest cap
+			local onlyCommon = LB.scoreRarest({ common = 9 }, supplyOf)
+			local onlyGrail = LB.scoreRarest({ grail = 1 }, supplyOf)
+			assert(onlyGrail > onlyCommon, "scarcer must score higher")
+
+			-- a player is ranked by their SINGLE rarest item, not a sum
+			local mixed = LB.scoreRarest({ common = 99, rare = 5, grail = 1 }, supplyOf)
+			eq(mixed, onlyGrail, "ranked by the scarcest item held")
+
+			-- zero-count entries aren't owned; unknown items are skipped
+			eq(LB.scoreRarest({ grail = 0, common = 1 }, supplyOf), onlyCommon, "zero count isn't owned")
+			eq(LB.scoreRarest({ mystery = 5 }, supplyOf), 0, "unknown item scores nothing")
+			eq(LB.scoreRarest({}, supplyOf), 0, "empty inventory")
+
+			-- OrderedDataStore only accepts integers
+			eq(mixed, math.floor(mixed), "score must be an integer")
+		end,
+
+		["leaderboard: weekly keys roll over, all-time key is stable"] = function()
+			local LBC = require(ReplicatedStorage.Shared.Config.LeaderboardConfig)
+			local board = LBC.byId("portfolio")
+			assert(board ~= nil, "portfolio board exists")
+
+			-- all-time ignores the window entirely
+			eq(LBC.storeName(board, "alltime", 5), LBC.storeName(board, "alltime", 99), "all-time is stable")
+			-- weekly changes with the window, which is what resets the board
+			local w1 = LBC.storeName(board, "weekly", 5)
+			local w2 = LBC.storeName(board, "weekly", 6)
+			assert(w1 ~= w2, "a new week is a new board")
+			assert(w1 ~= LBC.storeName(board, "alltime", 5), "weekly never collides with all-time")
+
+			eq(LBC.byId("nope"), nil, "unknown board id")
+			assert(LBC.TopCount <= 100, "OrderedDataStore pages cap at 100")
+		end,
+
 		["perks: listing order honors boost then recency"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
 			local order = TradeBoardService.listingOrder

@@ -134,6 +134,44 @@ local function mockSortedMap(name: string)
 	return api
 end
 
+-- Ordered store: leaderboards. Same shape as OrderedDataStore — SetAsync a
+-- numeric score per key, then read the top N descending. The mock keeps the
+-- pairs in a table and sorts on read, which matches what callers rely on
+-- (ranking + "my score"), not OrderedDataStore's paging internals.
+local mockOrdered: { [string]: { [string]: number } } = {} -- storeName -> key -> score
+
+local function mockOrderedStore(name: string)
+	mockOrdered[name] = mockOrdered[name] or {}
+	local store = mockOrdered[name]
+	local api = {}
+	function api.SetAsync(_, key: string, value: number)
+		store[key] = value
+	end
+	function api.GetAsync(_, key: string): number?
+		return store[key]
+	end
+	-- top `count` entries, highest score first; ties broken by key for
+	-- determinism so a page never reorders between reads
+	function api.GetTopAsync(_, count: number): { { key: string, value: number } }
+		local rows = {}
+		for k, v in store do
+			table.insert(rows, { key = k, value = v })
+		end
+		table.sort(rows, function(a, b)
+			if a.value ~= b.value then
+				return a.value > b.value
+			end
+			return a.key < b.key
+		end)
+		local out = {}
+		for i = 1, math.min(count, #rows) do
+			out[i] = rows[i]
+		end
+		return out
+	end
+	return api
+end
+
 --------------------------------------------------------------------------------
 -- Live wrappers (retry with backoff; MemoryStore map passed through)
 --------------------------------------------------------------------------------
@@ -256,6 +294,43 @@ function StoreAdapters.dataStore(name: string)
 		return liveDataStore(name)
 	end
 	return mockDataStore(name)
+end
+
+-- Leaderboard backend. Live uses OrderedDataStore; Studio/mock keeps an
+-- in-memory table with the same three calls, so LeaderboardService never
+-- branches on mode (same live/mock split as dataStore and sortedMap).
+function StoreAdapters.orderedStore(name: string)
+	assert(StoreAdapters.mode ~= "unknown", "StoreAdapters.init() not called")
+	if StoreAdapters.mode ~= "live" then
+		return mockOrderedStore(name)
+	end
+	local store = DataStoreService:GetOrderedDataStore(name)
+	local api = {}
+	function api.SetAsync(_, key: string, value: number)
+		withRetry("Ordered SetAsync " .. name, 3, function()
+			store:SetAsync(key, value)
+		end)
+	end
+	function api.GetAsync(_, key: string): number?
+		local ok, v = withRetry("Ordered GetAsync " .. name, 3, function()
+			return store:GetAsync(key)
+		end)
+		return ok and v or nil
+	end
+	function api.GetTopAsync(_, count: number): { { key: string, value: number } }
+		local ok, page = withRetry("Ordered GetSorted " .. name, 3, function()
+			return store:GetSortedAsync(false, math.min(count, 100)):GetCurrentPage()
+		end)
+		if not ok or page == nil then
+			return {}
+		end
+		local out = {}
+		for i, entry in page do
+			out[i] = { key = entry.key, value = entry.value }
+		end
+		return out
+	end
+	return api
 end
 
 function StoreAdapters.sortedMap(name: string)

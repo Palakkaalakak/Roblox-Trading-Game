@@ -75,6 +75,8 @@ local Enums = {
 		"PromptPurchase", -- (offerId) -> {ok, err?} — server-side purchase prompt
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
 		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
+		"GetLeaderboardList", -- () -> {ok, boards = {{id, name, blurb, unit}}}
+		"GetLeaderboard", -- (boardId, scope) -> {ok, rows, you, resetsAt?} — scope "alltime"|"weekly"
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view

@@ -330,6 +330,18 @@ function DataService.uniquePlayerCount(): number
 	return n
 end
 
+-- Display name for any userId that has ever joined, from the already-warm seen
+-- cache (no extra store read). Leaderboards resolve ranked rows through this;
+-- nil for an id we've never seen, and the caller falls back to the raw id.
+function DataService.nameFor(userId: number): string?
+	refreshSeenCache()
+	local entry = seenCache[tostring(userId)]
+	if entry == nil then
+		return nil
+	end
+	return entry.displayName or entry.name
+end
+
 -- Search every player that has EVER joined the game: userId exact/prefix or
 -- case-insensitive name substring. Returns up to `limit` {userId, name}.
 function DataService.searchPlayers(query: string, limit: number): { any }
