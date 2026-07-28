@@ -12,10 +12,11 @@
 --   🎉 Limited   — temporary/seasonal events, each with its end countdown
 --
 -- Every row states the deal plainly: what it eats -> what it mints, how much
--- stock is left. A small chain button opens the full recipe LADDER for that
--- output (see GetRecipeGraph) so a player can see what feeds a grail all the
--- way down to base commons, instead of staring at an ingredient with no idea
--- where it comes from.
+-- stock is left. A "How to make" button opens that output's recipe LADDER (see
+-- GetRecipeGraph): the item itself at the top, highlighted, then bracket
+-- connectors down to what it's made of, recursing into any ingredient that is
+-- itself crafted — so a player can trace a grail all the way to base commons
+-- instead of staring at an ingredient with no idea where it comes from.
 
 local RunService = game:GetService("RunService")
 local Theme = require(script.Parent.Theme)
@@ -234,15 +235,20 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	chainListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	chainListLayout.Parent = chainList
 
+	-- Node geometry is fixed so the bracket connectors below can compute exactly
+	-- where each node's centre sits without measuring anything at runtime.
+	local NODE_W, NODE_H, NODE_GAP = 96, 96, 8
+
 	-- one tier's node: icon + name + owned/needed, used for both the output
-	-- being explained and each of its inputs
-	local function chainNode(parentFrame: Instance, order: number, itemId: string, name: string, imageId: string?, owned: number?, count: number?): Frame
+	-- being explained and each of its inputs. `highlight` marks the item whose
+	-- ladder this is, so it reads as the goal rather than just another rung.
+	local function chainNode(parentFrame: Instance, order: number, itemId: string, name: string, imageId: string?, owned: number?, count: number?, highlight: boolean?): Frame
 		local node = Instance.new("Frame")
 		node.Name = "node_" .. itemId
 		node.LayoutOrder = order
-		node.BackgroundColor3 = Theme.BgLight
+		node.BackgroundColor3 = highlight and Theme.Accent or Theme.BgLight
 		node.BorderSizePixel = 0
-		node.Size = UDim2.fromOffset(96, 96)
+		node.Size = UDim2.fromOffset(NODE_W, NODE_H)
 		node.ZIndex = 10
 		node.Parent = parentFrame
 		local nodeCorner = Instance.new("UICorner")
@@ -291,66 +297,167 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		return node
 	end
 
-	-- one tier's ROW: the recipe's inputs, side by side, feeding UP into its
-	-- output (rendered as the row below this one — the ladder reads bottom to
-	-- top, commons at the bottom, the grail at the very top, matching how the
-	-- recipes actually chain).
-	local function chainTierRow(entry: any, order: number, depth: number): Frame
+	-- a plain filled line — the building block of the bracket connectors
+	local function chainLine(parentFrame: Instance, x: number, y: number, w: number, h: number)
+		local seg = Instance.new("Frame")
+		seg.BackgroundColor3 = Theme.TextDim
+		seg.BorderSizePixel = 0
+		seg.Position = UDim2.fromOffset(x, y)
+		seg.Size = UDim2.fromOffset(w, h)
+		seg.ZIndex = 10
+		seg.Parent = parentFrame
+	end
+
+	-- The connector between a row of inputs and the single item they make: a
+	-- proper bracket, drawn as one horizontal bar spanning the inputs with a
+	-- stub dropping to each of them and one rising to the item above, plus an
+	-- arrowhead so the direction (these MAKE that) is unambiguous. Every
+	-- coordinate is derived from the fixed node geometry, so the bars line up
+	-- exactly with the node centres instead of being eyeballed.
+	local ARROW_H = 32
+	local function chainConnector(order: number, inputCount: number)
+		local row = Instance.new("Frame")
+		row.Name = "connector_" .. order
+		row.LayoutOrder = order
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.new(1, 0, 0, ARROW_H)
+		row.Parent = chainList
+
+		local totalW = inputCount * NODE_W + math.max(inputCount - 1, 0) * NODE_GAP
+		local holder = Instance.new("Frame")
+		holder.Name = "Holder"
+		holder.AnchorPoint = Vector2.new(0.5, 0)
+		holder.Position = UDim2.fromScale(0.5, 0)
+		holder.Size = UDim2.fromOffset(totalW, ARROW_H)
+		holder.BackgroundTransparency = 1
+		holder.ZIndex = 10
+		holder.Parent = row
+
+		local midY = math.floor(ARROW_H / 2)
+		local centreX = math.floor(totalW / 2)
+
+		-- stub rising from the bar to the item above, starting below the
+		-- arrowhead so the glyph never sits on top of the line
+		chainLine(holder, centreX - 1, 10, 2, midY - 10)
+		-- arrowhead on that stub, pointing up at what gets made
+		local head = Instance.new("TextLabel")
+		head.Name = "Arrow"
+		head.BackgroundTransparency = 1
+		head.AnchorPoint = Vector2.new(0.5, 0)
+		head.Position = UDim2.fromOffset(centreX, 0)
+		head.Size = UDim2.fromOffset(16, 12)
+		head.Font = Theme.Font
+		head.TextSize = 12
+		head.TextColor3 = Theme.TextDim
+		head.Text = "▲"
+		head.ZIndex = 10
+		head.Parent = holder
+
+		local firstCentre = math.floor(NODE_W / 2)
+		local lastCentre = totalW - math.floor(NODE_W / 2)
+		if inputCount > 1 then
+			-- the spanning bar, exactly from first node centre to last
+			chainLine(holder, firstCentre, midY - 1, lastCentre - firstCentre, 2)
+		end
+		-- a stub dropping onto each input
+		for i = 1, inputCount do
+			local c = (i - 1) * (NODE_W + NODE_GAP) + firstCentre
+			chainLine(holder, c - 1, midY, 2, ARROW_H - midY)
+		end
+	end
+
+	-- a caption between branches, naming which item is being broken down next
+	local function chainCaption(order: number, text: string)
+		local lbl = Instance.new("TextLabel")
+		lbl.Name = "caption_" .. order
+		lbl.LayoutOrder = order
+		lbl.BackgroundTransparency = 1
+		lbl.Size = UDim2.new(1, 0, 0, 20)
+		lbl.Font = Theme.FontLight
+		lbl.TextSize = 12
+		lbl.TextColor3 = Theme.TextDim
+		lbl.Text = text
+		lbl.ZIndex = 10
+		lbl.Parent = chainList
+	end
+
+	-- one row of nodes, centred
+	local function chainRow(order: number, build: (Frame) -> ()): Frame
 		local tierRow = Instance.new("Frame")
 		tierRow.Name = "tier_" .. order
 		tierRow.LayoutOrder = order
 		tierRow.BackgroundTransparency = 1
-		tierRow.Size = UDim2.new(1, 0, 0, 96)
-		tierRow.AutomaticSize = Enum.AutomaticSize.None
+		tierRow.Size = UDim2.new(1, 0, 0, NODE_H)
 		tierRow.Parent = chainList
 		local rowLayout = Instance.new("UIListLayout")
 		rowLayout.FillDirection = Enum.FillDirection.Horizontal
-		rowLayout.Padding = UDim.new(0, 8)
+		rowLayout.Padding = UDim.new(0, NODE_GAP)
 		rowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
 		rowLayout.Parent = tierRow
-
-		local inputOrder = 0
-		for _, input in entry.recipe.inputs do
-			inputOrder += 1
-			chainNode(tierRow, inputOrder, input.itemId, input.name, input.imageId, input.owned, input.count)
-		end
+		build(tierRow)
 		return tierRow
 	end
 
-	-- recurse UP through each input that's itself a crafted event item,
-	-- bounded by the ladder's own depth (tier only ever goes 1/2/3) so this
-	-- can never loop even on a config mistake
-	local function buildChain(rootOutId: string)
+	-- Reads top-down: the item you asked about sits at the very top, then the
+	-- bracket, then what it's made of; any ingredient that is itself crafted is
+	-- broken down below under its own caption. Recursion is bounded by depth
+	-- (the ladder is only ever 3 tiers) so a config mistake can't loop forever.
+	local function buildChain(rootOutId: string, rootName: string, rootImage: string?)
 		local order = 0
-		local function walk(outId: string, depth: number)
+		local rootEntry = findRecipeForOutput(rootOutId)
+
+		-- the goal, highlighted, so the ladder visibly LEADS to something
+		order += 1
+		chainRow(order, function(parentFrame)
+			chainNode(parentFrame, 1, rootOutId, rootName, rootImage, nil, nil, true)
+		end)
+
+		if rootEntry == nil then
+			order += 1
+			chainCaption(order, "This one isn't crafted — roll for it, buy it, or trade for it.")
+			return
+		end
+
+		local function expand(outId: string, depth: number)
 			if depth > 4 then
 				return
 			end
 			local entry = findRecipeForOutput(outId)
 			if entry == nil then
-				return -- base commons: a leaf, nothing feeds it
+				return -- base item: a leaf, nothing feeds it
 			end
+			local inputs = entry.recipe.inputs
 			order += 1
-			chainTierRow(entry, order, depth)
-			for _, input in entry.recipe.inputs do
-				if input.itemId:sub(1, 4) == "evt_" then
-					walk(input.itemId, depth + 1)
+			chainConnector(order, #inputs)
+			order += 1
+			chainRow(order, function(parentFrame)
+				for i, input in inputs do
+					chainNode(parentFrame, i, input.itemId, input.name, input.imageId, input.owned, input.count)
+				end
+			end)
+			-- then break down any ingredient that is itself crafted
+			for _, input in inputs do
+				if input.itemId:sub(1, 4) == "evt_" and findRecipeForOutput(input.itemId) then
+					order += 1
+					chainCaption(order, "…and " .. input.name .. " is made from:")
+					expand(input.itemId, depth + 1)
 				end
 			end
 		end
-		walk(rootOutId, 1)
+		expand(rootOutId, 1)
 	end
 
-	openChain = function(itemId: string, name: string)
+	openChain = function(itemId: string, name: string, imageId: string?)
 		ensureRecipeGraph(function()
+			-- captions are TextLabels, not Frames — clear everything but the layout
 			for _, inst in chainList:GetChildren() do
-				if inst:IsA("Frame") then
+				if not inst:IsA("UIListLayout") then
 					inst:Destroy()
 				end
 			end
-			chainTitle.Text = "Recipe Ladder — " .. name
-			buildChain(itemId)
+			chainTitle.Text = "How to make: " .. name
+			buildChain(itemId, name, imageId)
 			chainOverlay.Visible = true
 		end)
 	end
@@ -411,24 +518,25 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		badge.Text = TIER_NAME[recipe.tier] or ""
 		badge.Parent = row
 
-		-- chain button: top-right corner, clear of the output/action area below
-		-- it — opens the full recipe LADDER for this output (see openChain)
+		-- "How to make" button: top-right, clear of the output/action area below
+		-- it. Labelled in words rather than an icon — a casual player shouldn't
+		-- have to guess what a symbol means to find the recipe ladder.
 		local chainBtn = Instance.new("TextButton")
 		chainBtn.Name = "ChainButton"
 		chainBtn.AnchorPoint = Vector2.new(1, 0)
 		chainBtn.Position = UDim2.new(1, -8, 0, 4)
-		chainBtn.Size = UDim2.fromOffset(24, 24)
+		chainBtn.Size = UDim2.fromOffset(96, 22)
 		chainBtn.BackgroundColor3 = Theme.BgLight
 		chainBtn.Font = Theme.Font
-		chainBtn.TextSize = 14
+		chainBtn.TextSize = 11
 		chainBtn.TextColor3 = Theme.TextPrimary
-		chainBtn.Text = "🌳"
+		chainBtn.Text = "How to make"
 		chainBtn.Parent = row
 		local chainCorner = Instance.new("UICorner")
 		chainCorner.CornerRadius = Theme.CornerSmall
 		chainCorner.Parent = chainBtn
 		chainBtn.Activated:Connect(function()
-			openChain(recipe.output.itemId, recipe.output.name)
+			openChain(recipe.output.itemId, recipe.output.name, recipe.output.imageId)
 		end)
 
 		-- bottom line: normally the blurb, but a missing event-item input takes
