@@ -274,9 +274,27 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		chainOverlay.Visible = false
 	end)
 
-	-- Clamped so neither button can be spammed into a broken layout: the scale
+	local chainList = Instance.new("ScrollingFrame")
+	chainList.Name = "ChainList"
+	chainList.Position = UDim2.fromOffset(0, 36)
+	chainList.Size = UDim2.new(1, 0, 1, -36)
+	chainList.BackgroundTransparency = 1
+	chainList.BorderSizePixel = 0
+	chainList.ScrollBarThickness = 6
+	-- The tree is positioned absolutely (a real 2D layout — see buildChain), so
+	-- no UIListLayout here and the canvas is sized explicitly once the tree is
+	-- measured. Scrolls both ways: a wide pyramid can exceed the panel.
+	chainList.AutomaticCanvasSize = Enum.AutomaticSize.None
+	chainList.ScrollingDirection = Enum.ScrollingDirection.XY
+	chainList.CanvasSize = UDim2.new()
+	chainList.ZIndex = 10
+	chainList.Parent = chainOverlay
+
+	-- Defined AFTER chainList exists: this closure reads it, and declaring it
+	-- any earlier captured a nil upvalue and threw on the first zoom/build.
+	-- Clamped so neither button can be spammed into a broken layout — the scale
 	-- stops at both ends and the canvas size is always derived from the clamped
-	-- value, never accumulated.
+	-- value rather than accumulated.
 	applyZoom = function(z: number)
 		zoom = math.clamp(z, ZOOM_MIN, ZOOM_MAX)
 		zoomLabel.Text = ("%d%%"):format(math.floor(zoom * 100 + 0.5))
@@ -306,22 +324,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	zoomIn.Activated:Connect(function()
 		applyZoom(zoom + ZOOM_STEP)
 	end)
-
-	local chainList = Instance.new("ScrollingFrame")
-	chainList.Name = "ChainList"
-	chainList.Position = UDim2.fromOffset(0, 36)
-	chainList.Size = UDim2.new(1, 0, 1, -36)
-	chainList.BackgroundTransparency = 1
-	chainList.BorderSizePixel = 0
-	chainList.ScrollBarThickness = 6
-	-- The tree is positioned absolutely (a real 2D layout — see buildChain), so
-	-- no UIListLayout here and the canvas is sized explicitly once the tree is
-	-- measured. Scrolls both ways: a wide pyramid can exceed the panel.
-	chainList.AutomaticCanvasSize = Enum.AutomaticSize.None
-	chainList.ScrollingDirection = Enum.ScrollingDirection.XY
-	chainList.CanvasSize = UDim2.new()
-	chainList.ZIndex = 10
-	chainList.Parent = chainOverlay
 
 	-- Node geometry is fixed so the bracket connectors below can compute exactly
 	-- where each node's centre sits without measuring anything at runtime.

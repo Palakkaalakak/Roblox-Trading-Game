@@ -27,12 +27,21 @@ local SHOWCASE_MAX = 6
 local CHIP_MAX = 3
 local DEFAULT_CHIPS = { "portfolioValue", "trades", "mythicals" }
 
+-- The rarity ladder grew (Godly and Celestial were added above Mythical), so
+-- "Mythicals Owned" silently ignored a player's two rarest tiers. It now counts
+-- Mythical AND everything above it — hence the label. `celestials` exists for
+-- players who want to show off the very top tier on its own.
+local TOP_TIERS = { Mythical = true, Godly = true, Celestial = true }
+
 local CHIP_LABELS = {
 	portfolioValue = "Portfolio Value",
 	trades = "Trades",
 	gemsEarned = "Gems Earned",
-	mythicals = "Mythicals Owned",
+	mythicals = "Mythical+ Owned",
+	celestials = "Celestials Owned",
 	distinctItems = "Distinct Items",
+	crafted = "Items Crafted",
+	referrals = "Friends Invited",
 	gems = "Gems",
 }
 ProfileProjection.AllowedChips = CHIP_LABELS
@@ -45,7 +54,10 @@ ProfileProjection.ChipIcons = {
 	gemsEarned = "rbxassetid://17368064384", -- Gems.GemIcon
 	trades = "rbxassetid://15403064919", -- Arrows.Trade
 	mythicals = "rbxassetid://17368097932", -- Stars.Star
+	celestials = "rbxassetid://16912465495", -- crown (the top of the ladder)
 	distinctItems = "rbxassetid://127110909372919", -- Menus.Index
+	crafted = "rbxassetid://15402896733", -- chest (crafted goods)
+	referrals = "rbxassetid://15403064919", -- Arrows.Trade
 }
 
 -- owned (count>=1) + resolvable itemIds, ascending CIRCULATING (fewest in
@@ -123,16 +135,39 @@ function ProfileProjection.resolveChip(key: string, ctx: any): { key: string, la
 		end
 		value = n
 	elseif key == "mythicals" then
+		-- Mythical and everything above it (Godly, Celestial) — see TOP_TIERS
 		local n = 0
 		for itemId, c in ctx.inventory do
 			if c >= 1 then
 				local v = ctx.resolve(itemId)
-				if v and v.rarity == "Mythical" then
+				if v and TOP_TIERS[v.rarity] then
 					n += 1
 				end
 			end
 		end
 		value = n
+	elseif key == "celestials" then
+		local n = 0
+		for itemId, c in ctx.inventory do
+			if c >= 1 then
+				local v = ctx.resolve(itemId)
+				if v and v.rarity == "Celestial" then
+					n += 1
+				end
+			end
+		end
+		value = n
+	elseif key == "crafted" then
+		-- distinct crafted/event items held; event outputs are the "evt_" ids
+		local n = 0
+		for itemId, c in ctx.inventory do
+			if c >= 1 and itemId:sub(1, 4) == "evt_" then
+				n += 1
+			end
+		end
+		value = n
+	elseif key == "referrals" then
+		value = ctx.referrals or 0
 	else
 		return nil
 	end
@@ -147,6 +182,7 @@ function ProfileProjection.project(args: any): any
 		resolve = args.resolve,
 		gems = args.gems,
 		lifetime = args.lifetime,
+		referrals = args.referrals or 0,
 		firstJoin = args.firstJoin,
 		now = args.now,
 	}

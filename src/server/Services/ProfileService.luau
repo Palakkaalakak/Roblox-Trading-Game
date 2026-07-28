@@ -62,6 +62,7 @@ local function build(player: Player): any?
 		status = profile.Status,
 		privacy = profile.Privacy,
 		lifetime = profile.Lifetime,
+		referrals = profile.Referrals and profile.Referrals.count or 0,
 		resolve = resolver,
 	})
 end

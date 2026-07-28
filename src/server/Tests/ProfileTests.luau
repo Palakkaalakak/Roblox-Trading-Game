@@ -67,13 +67,38 @@ return {
 			eq(PP.portfolioValue({ x = 2, y = 4 }, resolve), 10 * 2 + 3 * 4)
 		end,
 
-		["resolveChip: mythicals counts only mythical-rarity owned"] = function()
+		["resolveChip: mythicals counts Mythical AND the tiers above it"] = function()
+			-- Godly and Celestial were added ABOVE Mythical; a chip that counted
+			-- only exact-"Mythical" quietly ignored a player's rarest items.
+			local RARITY = { m = "Mythical", g = "Godly", cel = "Celestial", c = "Common", r = "Rare" }
 			local resolve = function(id)
-				return view(id, { rarity = (id == "m") and "Mythical" or "Common" })
+				return view(id, { rarity = RARITY[id] or "Common" })
 			end
-			local ctx = { inventory = { m = 3, c = 1 }, resolve = resolve, gems = 0, lifetime = { gemsEarned = 0, trades = 0 }, firstJoin = 0, now = 0 }
-			local chip = PP.resolveChip("mythicals", ctx)
-			eq(chip and chip.value, 1, "one distinct mythical")
+			local ctx = {
+				inventory = { m = 3, g = 1, cel = 1, c = 1, r = 2 },
+				resolve = resolve, gems = 0, lifetime = { gemsEarned = 0, trades = 0 }, firstJoin = 0, now = 0,
+			}
+			eq(PP.resolveChip("mythicals", ctx).value, 3, "Mythical + Godly + Celestial")
+			eq(PP.resolveChip("celestials", ctx).value, 1, "Celestial only")
+			-- an owned-but-zero entry must never count toward either
+			ctx.inventory.cel = 0
+			eq(PP.resolveChip("celestials", ctx).value, 0, "zero-count isn't owned")
+		end,
+
+		["resolveChip: crafted + referrals reflect the newer systems"] = function()
+			local resolve = function(id)
+				return view(id)
+			end
+			local ctx = {
+				inventory = { evt_grail = 1, evt_essence = 4, itm_1_1_stone = 9 },
+				resolve = resolve, gems = 0, lifetime = { gemsEarned = 0, trades = 0 },
+				referrals = 3, firstJoin = 0, now = 0,
+			}
+			eq(PP.resolveChip("crafted", ctx).value, 2, "distinct evt_ items only")
+			eq(PP.resolveChip("referrals", ctx).value, 3, "friends invited")
+			-- referrals must default rather than error when absent
+			ctx.referrals = nil
+			eq(PP.resolveChip("referrals", ctx).value, 0, "defaults to zero")
 		end,
 
 		["project: hideValue drops aggregate AND portfolioValue chip"] = function()
