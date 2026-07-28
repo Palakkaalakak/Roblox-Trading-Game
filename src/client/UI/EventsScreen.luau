@@ -225,15 +225,14 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	chainList.BackgroundTransparency = 1
 	chainList.BorderSizePixel = 0
 	chainList.ScrollBarThickness = 6
-	chainList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	-- The tree is positioned absolutely (a real 2D layout — see buildChain), so
+	-- no UIListLayout here and the canvas is sized explicitly once the tree is
+	-- measured. Scrolls both ways: a wide pyramid can exceed the panel.
+	chainList.AutomaticCanvasSize = Enum.AutomaticSize.None
+	chainList.ScrollingDirection = Enum.ScrollingDirection.XY
 	chainList.CanvasSize = UDim2.new()
 	chainList.ZIndex = 10
 	chainList.Parent = chainOverlay
-	local chainListLayout = Instance.new("UIListLayout")
-	chainListLayout.Padding = UDim.new(0, 10)
-	chainListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	chainListLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	chainListLayout.Parent = chainList
 
 	-- Node geometry is fixed so the bracket connectors below can compute exactly
 	-- where each node's centre sits without measuring anything at runtime.
@@ -242,10 +241,10 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	-- one tier's node: icon + name + owned/needed, used for both the output
 	-- being explained and each of its inputs. `highlight` marks the item whose
 	-- ladder this is, so it reads as the goal rather than just another rung.
-	local function chainNode(parentFrame: Instance, order: number, itemId: string, name: string, imageId: string?, owned: number?, count: number?, highlight: boolean?): Frame
+	local function chainNode(parentFrame: Instance, x: number, y: number, itemId: string, name: string, imageId: string?, owned: number?, count: number?, highlight: boolean?): Frame
 		local node = Instance.new("Frame")
 		node.Name = "node_" .. itemId
-		node.LayoutOrder = order
+		node.Position = UDim2.fromOffset(x, y)
 		node.BackgroundColor3 = highlight and Theme.Accent or Theme.BgLight
 		node.BorderSizePixel = 0
 		node.Size = UDim2.fromOffset(NODE_W, NODE_H)
@@ -308,153 +307,167 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		seg.Parent = parentFrame
 	end
 
-	-- The connector between a row of inputs and the single item they make: a
-	-- proper bracket, drawn as one horizontal bar spanning the inputs with a
-	-- stub dropping to each of them and one rising to the item above, plus an
-	-- arrowhead so the direction (these MAKE that) is unambiguous. Every
-	-- coordinate is derived from the fixed node geometry, so the bars line up
-	-- exactly with the node centres instead of being eyeballed.
-	local ARROW_H = 32
-	local function chainConnector(order: number, inputCount: number)
-		local row = Instance.new("Frame")
-		row.Name = "connector_" .. order
-		row.LayoutOrder = order
-		row.BackgroundTransparency = 1
-		row.Size = UDim2.new(1, 0, 0, ARROW_H)
-		row.Parent = chainList
-
-		local totalW = inputCount * NODE_W + math.max(inputCount - 1, 0) * NODE_GAP
-		local holder = Instance.new("Frame")
-		holder.Name = "Holder"
-		holder.AnchorPoint = Vector2.new(0.5, 0)
-		holder.Position = UDim2.fromScale(0.5, 0)
-		holder.Size = UDim2.fromOffset(totalW, ARROW_H)
-		holder.BackgroundTransparency = 1
-		holder.ZIndex = 10
-		holder.Parent = row
-
-		local midY = math.floor(ARROW_H / 2)
-		local centreX = math.floor(totalW / 2)
-
-		-- stub rising from the bar to the item above, starting below the
-		-- arrowhead so the glyph never sits on top of the line
-		chainLine(holder, centreX - 1, 10, 2, midY - 10)
-		-- arrowhead on that stub, pointing up at what gets made
-		local head = Instance.new("TextLabel")
-		head.Name = "Arrow"
-		head.BackgroundTransparency = 1
-		head.AnchorPoint = Vector2.new(0.5, 0)
-		head.Position = UDim2.fromOffset(centreX, 0)
-		head.Size = UDim2.fromOffset(16, 12)
-		head.Font = Theme.Font
-		head.TextSize = 12
-		head.TextColor3 = Theme.TextDim
-		head.Text = "▲"
-		head.ZIndex = 10
-		head.Parent = holder
-
-		local firstCentre = math.floor(NODE_W / 2)
-		local lastCentre = totalW - math.floor(NODE_W / 2)
-		if inputCount > 1 then
-			-- the spanning bar, exactly from first node centre to last
-			chainLine(holder, firstCentre, midY - 1, lastCentre - firstCentre, 2)
-		end
-		-- a stub dropping onto each input
-		for i = 1, inputCount do
-			local c = (i - 1) * (NODE_W + NODE_GAP) + firstCentre
-			chainLine(holder, c - 1, midY, 2, ARROW_H - midY)
+	-- Arrowhead drawn as two short rotated bars rather than a "▼" glyph: a text
+	-- arrow sits on its own font baseline, which is why it never quite lined up
+	-- with the stub. Two rotated frames land exactly where the maths says.
+	local function chainArrowHead(parentFrame: Instance, x: number, y: number)
+		for _, angle in { 45, -45 } do
+			local barb = Instance.new("Frame")
+			barb.BackgroundColor3 = Theme.TextDim
+			barb.BorderSizePixel = 0
+			barb.AnchorPoint = Vector2.new(0.5, 1)
+			barb.Position = UDim2.fromOffset(x + (angle > 0 and -3 or 3), y)
+			barb.Size = UDim2.fromOffset(2, 9)
+			barb.Rotation = angle
+			barb.ZIndex = 10
+			barb.Parent = parentFrame
 		end
 	end
 
-	-- a caption between branches, naming which item is being broken down next
-	local function chainCaption(order: number, text: string)
-		local lbl = Instance.new("TextLabel")
-		lbl.Name = "caption_" .. order
-		lbl.LayoutOrder = order
-		lbl.BackgroundTransparency = 1
-		lbl.Size = UDim2.new(1, 0, 0, 20)
-		lbl.Font = Theme.FontLight
-		lbl.TextSize = 12
-		lbl.TextColor3 = Theme.TextDim
-		lbl.Text = text
-		lbl.ZIndex = 10
-		lbl.Parent = chainList
+	-- Vertical distance between one tier of the tree and the next.
+	local ROW_H = NODE_H + 46
+	local MAX_DEPTH = 5
+
+	-- 1. MEASURE. Build the tree of what-feeds-what and give every node the
+	-- width of its whole subtree, bottom-up. A node is at least NODE_W wide, or
+	-- as wide as its ingredients laid side by side — that width is what lets
+	-- step 2 place each branch directly over the ONE node it feeds instead of
+	-- centring everything on the panel.
+	local function measureChain(itemId: string, name: string, imageId: string?, owned: number?, count: number?, depth: number, seen: { [string]: boolean }): any
+		local node = {
+			itemId = itemId,
+			name = name,
+			imageId = imageId,
+			owned = owned,
+			count = count,
+			children = {},
+			w = NODE_W,
+		}
+		if depth >= MAX_DEPTH or seen[itemId] then
+			return node -- depth cap + cycle guard: a config mistake can't hang the UI
+		end
+		local entry = findRecipeForOutput(itemId)
+		if entry == nil then
+			return node -- base item: a leaf, nothing feeds it
+		end
+		seen[itemId] = true
+		local total = 0
+		for _, input in entry.recipe.inputs do
+			local child = measureChain(input.itemId, input.name, input.imageId, input.owned, input.count, depth + 1, seen)
+			table.insert(node.children, child)
+			total += child.w
+		end
+		seen[itemId] = nil
+		if #node.children > 0 then
+			total += NODE_GAP * (#node.children - 1)
+			node.w = math.max(NODE_W, total)
+		end
+		return node
 	end
 
-	-- one row of nodes, centred
-	local function chainRow(order: number, build: (Frame) -> ()): Frame
-		local tierRow = Instance.new("Frame")
-		tierRow.Name = "tier_" .. order
-		tierRow.LayoutOrder = order
-		tierRow.BackgroundTransparency = 1
-		tierRow.Size = UDim2.new(1, 0, 0, NODE_H)
-		tierRow.Parent = chainList
-		local rowLayout = Instance.new("UIListLayout")
-		rowLayout.FillDirection = Enum.FillDirection.Horizontal
-		rowLayout.Padding = UDim.new(0, NODE_GAP)
-		rowLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-		rowLayout.SortOrder = Enum.SortOrder.LayoutOrder
-		rowLayout.Parent = tierRow
-		build(tierRow)
-		return tierRow
-	end
-
-	-- Reads top-down: the item you asked about sits at the very top, then the
-	-- bracket, then what it's made of; any ingredient that is itself crafted is
-	-- broken down below under its own caption. Recursion is bounded by depth
-	-- (the ladder is only ever 3 tiers) so a config mistake can't loop forever.
-	local function buildChain(rootOutId: string, rootName: string, rootImage: string?)
-		local order = 0
-		local rootEntry = findRecipeForOutput(rootOutId)
-
-		-- the goal, highlighted, so the ladder visibly LEADS to something
-		order += 1
-		chainRow(order, function(parentFrame)
-			chainNode(parentFrame, 1, rootOutId, rootName, rootImage, nil, nil, true)
-		end)
-
-		if rootEntry == nil then
-			order += 1
-			chainCaption(order, "This one isn't crafted — roll for it, buy it, or trade for it.")
+	-- 2. PLACE. Each node is centred inside its own measured band, and its
+	-- ingredients are packed left-to-right and centred as a group within that
+	-- same band — so a sub-recipe always sits directly over the single node it
+	-- makes, never over its siblings.
+	local function placeChain(node: any, left: number, depth: number, maxDepth: number)
+		node.x = left + math.floor((node.w - NODE_W) / 2)
+		-- the FINAL item sits at the BOTTOM; ingredients stack upward above it
+		node.y = (maxDepth - depth) * ROW_H
+		local n = #node.children
+		if n == 0 then
 			return
 		end
+		local childTotal = 0
+		for _, c in node.children do
+			childTotal += c.w
+		end
+		childTotal += NODE_GAP * (n - 1)
+		local cursor = left + math.floor((node.w - childTotal) / 2)
+		for _, c in node.children do
+			placeChain(c, cursor, depth + 1, maxDepth)
+			cursor += c.w + NODE_GAP
+		end
+	end
 
-		local function expand(outId: string, depth: number)
-			if depth > 4 then
-				return
+	local function chainDepth(node: any): number
+		local deepest = 0
+		for _, c in node.children do
+			deepest = math.max(deepest, chainDepth(c))
+		end
+		return deepest + 1
+	end
+
+	-- 3. DRAW. Nodes, then the bracket joining each ingredient group down to the
+	-- item it makes: a stub under each ingredient, one bar spanning them, and a
+	-- stub down into the product with an arrowhead — pointing DOWN, because the
+	-- tree now flows ingredients -> product from top to bottom.
+	local function drawChain(canvas: Frame, node: any, isRoot: boolean)
+		chainNode(canvas, node.x, node.y, node.itemId, node.name, node.imageId, node.owned, node.count, isRoot)
+		local n = #node.children
+		if n > 0 then
+			local parentCentre = node.x + math.floor(NODE_W / 2)
+			local childBottom = node.children[1].y + NODE_H
+			local barY = childBottom + math.floor((node.y - childBottom) / 2)
+			-- stub under each ingredient, down to the bar
+			for _, c in node.children do
+				local cc = c.x + math.floor(NODE_W / 2)
+				chainLine(canvas, cc - 1, c.y + NODE_H, 2, barY - (c.y + NODE_H))
 			end
-			local entry = findRecipeForOutput(outId)
-			if entry == nil then
-				return -- base item: a leaf, nothing feeds it
+			-- the bar spanning first ingredient centre to last
+			if n > 1 then
+				local firstC = node.children[1].x + math.floor(NODE_W / 2)
+				local lastC = node.children[n].x + math.floor(NODE_W / 2)
+				chainLine(canvas, firstC, barY - 1, lastC - firstC, 2)
 			end
-			local inputs = entry.recipe.inputs
-			order += 1
-			chainConnector(order, #inputs)
-			order += 1
-			chainRow(order, function(parentFrame)
-				for i, input in inputs do
-					chainNode(parentFrame, i, input.itemId, input.name, input.imageId, input.owned, input.count)
-				end
-			end)
-			-- then break down any ingredient that is itself crafted
-			for _, input in inputs do
-				if input.itemId:sub(1, 4) == "evt_" and findRecipeForOutput(input.itemId) then
-					order += 1
-					chainCaption(order, "…and " .. input.name .. " is made from:")
-					expand(input.itemId, depth + 1)
-				end
+			-- down into the product, with the arrowhead resting on its top edge
+			chainLine(canvas, parentCentre - 1, barY, 2, node.y - barY - 8)
+			chainArrowHead(canvas, parentCentre, node.y - 1)
+			for _, c in node.children do
+				drawChain(canvas, c, false)
 			end
 		end
-		expand(rootOutId, 1)
+	end
+
+	local function buildChain(rootOutId: string, rootName: string, rootImage: string?)
+		local root = measureChain(rootOutId, rootName, rootImage, nil, nil, 0, {})
+		local maxDepth = chainDepth(root) - 1
+
+		local canvas = Instance.new("Frame")
+		canvas.Name = "Canvas"
+		canvas.BackgroundTransparency = 1
+		canvas.Size = UDim2.fromOffset(root.w, (maxDepth + 1) * ROW_H)
+		canvas.ZIndex = 10
+		canvas.Parent = chainList
+		chainList.CanvasSize = UDim2.fromOffset(root.w + 24, (maxDepth + 1) * ROW_H + 24)
+		-- centre a narrow tree, but let a wide one start at the left and scroll
+		if root.w < chainList.AbsoluteSize.X then
+			canvas.Position = UDim2.new(0.5, -math.floor(root.w / 2), 0, 8)
+		else
+			canvas.Position = UDim2.fromOffset(12, 8)
+		end
+
+		placeChain(root, 0, 0, maxDepth)
+		drawChain(canvas, root, true)
+
+		if #root.children == 0 then
+			local lbl = Instance.new("TextLabel")
+			lbl.Name = "NotCrafted"
+			lbl.BackgroundTransparency = 1
+			lbl.Position = UDim2.fromOffset(root.x - 60, root.y - 28)
+			lbl.Size = UDim2.fromOffset(NODE_W + 120, 20)
+			lbl.Font = Theme.FontLight
+			lbl.TextSize = 12
+			lbl.TextColor3 = Theme.TextDim
+			lbl.Text = "Not crafted — roll, buy, or trade for this one."
+			lbl.ZIndex = 10
+			lbl.Parent = canvas
+		end
 	end
 
 	openChain = function(itemId: string, name: string, imageId: string?)
 		ensureRecipeGraph(function()
-			-- captions are TextLabels, not Frames — clear everything but the layout
 			for _, inst in chainList:GetChildren() do
-				if not inst:IsA("UIListLayout") then
-					inst:Destroy()
-				end
+				inst:Destroy()
 			end
 			chainTitle.Text = "How to make: " .. name
 			buildChain(itemId, name, imageId)

@@ -93,6 +93,25 @@ local EventConfig: any = {
 						imageId = "rbxassetid://16912465495", -- crown
 					},
 				},
+				-- BRANCHING capstone. Both halves are themselves crafted from
+				-- crafted parts, so this one's tree is a real pyramid rather than
+				-- a single chain: two independent branches of equal depth meeting
+				-- at the top. Deliberately the widest recipe in the game.
+				{
+					rid = "worldheart",
+					tier = 3,
+					blurb = "Two halves, each built from scratch. Almost nobody finishes one alone.",
+					inputs = {
+						["evt_sunforged_core"] = 1,
+						["evt_voidforged_core"] = 1,
+					},
+					output = {
+						sku = "worldheart",
+						name = "Worldheart",
+						totalSupply = 25,
+						imageId = "rbxassetid://17368097932", -- star
+					},
+				},
 			},
 		},
 
@@ -271,6 +290,59 @@ local EventConfig: any = {
 					name = "Refined Essence",
 					totalSupply = 2500,
 					imageId = "rbxassetid://15403265114",
+				},
+			},
+
+			-- TIER 2b: the two halves of the Worldheart. Each core takes one
+			-- artifact plus its own sub-component, and each sub-component is
+			-- itself crafted — that's what makes the Worldheart's tree branch
+			-- into two equal-depth pyramids instead of one straight line.
+			{
+				rid = "sun_fragment",
+				tier = 1,
+				blurb = "Sunstone ground fine and bound with essence.",
+				inputs = { ["evt_refined_essence"] = 4, ["itm_1_6_sunstone_charm"] = 2 },
+				output = {
+					sku = "sun_fragment",
+					name = "Sun Fragment",
+					totalSupply = 700,
+					imageId = "rbxassetid://17368097932", -- star
+				},
+			},
+			{
+				rid = "void_fragment",
+				tier = 1,
+				blurb = "A shard of nothing, held together by essence.",
+				inputs = { ["evt_refined_essence"] = 4, ["itm_1_11_void_shard"] = 1 },
+				output = {
+					sku = "void_fragment",
+					name = "Void Fragment",
+					totalSupply = 700,
+					imageId = "rbxassetid://15403027709", -- bomb
+				},
+			},
+			{
+				rid = "sunforged_core",
+				tier = 2,
+				blurb = "An ember artifact and three sun fragments, forged as one.",
+				inputs = { ["evt_ember_artifact"] = 1, ["evt_sun_fragment"] = 3 },
+				output = {
+					sku = "sunforged_core",
+					name = "Sunforged Core",
+					totalSupply = 300,
+					imageId = "rbxassetid://15403144723", -- fire
+				},
+			},
+			{
+				rid = "voidforged_core",
+				tier = 2,
+				blurb = "A storm artifact and three void fragments, forged as one.",
+				inputs = { ["evt_storm_artifact"] = 1, ["evt_void_fragment"] = 3 },
+				output = {
+					sku = "voidforged_core",
+					name = "Voidforged Core",
+					totalSupply = 300,
+					imageId = "rbxassetid://15402964203", -- void shard
 				},
 			},
 
