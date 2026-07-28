@@ -205,6 +205,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	-- minimum the nodes are unreadable, above the maximum a wide tree scrolls
 	-- uselessly — and clamping is what stops repeated clicks from running the
 	-- scale (and the canvas size derived from it) away to a broken layout.
+	-- driven by the −/+ buttons or CTRL + mouse wheel
 	local ZOOM_MIN, ZOOM_MAX, ZOOM_STEP = 0.45, 1.5, 0.15
 	local zoom = 1
 	local chainScale: UIScale? = nil
@@ -330,10 +331,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		applyZoom(zoom + ZOOM_STEP)
 	end)
 
-	-- Mouse wheel zooms the tree on PC. The ScrollingFrame would otherwise also
-	-- scroll on the same input, so the canvas position is captured and put back
-	-- (deferred, since the built-in scroll lands after this handler) — the wheel
-	-- reads as pure zoom while dragging and the scrollbars still pan normally.
+	-- CTRL + wheel zooms the tree on PC; a plain wheel keeps scrolling the
+	-- canvas as normal. Binding zoom to the bare wheel made the frame scroll and
+	-- zoom at the same time, which is why it needs the modifier.
 	UserInputService.InputChanged:Connect(function(input: InputObject)
 		if input.UserInputType ~= Enum.UserInputType.MouseWheel then
 			return
@@ -341,6 +341,13 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		if not chainOverlay.Visible or chainScale == nil then
 			return
 		end
+		if
+			not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+			and not UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+		then
+			return -- plain wheel: let the ScrollingFrame scroll
+		end
+		-- hold the scroll position so the zoom doesn't also pan the view
 		local held = chainList.CanvasPosition
 		applyZoom(zoom + input.Position.Z * ZOOM_STEP)
 		chainList.CanvasPosition = held
