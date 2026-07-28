@@ -38,6 +38,7 @@ local ShopScreen = require(UI.ShopScreen)
 local ActivityFeed = require(UI.ActivityFeed)
 local AdminScreen = require(UI.AdminScreen)
 local FreeGemsScreen = require(UI.FreeGemsScreen)
+local LeaderboardScreen = require(UI.LeaderboardScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
@@ -60,6 +61,7 @@ ProfileScreen.wire(modalGui, tooltip)
 RollsScreen.wire(modalGui, tooltip, toast)
 ShopScreen.wire(modalGui, tooltip, toast)
 FreeGemsScreen.wire(modalGui, toast)
+LeaderboardScreen.wire(modalGui, toast)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
@@ -75,6 +77,9 @@ HUD.wire(hudGui, {
 	end,
 	freeGems = function()
 		FreeGemsScreen.toggle()
+	end,
+	leaderboard = function()
+		LeaderboardScreen.toggle()
 	end,
 })
 
