@@ -419,6 +419,31 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			countLbl.ZIndex = 10
 			countLbl.Parent = node
 		end
+
+		-- (i) on anything that is ITSELF crafted, so a player looking at an
+		-- ingredient they don't have can jump straight to that item's own tree
+		-- and the station that makes it. Only on non-root nodes: the root IS
+		-- the tree you're already looking at.
+		if not highlight and findRecipeForOutput(itemId) then
+			local info = Instance.new("TextButton")
+			info.Name = "InfoButton"
+			info.AnchorPoint = Vector2.new(1, 0)
+			info.Position = UDim2.new(1, -3, 0, 3)
+			info.Size = UDim2.fromOffset(18, 18)
+			info.BackgroundColor3 = Theme.Accent
+			info.Font = Theme.Font
+			info.TextSize = 12
+			info.TextColor3 = Theme.TextPrimary
+			info.Text = "i"
+			info.ZIndex = 11
+			info.Parent = node
+			local infoCorner = Instance.new("UICorner")
+			infoCorner.CornerRadius = UDim.new(1, 0)
+			infoCorner.Parent = info
+			info.Activated:Connect(function()
+				openChain(itemId, name, imageId)
+			end)
+		end
 		return node
 	end
 
