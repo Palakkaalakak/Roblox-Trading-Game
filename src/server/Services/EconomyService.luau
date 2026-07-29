@@ -547,6 +547,49 @@ function EconomyService.restockCopiesLazy(itemId: string, count: number)
 	EconomyService.broadcastStats({ itemId })
 end
 
+-- MAINTENANCE ONLY: put an item back to its untouched state — full reserve,
+-- nothing circulating, nothing burned. Written through the same strong CAS as
+-- every other reserve mutation, so it cannot race a live buy/craft, and it
+-- refreshes this server's cache immediately.
+--
+-- Exists because wiping records straight out of the DataStore does NOT work:
+-- every server holds a hot cache that it flushes back on shutdown, so a
+-- external delete gets silently overwritten by the next flush. Going through
+-- the service is the only way to reset an item and have it stick.
+function EconomyService.resetItem(itemId: string): (boolean, string?)
+	local item = EconomyService.getItem(itemId)
+	if item == nil then
+		return false, "unknown_item"
+	end
+	local rec = mutateRecord(itemId, function(old)
+		old.reserveRemaining = item.totalSupply
+		old.circulating = 0
+		old.burned = 0
+		old.demandEMA = 0
+		old.demandSamples = 0
+		old.rapValue = 0
+		old.rapCount = 0
+		old.updatedAt = os.time()
+		return old
+	end)
+	if rec == nil then
+		return false, "store_error"
+	end
+	hotCache[itemId] = rec
+	EconomyService.broadcastStats({ itemId })
+	AnalyticsService.log("item_reset", { itemId = itemId, totalSupply = item.totalSupply })
+	return true, nil
+end
+
+-- Every registered itemId, so maintenance can sweep the whole catalogue.
+function EconomyService.allItemIds(): { string }
+	local out = {}
+	for itemId in registry do
+		table.insert(out, itemId)
+	end
+	return out
+end
+
 -- Retire copies the LAZY way (in-memory + dirty flush). For the market-bot
 -- craft path only — same rationale as reserveOneLazy: a synchronous DataStore
 -- UpdateAsync per bot craft, x hundreds of bots, starves the request budget
@@ -747,6 +790,29 @@ function EconomyService.Start()
 			return a.name < b.name
 		end)
 		return { ok = true, items = items }
+	end)
+
+	-- MAINTENANCE, admin-gated: put every item back to full reserve. Needed for
+	-- launch prep because the bot simulation crafted several event outputs to
+	-- exhaustion, and those records cannot be cleared from OUTSIDE the game —
+	-- each server holds a hot cache it flushes back over an external delete, so
+	-- the reset has to go through the service. Remove with the debug tooling.
+	local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
+	Net.bindFunction("AdminResetEconomy", function(player)
+		if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
+			return { ok = false, err = "not_admin" }
+		end
+		local reset, failed = 0, {}
+		for _, itemId in EconomyService.allItemIds() do
+			local ok, err = EconomyService.resetItem(itemId)
+			if ok then
+				reset += 1
+			else
+				table.insert(failed, itemId .. ":" .. tostring(err))
+			end
+		end
+		AnalyticsService.log("admin_reset_economy", { by = player.UserId, reset = reset })
+		return { ok = true, reset = reset, failed = failed }
 	end)
 
 	-- remote: batch stat fetch

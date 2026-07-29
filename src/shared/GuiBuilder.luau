@@ -2542,7 +2542,7 @@ local function buildSyndicatePanel(parent: Instance)
 		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, actionRow)
-	for i, spec in { { "PolicyButton", "Policy: —", C.BgLight }, { "LeaveButton", "Leave", C.Bad } } do
+	for i, spec in { { "PolicyButton", "Anyone can join", C.BgLight }, { "LeaveButton", "Leave", C.Bad } } do
 		local b = button(spec[1], {
 			LayoutOrder = i,
 			Size = UDim2.fromOffset(150, 30),

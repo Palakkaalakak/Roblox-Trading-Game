@@ -174,7 +174,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		local nextPolicy = policies[(index % #policies) + 1]
 		act(function()
 			return Net.invoke("SetSyndicatePolicy", nextPolicy)
-		end, "Join policy is now " .. nextPolicy .. ".")
+		end, "Now: " .. (SyndicateConfig.JoinPolicyLabels[nextPolicy] or nextPolicy) .. ".")
 	end)
 
 	local function renderMine(s: any)
@@ -212,7 +212,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 				and ("Perks: " .. table.concat(perkParts, "  ·  "))
 			or "Perks: none yet — level up to unlock"
 
-		policyBtn.Text = "Policy: " .. tostring(s.policy)
+		policyBtn.Text = SyndicateConfig.JoinPolicyLabels[s.policy] or tostring(s.policy)
 		policyBtn.Visible = SyndicateConfig.can(s.yourRole or "Member", "setPolicy")
 
 		local myId = Players.LocalPlayer.UserId
@@ -302,7 +302,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 				renderList(browseView, "BrowseRow", dir.syndicates, "No syndicates yet — found the first one!", function(row, entry)
 					(row:WaitForChild("SynName") :: TextLabel).Text = ("[%s] %s"):format(entry.tag, entry.name)
 					;(row:WaitForChild("SynMeta") :: TextLabel).Text =
-						("Level %d  ·  %d members  ·  %s"):format(entry.level or 1, entry.members or 0, entry.policy or "")
+						("Level %d  ·  %d members  ·  %s"):format(entry.level or 1, entry.members or 0, SyndicateConfig.JoinPolicyLabels[entry.policy] or "")
 					local btn = row:WaitForChild("ActionButton") :: TextButton
 					btn.Visible = not inSyndicate
 					btn.Activated:Connect(function()

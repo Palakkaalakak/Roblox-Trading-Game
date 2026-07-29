@@ -86,6 +86,7 @@ local Enums = {
 		"SetSyndicatePolicy", -- (policy) -> {ok, err?} — Open|Request|Invite
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
+		"AdminResetEconomy", -- () -> {ok, reset} — admin only: every item back to full reserve
 		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view
 	},
 	RemoteEvents = {

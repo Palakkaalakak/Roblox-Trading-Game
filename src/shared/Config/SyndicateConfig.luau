@@ -30,8 +30,15 @@ local SyndicateConfig = {
 		Member = { invite = false, kick = false, promote = false, demote = false, disband = false, setPolicy = false },
 	},
 
-	-- How a syndicate accepts new members.
+	-- How a syndicate accepts new members. The ids are internal; JoinPolicyLabel
+	-- is what a player actually reads — "Policy: Request" means nothing to a
+	-- 12-year-old, "Anyone can join" does.
 	JoinPolicies = { "Open", "Request", "Invite" },
+	JoinPolicyLabels = {
+		Open = "Anyone can join",
+		Request = "Ask to join",
+		Invite = "Invite only",
+	},
 
 	-- XP awarded for things members already do. Deliberately small and additive:
 	-- a syndicate levels through sustained activity by several people, not one
