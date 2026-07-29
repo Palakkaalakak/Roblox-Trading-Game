@@ -17,7 +17,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local SessionStore = require(script.Parent.Parent.Stores.SessionStore)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
-local SCHEMA_VERSION = 3
+local SCHEMA_VERSION = 4
 
 local DataService = {}
 
@@ -57,6 +57,11 @@ local function template()
 		Referrals = { count = 0, ids = {} },
 		ReferredBy = 0,
 		ReferralBonus = false, -- earned the +% on first watches
+		-- v4: syndicate membership. SyndicateId is the only durable link — the
+		-- roster itself lives on the syndicate record, so a rename or a role
+		-- change never needs a write to every member's profile.
+		SyndicateId = "",
+		SyndicateInvites = {}, -- syndicateId -> { name, tag, at }
 	}
 end
 
@@ -78,6 +83,12 @@ local migrations: { [number]: (any) -> any } = {
 		data.ReferredBy = data.ReferredBy or 0
 		data.ReferralBonus = data.ReferralBonus or false
 		data.SchemaVersion = 3
+		return data
+	end,
+	[3] = function(data)
+		data.SyndicateId = data.SyndicateId or ""
+		data.SyndicateInvites = data.SyndicateInvites or {}
+		data.SchemaVersion = 4
 		return data
 	end,
 }

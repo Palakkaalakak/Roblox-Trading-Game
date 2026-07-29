@@ -923,6 +923,21 @@ function TradeBoardService.tryMatch(listing: any)
 	AnalyticsService.log("board_matched", { a = mine.id, b = theirs.id })
 end
 
+
+-- Syndicate XP for a board fill. Lazy require avoids a require cycle, and
+-- addXp already no-ops for bots and for anyone not in a syndicate.
+local function syndicateXp(userId: number)
+	if userId < 0 then
+		return
+	end
+	local ok, Syndicate = pcall(function()
+		return require(script.Parent.SyndicateService)
+	end)
+	if ok then
+		Syndicate.addXp(userId, "boardFill")
+	end
+end
+
 --------------------------------------------------------------------------------
 -- Order-book crossing: a resting ask (sell) and bid (bulk) that cross execute
 -- automatically, no manual Buy/Contribute. Continuous double auction.
@@ -1081,6 +1096,8 @@ local function crossFillOnce(askId: string, bidId: string, execPrice: number): n
 	end
 
 	announce(("%s ⇄ %s: %d x %s @ %d gems"):format(askCommit.posterName, bidCommit.posterName, q, itemLabel(itemId), execPrice))
+	syndicateXp(askCommit.posterId)
+	syndicateXp(bidCommit.posterId)
 	AnalyticsService.log("board_crossed", { ask = askId, bid = bidId, qty = q, price = execPrice, tax = cut })
 	return q
 end
@@ -1335,6 +1352,8 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 		removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 	end
 	announce(("%s filled %d x %s @ %d gems for %s"):format(userName, taken, itemLabel(committed.itemId), committed.gemsPerCopy, committed.posterName))
+	syndicateXp(userId)
+	syndicateXp(committed.posterId)
 	AnalyticsService.log("bulk_contributed", { id = id, by = userId, count = taken, net = net, tax = cut })
 	return { ok = true, payout = net, count = taken }
 end
@@ -1435,6 +1454,8 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 		removeListing(id) -- terminal: keep the quota-bound MemoryStore lean
 	end
 	announce(("%s bought %d x %s @ %d gems from %s"):format(userName, taken, itemLabel(committed.itemId), committed.gemsPerCopy, committed.posterName))
+	syndicateXp(userId)
+	syndicateXp(committed.posterId)
 	AnalyticsService.log("sell_bought", { id = id, by = userId, count = taken, spent = spent })
 	return { ok = true, spent = spent, count = taken }
 end

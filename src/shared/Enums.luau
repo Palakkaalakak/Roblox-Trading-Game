@@ -76,6 +76,14 @@ local Enums = {
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
 		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
 		"GetLeaderboard", -- (boardId, scope) -> {ok, rows, you, resetsAt?} — scope "alltime"|"weekly"
+		"GetSyndicate", -- () -> {ok, syndicate?, invites} — your clan + pending invites
+		"BrowseSyndicates", -- () -> {ok, syndicates} — public directory, best first
+		"CreateSyndicate", -- (name, tag) -> {ok, syndicate?, err?}
+		"JoinSyndicate", -- (id) -> {ok, syndicate?, err?}
+		"LeaveSyndicate", -- () -> {ok, disbanded?, err?}
+		"InviteToSyndicate", -- (targetUserId) -> {ok, err?}
+		"SyndicateModerate", -- (targetUserId, action) -> {ok, err?} — kick|promote|demote
+		"SetSyndicatePolicy", -- (policy) -> {ok, err?} — Open|Request|Invite
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view

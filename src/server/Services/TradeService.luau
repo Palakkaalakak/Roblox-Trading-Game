@@ -420,6 +420,16 @@ local function progressInner(record: any)
 			publishPing(record.tradeId)
 			if record.settledBy == ownerId then
 				applyEconomyUpdates(record)
+				-- syndicate XP for BOTH sides. Lazy require avoids a cycle
+				-- (SyndicateService pulls in Data/Inventory); addXp no-ops for
+				-- anyone not in a syndicate or not on this server.
+				local okSyn, Syndicate = pcall(function()
+					return require(script.Parent.SyndicateService)
+				end)
+				if okSyn then
+					Syndicate.addXp(record.a.userId, "trade")
+					Syndicate.addXp(record.b.userId, "trade")
+				end
 				AnalyticsService.log("trade_settled", { tradeId = record.tradeId })
 			end
 			untrack(record)

@@ -342,6 +342,80 @@ return {
 			assert(LBC.TopCount <= 100, "OrderedDataStore pages cap at 100")
 		end,
 
+		["syndicate: level curve, caps and cumulative perks"] = function()
+			local SC = require(ReplicatedStorage.Shared.Config.SyndicateConfig)
+
+			eq(SC.levelFor(0), 1, "no xp is level 1")
+			eq(SC.levelFor(499), 1, "just short of level 2")
+			eq(SC.levelFor(500), 2, "exactly on the threshold levels up")
+			eq(SC.levelFor(999999999), #SC.LevelCurve, "clamps at max level")
+
+			-- next-level countdown, and MAX reported as nil rather than a lie
+			local nextLvl, toNext = SC.nextLevel(0)
+			eq(nextLvl, 2, "next level from 1")
+			eq(toNext, 500, "xp remaining")
+			local maxLvl = SC.nextLevel(999999999)
+			eq(maxLvl, nil, "no next level at max")
+
+			-- caps rise with level and never index out of the table
+			assert(SC.memberCap(1) < SC.memberCap(#SC.MemberCapByLevel), "cap grows")
+			eq(SC.memberCap(0), SC.MemberCapByLevel[1], "clamps low")
+			eq(SC.memberCap(999), SC.MemberCapByLevel[#SC.MemberCapByLevel], "clamps high")
+
+			-- perks accumulate from every level at or below the current one
+			local p1 = SC.perksFor(1)
+			eq(p1.boardSlots, 0, "level 1 has no perks")
+			local p5 = SC.perksFor(5)
+			eq(p5.boardSlots, 2, "level 5 board slots")
+			eq(p5.marketFeeCut, 0.05, "keeps the level-3 fee cut")
+			eq(p5.rollLuck, 0.02, "keeps the level-4 luck")
+			-- a later level REPLACES an earlier value for the same key
+			eq(SC.perksFor(8).boardSlots, 3, "level 8 replaces, not stacks")
+		end,
+
+		["syndicate: rank rules stop juniors acting on seniors"] = function()
+			local SC = require(ReplicatedStorage.Shared.Config.SyndicateConfig)
+			local SS = require(script.Parent.Parent.Services.SyndicateService)
+
+			local record = {
+				id = "s_1",
+				members = {
+					["1"] = { role = "Owner" },
+					["2"] = { role = "Officer" },
+					["3"] = { role = "Member" },
+					["4"] = { role = "Member" },
+				},
+			}
+			eq(SS.roleOf(record, 1), "Owner")
+			eq(SS.roleOf(record, 99), nil, "non-member has no role")
+			eq(SS.memberCount(record), 4)
+
+			-- an Officer may kick a Member...
+			local ok = SS.mayActOn(record, 2, 3, "kick")
+			eq(ok, true, "officer kicks member")
+			-- ...but never the Owner, nor a peer, nor themselves
+			local noOwner, why1 = SS.mayActOn(record, 2, 1, "kick")
+			eq(noOwner, false, "officer cannot kick owner")
+			eq(why1, "target_outranks_you")
+			eq(SS.mayActOn(record, 2, 4, "promote"), false, "officer cannot promote")
+			local noSelf, why2 = SS.mayActOn(record, 2, 2, "kick")
+			eq(noSelf, false, "cannot target self")
+			eq(why2, "cannot_target_self")
+
+			-- a plain Member may do none of it
+			eq(SS.mayActOn(record, 3, 4, "kick"), false, "member cannot kick")
+			-- and a stranger is rejected before any rank check
+			local notMember, why3 = SS.mayActOn(record, 77, 3, "kick")
+			eq(notMember, false, "non-member cannot act")
+			eq(why3, "not_a_member")
+
+			-- the Owner outranks everyone
+			eq(SS.mayActOn(record, 1, 2, "demote"), true, "owner demotes officer")
+			eq(SC.outranks("Owner", "Officer"), true)
+			eq(SC.outranks("Member", "Owner"), false)
+			eq(SC.outranks("Officer", "Officer"), false, "peers do not outrank")
+		end,
+
 		["perks: listing order honors boost then recency"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
 			local order = TradeBoardService.listingOrder

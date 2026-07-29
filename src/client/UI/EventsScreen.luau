@@ -906,6 +906,20 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 	end)
 
+	-- Poll while the panel is open. Stock is not static: consumed inputs are
+	-- redistributed back into an item's reserve (crafting, roll item-payments),
+	-- so a recipe that showed "Fully crafted!" can become craftable again
+	-- without anything the viewer did. Without this it would keep looking dead
+	-- until the panel was reopened.
+	task.spawn(function()
+		while true do
+			task.wait(10)
+			if panel.Visible then
+				refresh()
+			end
+		end
+	end)
+
 	function EventsScreen.open()
 		Components.closeOtherPanels(panel)
 		panel.Visible = true

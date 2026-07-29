@@ -328,6 +328,15 @@ local function describeRecipe(recipe: any, profile: any, now: number): any
 
 	local outId = outputItemId(recipe.output.sku)
 	local snap = EconomyService.snapshot(outId)
+	-- NO RECORD MEANS NOTHING HAS BEEN TAKEN YET, so the reserve is full — it
+	-- must NOT read as 0, which is "fully crafted". Getting this backwards makes
+	-- a brand-new (or freshly reset) recipe look permanently sold out.
+	--
+	-- This is also why the number is read live on every GetEvents rather than
+	-- cached client-side: consumed inputs are REDISTRIBUTED back into an item's
+	-- reserve (crafting, roll item-payments), so a recipe that was fully crafted
+	-- can legitimately become available again and the UI has to notice.
+	local remaining = snap and snap.reserveRemaining or recipe.output.totalSupply
 	return {
 		rid = recipe.rid,
 		tier = recipe.tier or 1,
@@ -339,7 +348,7 @@ local function describeRecipe(recipe: any, profile: any, now: number): any
 			itemId = outId,
 			name = recipe.output.name,
 			imageId = recipe.output.imageId,
-			remaining = snap and snap.reserveRemaining or 0,
+			remaining = remaining,
 			total = recipe.output.totalSupply,
 		},
 	}
@@ -474,6 +483,18 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		task.spawn(function()
 			DataService.saveNow(player)
 		end)
+	end
+
+	-- syndicate XP for the craft. Lazy require: SyndicateService pulls in
+	-- Data/Inventory, and requiring it at the top would form a cycle. Bots have
+	-- no syndicate, so this is players only.
+	if not isBot then
+		local ok, Syndicate = pcall(function()
+			return require(script.Parent.SyndicateService)
+		end)
+		if ok then
+			Syndicate.addXp(userId, "craft")
+		end
 	end
 
 	AnalyticsService.log("craft", {

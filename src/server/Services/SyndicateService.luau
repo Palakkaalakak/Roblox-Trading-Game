@@ -1,0 +1,648 @@
+--!strict
+-- SyndicateService: trading clans — create, join, roles, XP and perks.
+--
+-- WHERE THE DATA LIVES. One DataStore record per syndicate holds the whole
+-- roster; a player's profile stores only `SyndicateId`. That direction matters:
+-- renaming a syndicate, promoting someone, or levelling up writes ONE key
+-- instead of one per member, and a 100-member syndicate is still a single
+-- UpdateAsync. The cost is that reading "who am I with" needs a second fetch,
+-- which is cached per server.
+--
+-- EVERY MUTATION IS A CAS TRANSFORM on that one key, so two servers acting on
+-- the same syndicate at once (two people accepting the last slot) can't both
+-- win — the capacity check happens INSIDE the transform, not before it.
+--
+-- XP comes from things members already do (trades, board fills, crafts), so
+-- being in a syndicate never asks anyone to play differently. Levels raise the
+-- member cap and unlock perks that plug into systems that already exist.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local SyndicateConfig = require(ReplicatedStorage.Shared.Config.SyndicateConfig)
+local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
+local Guard = require(ReplicatedStorage.Shared.Util.Guard)
+
+local Net = require(script.Parent.Parent.Net)
+local DataService = require(script.Parent.DataService)
+local InventoryService = require(script.Parent.InventoryService)
+local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
+local AnalyticsService = require(script.Parent.AnalyticsService)
+
+local SyndicateService = {}
+
+local store: any -- DataStore "Syndicates_v1": syndicateId -> record
+local dirStore: any -- DataStore "SyndicateDir_v1": key "all" -> {id -> {name, tag, level, members}}
+local cache: { [string]: { at: number, record: any } } = {}
+local CACHE_TTL = 15
+local SYNC_TOPIC = "syndicate_changed"
+
+local function now(): number
+	return os.time()
+end
+
+local function invalidate(syndicateId: string)
+	cache[syndicateId] = nil
+	StoreAdapters.publish(SYNC_TOPIC, { id = syndicateId })
+end
+
+local function readRecord(syndicateId: string, force: boolean?): any?
+	local cached = cache[syndicateId]
+	if not force and cached and (os.clock() - cached.at) < CACHE_TTL then
+		return cached.record
+	end
+	local record
+	pcall(function()
+		record = store:GetAsync(syndicateId)
+	end)
+	if record then
+		cache[syndicateId] = { at = os.clock(), record = record }
+	end
+	return record
+end
+
+-- Every write goes through here: CAS on the one key, then invalidate every
+-- server's cache. `transform` returns nil to abort (and may set `reason`).
+local function mutate(syndicateId: string, transform: (any) -> any?): (any?, string?)
+	local reason: string? = nil
+	local committed
+	local ok = pcall(function()
+		committed = store:UpdateAsync(syndicateId, function(old)
+			if old == nil then
+				reason = "not_found"
+				return nil
+			end
+			local result, why = transform(old)
+			if result == nil then
+				reason = why or reason or "rejected"
+				return nil
+			end
+			result.updatedAt = now()
+			return result
+		end)
+	end)
+	if not ok then
+		return nil, "store_error"
+	end
+	if committed == nil then
+		return nil, reason or "rejected"
+	end
+	cache[syndicateId] = { at = os.clock(), record = committed }
+	invalidate(syndicateId)
+	return committed, nil
+end
+
+--------------------------------------------------------------------------------
+-- Pure helpers (unit-testable)
+--------------------------------------------------------------------------------
+
+-- A member's role, or nil when they aren't in the syndicate.
+function SyndicateService.roleOf(record: any, userId: number): string?
+	local entry = record and record.members and record.members[tostring(userId)]
+	return entry and entry.role or nil
+end
+
+function SyndicateService.memberCount(record: any): number
+	local n = 0
+	for _ in (record and record.members or {}) do
+		n += 1
+	end
+	return n
+end
+
+-- Can `actorId` do `action` to `targetId`? Encodes the two rules that actually
+-- matter: you need the permission, AND you may only act on someone you outrank
+-- (which is what stops an Officer kicking the Owner, or demoting a peer).
+function SyndicateService.mayActOn(record: any, actorId: number, targetId: number, action: string): (boolean, string?)
+	local actorRole = SyndicateService.roleOf(record, actorId)
+	if actorRole == nil then
+		return false, "not_a_member"
+	end
+	if not SyndicateConfig.can(actorRole, action) then
+		return false, "no_permission"
+	end
+	if targetId ~= 0 then
+		local targetRole = SyndicateService.roleOf(record, targetId)
+		if targetRole == nil then
+			return false, "target_not_a_member"
+		end
+		if actorId == targetId then
+			return false, "cannot_target_self"
+		end
+		if not SyndicateConfig.outranks(actorRole, targetRole) then
+			return false, "target_outranks_you"
+		end
+	end
+	return true, nil
+end
+
+-- Public view of a syndicate, safe to hand to any client.
+local function describe(record: any, viewerId: number): any
+	local level = SyndicateConfig.levelFor(record.xp or 0)
+	local nextLvl, toNext = SyndicateConfig.nextLevel(record.xp or 0)
+	local members = {}
+	for key, entry in (record.members or {}) do
+		local userId = tonumber(key) or 0
+		table.insert(members, {
+			userId = userId,
+			name = DataService.nameFor(userId) or ("User " .. key),
+			role = entry.role,
+			joinedAt = entry.joinedAt,
+			xpContributed = entry.xp or 0,
+		})
+	end
+	table.sort(members, function(a, b)
+		local ra, rb = 99, 99
+		for i, role in SyndicateConfig.Roles do
+			if a.role == role then ra = i end
+			if b.role == role then rb = i end
+		end
+		if ra ~= rb then
+			return ra < rb
+		end
+		return a.xpContributed > b.xpContributed
+	end)
+	return {
+		id = record.id,
+		name = record.name,
+		tag = record.tag,
+		policy = record.policy,
+		xp = record.xp or 0,
+		level = level,
+		nextLevel = nextLvl,
+		xpToNext = toNext,
+		memberCap = SyndicateConfig.memberCap(level),
+		perks = SyndicateConfig.perksFor(level),
+		members = members,
+		yourRole = SyndicateService.roleOf(record, viewerId),
+	}
+end
+
+--------------------------------------------------------------------------------
+-- Directory (browse/search) — a small summary row per syndicate
+--------------------------------------------------------------------------------
+
+local function updateDirectory(record: any)
+	pcall(function()
+		dirStore:UpdateAsync("all", function(old)
+			old = old or {}
+			old[record.id] = {
+				name = record.name,
+				tag = record.tag,
+				level = SyndicateConfig.levelFor(record.xp or 0),
+				members = SyndicateService.memberCount(record),
+				policy = record.policy,
+			}
+			return old
+		end)
+	end)
+end
+
+local function removeFromDirectory(syndicateId: string)
+	pcall(function()
+		dirStore:UpdateAsync("all", function(old)
+			old = old or {}
+			old[syndicateId] = nil
+			return old
+		end)
+	end)
+end
+
+--------------------------------------------------------------------------------
+-- XP
+--------------------------------------------------------------------------------
+
+-- Award XP for something a member did. Fire-and-forget: a failed XP write must
+-- never fail the trade/craft that earned it, so this is spawned and swallowed.
+function SyndicateService.addXp(userId: number, source: string)
+	local amount = SyndicateConfig.XpSources[source]
+	if amount == nil or amount <= 0 then
+		return
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	if player == nil or not DataService.isLoaded(player) then
+		return
+	end
+	local profile = DataService.getProfile(player)
+	local syndicateId = profile and profile.SyndicateId or ""
+	if syndicateId == "" then
+		return
+	end
+	task.spawn(function()
+		local key = tostring(userId)
+		local before = readRecord(syndicateId)
+		local levelBefore = before and SyndicateConfig.levelFor(before.xp or 0) or 1
+		local committed = mutate(syndicateId, function(record)
+			if record.members[key] == nil then
+				return nil, "not_a_member"
+			end
+			record.xp = (record.xp or 0) + amount
+			record.members[key].xp = (record.members[key].xp or 0) + amount
+			return record
+		end)
+		if committed then
+			local levelAfter = SyndicateConfig.levelFor(committed.xp or 0)
+			if levelAfter > levelBefore then
+				updateDirectory(committed)
+				AnalyticsService.log("syndicate_levelup", {
+					id = syndicateId, level = levelAfter, xp = committed.xp,
+				})
+			end
+		end
+	end)
+end
+
+-- Perks currently active for a player, for the systems that consume them
+-- (board slots, market fee, roll luck). Zeroed when they're in no syndicate,
+-- so callers never branch on membership.
+function SyndicateService.perksFor(userId: number): { [string]: number }
+	local player = Players:GetPlayerByUserId(userId)
+	if player == nil or not DataService.isLoaded(player) then
+		return SyndicateConfig.perksFor(0)
+	end
+	local profile = DataService.getProfile(player)
+	local syndicateId = profile and profile.SyndicateId or ""
+	if syndicateId == "" then
+		return SyndicateConfig.perksFor(0)
+	end
+	local record = readRecord(syndicateId)
+	if record == nil then
+		return SyndicateConfig.perksFor(0)
+	end
+	return SyndicateConfig.perksFor(SyndicateConfig.levelFor(record.xp or 0))
+end
+
+--------------------------------------------------------------------------------
+-- Actions
+--------------------------------------------------------------------------------
+
+local function profileOf(player: Player): any?
+	return DataService.isLoaded(player) and DataService.getProfile(player) or nil
+end
+
+local function setMembership(player: Player, syndicateId: string)
+	local profile = profileOf(player)
+	if profile then
+		profile.SyndicateId = syndicateId
+		task.spawn(function()
+			DataService.saveNow(player)
+		end)
+	end
+end
+
+local function newSyndicateId(): string
+	return ("s_%d_%s"):format(now(), DataService.newId():sub(1, 8))
+end
+
+-- Name/tag rules, checked before anything is charged or written.
+local function validateIdentity(name: any, tag: any): (boolean, string?)
+	if not Guard.isString(name, SyndicateConfig.NameMaxLength) then
+		return false, "bad_name"
+	end
+	if not Guard.isString(tag, SyndicateConfig.TagMaxLength) then
+		return false, "bad_tag"
+	end
+	local n, t = name :: string, tag :: string
+	if #n < SyndicateConfig.NameMinLength then
+		return false, "name_too_short"
+	end
+	if #t < SyndicateConfig.TagMinLength then
+		return false, "tag_too_short"
+	end
+	if not t:match("^%w+$") then
+		return false, "tag_not_alphanumeric"
+	end
+	return true, nil
+end
+
+function SyndicateService.create(player: Player, name: any, tag: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	if profile.SyndicateId ~= "" then
+		return { ok = false, err = "already_in_syndicate" }
+	end
+	local valid, why = validateIdentity(name, tag)
+	if not valid then
+		return { ok = false, err = why }
+	end
+	-- charge first; if the write then fails the gems are refunded below
+	local cost = SyndicateConfig.CreateCostGems
+	local paid = InventoryService.applyDelta(player, { gems = -cost }, "syndicate_create")
+	if not paid then
+		return { ok = false, err = "insufficient_gems" }
+	end
+
+	local id = newSyndicateId()
+	local record = {
+		id = id,
+		name = name,
+		tag = (tag :: string):upper(),
+		policy = "Request",
+		xp = 0,
+		createdAt = now(),
+		updatedAt = now(),
+		members = {
+			[tostring(player.UserId)] = { role = "Owner", joinedAt = now(), xp = 0 },
+		},
+	}
+	local ok = pcall(function()
+		store:SetAsync(id, record)
+	end)
+	if not ok then
+		InventoryService.applyDelta(player, { gems = cost }, "refund")
+		return { ok = false, err = "store_error" }
+	end
+	cache[id] = { at = os.clock(), record = record }
+	updateDirectory(record)
+	setMembership(player, id)
+	AnalyticsService.log("syndicate_created", { id = id, by = player.UserId, name = name })
+	return { ok = true, syndicate = describe(record, player.UserId) }
+end
+
+function SyndicateService.join(player: Player, syndicateId: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	if profile.SyndicateId ~= "" then
+		return { ok = false, err = "already_in_syndicate" }
+	end
+	if not Guard.isString(syndicateId, 64) then
+		return { ok = false, err = "bad_args" }
+	end
+	local id = syndicateId :: string
+	local key = tostring(player.UserId)
+	local invited = profile.SyndicateInvites and profile.SyndicateInvites[id] ~= nil
+
+	-- capacity and policy are checked INSIDE the transform: two people taking
+	-- the last slot on different servers must not both succeed
+	local committed, err = mutate(id, function(record)
+		if record.members[key] then
+			return nil, "already_a_member"
+		end
+		local level = SyndicateConfig.levelFor(record.xp or 0)
+		if SyndicateService.memberCount(record) >= SyndicateConfig.memberCap(level) then
+			return nil, "syndicate_full"
+		end
+		if record.policy == "Invite" and not invited then
+			return nil, "invite_only"
+		end
+		if record.policy == "Request" and not invited then
+			return nil, "request_required"
+		end
+		record.members[key] = { role = "Member", joinedAt = now(), xp = 0 }
+		return record
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+	if profile.SyndicateInvites then
+		profile.SyndicateInvites[id] = nil
+	end
+	setMembership(player, id)
+	updateDirectory(committed)
+	AnalyticsService.log("syndicate_joined", { id = id, by = player.UserId })
+	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+function SyndicateService.leave(player: Player): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	local key = tostring(player.UserId)
+	local record = readRecord(id)
+	-- an Owner must hand over or disband; leaving would orphan the syndicate
+	if record and SyndicateService.roleOf(record, player.UserId) == "Owner" then
+		if SyndicateService.memberCount(record) > 1 then
+			return { ok = false, err = "owner_must_transfer" }
+		end
+		pcall(function()
+			store:RemoveAsync(id)
+		end)
+		removeFromDirectory(id)
+		cache[id] = nil
+		setMembership(player, "")
+		AnalyticsService.log("syndicate_disbanded", { id = id, by = player.UserId })
+		return { ok = true, disbanded = true }
+	end
+	local committed = mutate(id, function(rec)
+		if rec.members[key] == nil then
+			return nil, "not_a_member"
+		end
+		rec.members[key] = nil
+		return rec
+	end)
+	setMembership(player, "")
+	if committed then
+		updateDirectory(committed)
+	end
+	AnalyticsService.log("syndicate_left", { id = id, by = player.UserId })
+	return { ok = true }
+end
+
+-- kick / promote / demote share the same permission shape, so they share a path
+local function moderate(player: Player, targetUserId: any, action: string): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	if typeof(targetUserId) ~= "number" then
+		return { ok = false, err = "bad_args" }
+	end
+	local targetKey = tostring(targetUserId)
+
+	local committed, err = mutate(id, function(record)
+		local allowed, why = SyndicateService.mayActOn(record, player.UserId, targetUserId, action)
+		if not allowed then
+			return nil, why
+		end
+		if action == "kick" then
+			record.members[targetKey] = nil
+		elseif action == "promote" then
+			record.members[targetKey].role = "Officer"
+		elseif action == "demote" then
+			record.members[targetKey].role = "Member"
+		end
+		return record
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+	if action == "kick" then
+		local target = Players:GetPlayerByUserId(targetUserId)
+		if target then
+			setMembership(target, "")
+		end
+		updateDirectory(committed)
+	end
+	AnalyticsService.log("syndicate_" .. action, { id = id, by = player.UserId, target = targetUserId })
+	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+function SyndicateService.invite(player: Player, targetUserId: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	if typeof(targetUserId) ~= "number" then
+		return { ok = false, err = "bad_args" }
+	end
+	local record = readRecord(id)
+	if record == nil then
+		return { ok = false, err = "not_found" }
+	end
+	-- targetId 0 => permission-only check (invite has no rank requirement)
+	local allowed, why = SyndicateService.mayActOn(record, player.UserId, 0, "invite")
+	if not allowed then
+		return { ok = false, err = why }
+	end
+	local target = Players:GetPlayerByUserId(targetUserId)
+	if target == nil or not DataService.isLoaded(target) then
+		return { ok = false, err = "player_not_here" }
+	end
+	local targetProfile = DataService.getProfile(target)
+	if targetProfile.SyndicateId ~= "" then
+		return { ok = false, err = "already_in_syndicate" }
+	end
+	targetProfile.SyndicateInvites = targetProfile.SyndicateInvites or {}
+	targetProfile.SyndicateInvites[id] = { name = record.name, tag = record.tag, at = now() }
+	task.spawn(function()
+		DataService.saveNow(target)
+	end)
+	AnalyticsService.log("syndicate_invited", { id = id, by = player.UserId, target = targetUserId })
+	return { ok = true }
+end
+
+function SyndicateService.setPolicy(player: Player, policy: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	local valid = false
+	for _, p in SyndicateConfig.JoinPolicies do
+		if p == policy then
+			valid = true
+		end
+	end
+	if not valid then
+		return { ok = false, err = "bad_policy" }
+	end
+	local committed, err = mutate(id, function(record)
+		local allowed, why = SyndicateService.mayActOn(record, player.UserId, 0, "setPolicy")
+		if not allowed then
+			return nil, why
+		end
+		record.policy = policy
+		return record
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+	updateDirectory(committed)
+	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+--------------------------------------------------------------------------------
+-- Lifecycle
+--------------------------------------------------------------------------------
+
+function SyndicateService.Init()
+	store = StoreAdapters.dataStore("Syndicates_v1")
+	dirStore = StoreAdapters.dataStore("SyndicateDir_v1")
+end
+
+function SyndicateService.Start()
+	-- another server changed a syndicate: drop our cached copy
+	StoreAdapters.subscribe(SYNC_TOPIC, function(payload)
+		if payload and payload.id then
+			cache[payload.id] = nil
+		end
+	end)
+
+	Net.bindFunction("GetSyndicate", function(player)
+		local profile = profileOf(player)
+		if profile == nil then
+			return { ok = false, err = "loading" }
+		end
+		local invites = {}
+		for id, info in (profile.SyndicateInvites or {}) do
+			table.insert(invites, { id = id, name = info.name, tag = info.tag })
+		end
+		if profile.SyndicateId == "" then
+			return { ok = true, syndicate = nil, invites = invites }
+		end
+		local record = readRecord(profile.SyndicateId)
+		if record == nil then
+			-- the syndicate was disbanded elsewhere; clear the stale link
+			setMembership(player, "")
+			return { ok = true, syndicate = nil, invites = invites }
+		end
+		return { ok = true, syndicate = describe(record, player.UserId), invites = invites }
+	end)
+
+	Net.bindFunction("BrowseSyndicates", function()
+		local all
+		pcall(function()
+			all = dirStore:GetAsync("all")
+		end)
+		local rows = {}
+		for id, info in (all or {}) do
+			table.insert(rows, {
+				id = id, name = info.name, tag = info.tag,
+				level = info.level, members = info.members, policy = info.policy,
+			})
+		end
+		table.sort(rows, function(a, b)
+			if a.level ~= b.level then
+				return a.level > b.level
+			end
+			return (a.members or 0) > (b.members or 0)
+		end)
+		return { ok = true, syndicates = rows }
+	end)
+
+	Net.bindFunction("CreateSyndicate", function(player, name, tag)
+		return SyndicateService.create(player, name, tag)
+	end)
+	Net.bindFunction("JoinSyndicate", function(player, id)
+		return SyndicateService.join(player, id)
+	end)
+	Net.bindFunction("LeaveSyndicate", function(player)
+		return SyndicateService.leave(player)
+	end)
+	Net.bindFunction("InviteToSyndicate", function(player, targetUserId)
+		return SyndicateService.invite(player, targetUserId)
+	end)
+	Net.bindFunction("SyndicateModerate", function(player, targetUserId, action)
+		if action ~= "kick" and action ~= "promote" and action ~= "demote" then
+			return { ok = false, err = "bad_args" }
+		end
+		return moderate(player, targetUserId, action)
+	end)
+	Net.bindFunction("SetSyndicatePolicy", function(player, policy)
+		return SyndicateService.setPolicy(player, policy)
+	end)
+
+	AnalyticsService.log("syndicate_service_started", {})
+end
+
+return SyndicateService

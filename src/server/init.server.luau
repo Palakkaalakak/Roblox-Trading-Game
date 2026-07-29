@@ -26,6 +26,7 @@ local ordered = {
 	{ "AdReward", require(Services.AdRewardService) },
 	{ "Referral", require(Services.ReferralService) },
 	{ "Leaderboard", require(Services.LeaderboardService) },
+	{ "Syndicate", require(Services.SyndicateService) },
 	{ "TradeBoard", require(Services.TradeBoardService) },
 	{ "Trade", require(Services.TradeService) },
 	{ "Profile", require(Services.ProfileService) },
