@@ -39,6 +39,7 @@ local ActivityFeed = require(UI.ActivityFeed)
 local AdminScreen = require(UI.AdminScreen)
 local FreeGemsScreen = require(UI.FreeGemsScreen)
 local WorldLeaderboards = require(UI.WorldLeaderboards)
+local SyndicateScreen = require(UI.SyndicateScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
@@ -62,6 +63,7 @@ RollsScreen.wire(modalGui, tooltip, toast)
 ShopScreen.wire(modalGui, tooltip, toast)
 FreeGemsScreen.wire(modalGui, toast)
 WorldLeaderboards.start() -- fills the physical boards standing in the world
+SyndicateScreen.wire(modalGui, toast)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()
@@ -77,6 +79,9 @@ HUD.wire(hudGui, {
 	end,
 	freeGems = function()
 		FreeGemsScreen.toggle()
+	end,
+	syndicate = function()
+		SyndicateScreen.toggle()
 	end,
 })
 

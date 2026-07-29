@@ -184,6 +184,7 @@ local function buildHud(parent: Instance)
 	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.37))
 	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.27))
 	-- no RANKS button: leaderboards are the physical boards in the world
+	iconButton("SyndicateButton", ICONS.Player, "SYNDICATE", UDim2.fromScale(0.955, 0.17))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
@@ -2280,6 +2281,352 @@ local function buildFreeGemsPanel(parent: Instance)
 	return free
 end
 
+--------------------------------------------------------------------------------
+-- Syndicates panel — three views the client swaps between: create (when you're
+-- in none), your syndicate (banner, XP bar, perks, roster), and browse/invites.
+-- Row templates live here; the screen clones them.
+--------------------------------------------------------------------------------
+
+local function buildSyndicatePanel(parent: Instance)
+	local syn = panel("SyndicatePanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(660, 580),
+		Visible = false,
+	}, parent)
+
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(1, -60, 0, 24),
+		Text = "Syndicates",
+		TextSize = 18,
+	}, syn)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "✕",
+		BackgroundColor3 = C.Bad,
+	}, syn)
+
+	local tabRow = new("Frame", {
+		Name = "TabRow",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 42),
+		Size = UDim2.new(1, -24, 0, 30),
+	}, syn)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, tabRow)
+
+	local body = new("Frame", {
+		Name = "Body",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 80),
+		Size = UDim2.new(1, -24, 1, -92),
+	}, syn)
+
+	----------------------------------------------------------------------
+	-- CREATE view (shown when the player is in no syndicate)
+	----------------------------------------------------------------------
+	local createView = new("Frame", {
+		Name = "CreateView",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, body)
+	label("Heading", {
+		Position = UDim2.fromOffset(0, 6),
+		Size = UDim2.new(1, 0, 0, 26),
+		Text = "Start your own syndicate",
+		TextSize = 17,
+	}, createView)
+	label("Blurb", {
+		Position = UDim2.fromOffset(0, 34),
+		Size = UDim2.new(1, 0, 0, 40),
+		Text = "Your members' trades, board fills and crafts all earn XP for the syndicate. Levelling raises the member cap and unlocks perks.",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, createView)
+	local nameBox = new("TextBox", {
+		Name = "NameBox",
+		Position = UDim2.fromOffset(0, 84),
+		Size = UDim2.fromOffset(320, 32),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT,
+		TextSize = 14,
+		TextColor3 = C.Text,
+		PlaceholderText = "Syndicate name",
+		Text = "",
+		ClearTextOnFocus = false,
+	}, createView)
+	corner(nameBox, 6)
+	local tagBox = new("TextBox", {
+		Name = "TagBox",
+		Position = UDim2.fromOffset(330, 84),
+		Size = UDim2.fromOffset(110, 32),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT,
+		TextSize = 14,
+		TextColor3 = C.Text,
+		PlaceholderText = "TAG",
+		Text = "",
+		ClearTextOnFocus = false,
+	}, createView)
+	corner(tagBox, 6)
+	local createBtn = button("CreateButton", {
+		Position = UDim2.fromOffset(450, 84),
+		Size = UDim2.fromOffset(150, 32),
+		Text = "CREATE",
+		TextSize = 14,
+		BackgroundColor3 = C.Good,
+	}, createView)
+	corner(createBtn, 6)
+	label("CostLabel", {
+		Position = UDim2.fromOffset(0, 122),
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, createView)
+	label("ErrorLabel", {
+		Position = UDim2.fromOffset(0, 144),
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = "",
+		TextSize = 12,
+		TextColor3 = C.Bad,
+	}, createView)
+
+	----------------------------------------------------------------------
+	-- MINE view
+	----------------------------------------------------------------------
+	local mineView = new("Frame", {
+		Name = "MineView",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, body)
+	local banner = new("Frame", {
+		Name = "Banner",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 76),
+	}, mineView)
+	corner(banner, 8)
+	label("SynName", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.new(0.7, 0, 0, 26),
+		Text = "Syndicate",
+		TextSize = 18,
+	}, banner)
+	label("SynMeta", {
+		Position = UDim2.fromOffset(14, 36),
+		Size = UDim2.new(0.7, 0, 0, 18),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, banner)
+	local xpTrack = new("Frame", {
+		Name = "XpTrack",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(14, 58),
+		Size = UDim2.new(1, -28, 0, 10),
+	}, banner)
+	corner(xpTrack, 5)
+	local xpFill = new("Frame", {
+		Name = "XpFill",
+		BackgroundColor3 = C.Accent,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(0, 1),
+	}, xpTrack)
+	corner(xpFill, 5)
+	label("PerksLabel", {
+		Position = UDim2.fromOffset(0, 84),
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = "",
+		TextSize = 12,
+		TextColor3 = C.Gold,
+	}, mineView)
+
+	local memberList = new("ScrollingFrame", {
+		Name = "MemberList",
+		Position = UDim2.fromOffset(0, 110),
+		Size = UDim2.new(1, 0, 1, -158),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, mineView)
+	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, memberList)
+
+	local memberRow = new("Frame", {
+		Name = "MemberRow",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -8, 0, 38),
+		Visible = false,
+	}, memberList)
+	corner(memberRow, 6)
+	label("MemberName", {
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.new(0.42, 0, 1, 0),
+		Text = "Player",
+		TextSize = 14,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, memberRow)
+	label("MemberRole", {
+		Position = UDim2.fromScale(0.44, 0),
+		Size = UDim2.fromOffset(80, 38),
+		Text = "Member",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, memberRow)
+	label("MemberXp", {
+		Position = UDim2.fromScale(0.62, 0),
+		Size = UDim2.fromOffset(90, 38),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.Gem,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, memberRow)
+	local modRow = new("Frame", {
+		Name = "ModButtons",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, 0),
+		Size = UDim2.fromOffset(190, 26),
+	}, memberRow)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, modRow)
+	for i, spec in { { "PromoteButton", "Promote", C.Accent }, { "DemoteButton", "Demote", C.BgLight }, { "KickButton", "Kick", C.Bad } } do
+		local b = button(spec[1], {
+			LayoutOrder = i,
+			Size = UDim2.fromOffset(60, 24),
+			Text = spec[2],
+			TextSize = 11,
+			BackgroundColor3 = spec[3],
+			Visible = false,
+		}, modRow)
+		corner(b, 5)
+	end
+
+	local actionRow = new("Frame", {
+		Name = "ActionRow",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.new(1, 0, 0, 34),
+	}, mineView)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, actionRow)
+	for i, spec in { { "PolicyButton", "Policy: —", C.BgLight }, { "LeaveButton", "Leave", C.Bad } } do
+		local b = button(spec[1], {
+			LayoutOrder = i,
+			Size = UDim2.fromOffset(150, 30),
+			Text = spec[2],
+			TextSize = 13,
+			BackgroundColor3 = spec[3],
+		}, actionRow)
+		corner(b, 6)
+	end
+
+	----------------------------------------------------------------------
+	-- BROWSE + INVITES (share a row shape)
+	----------------------------------------------------------------------
+	local function listView(name: string, rowName: string, actionText: string)
+		local view = new("Frame", {
+			Name = name,
+			BackgroundTransparency = 1,
+			Size = UDim2.fromScale(1, 1),
+			Visible = false,
+		}, body)
+		local list = new("ScrollingFrame", {
+			Name = "List",
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 6,
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			CanvasSize = UDim2.new(),
+		}, view)
+		new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+		local row = new("Frame", {
+			Name = rowName,
+			BackgroundColor3 = C.Bg,
+			BorderSizePixel = 0,
+			Size = UDim2.new(1, -8, 0, 44),
+			Visible = false,
+		}, list)
+		corner(row, 6)
+		label("SynName", {
+			Position = UDim2.fromOffset(12, 0),
+			Size = UDim2.new(0.5, 0, 1, 0),
+			Text = "Syndicate",
+			TextSize = 14,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			TextYAlignment = Enum.TextYAlignment.Center,
+		}, row)
+		label("SynMeta", {
+			Position = UDim2.fromScale(0.54, 0),
+			Size = UDim2.fromOffset(180, 44),
+			Text = "",
+			Font = FONT_LIGHT,
+			TextSize = 12,
+			TextColor3 = C.TextDim,
+			TextYAlignment = Enum.TextYAlignment.Center,
+		}, row)
+		local act = button("ActionButton", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0.5, 0),
+			Size = UDim2.fromOffset(100, 28),
+			Text = actionText,
+			TextSize = 12,
+			BackgroundColor3 = C.Good,
+		}, row)
+		corner(act, 6)
+		label("EmptyLabel", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.4),
+			Size = UDim2.fromScale(0.9, 0.2),
+			Text = "",
+			Font = FONT_LIGHT,
+			TextScaled = true,
+			TextColor3 = C.TextDim,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			Visible = false,
+		}, view)
+		return view
+	end
+	listView("BrowseView", "BrowseRow", "JOIN")
+	listView("InvitesView", "InviteRow", "ACCEPT")
+
+	return syn
+end
+
 local function buildRollsPanel(parent: Instance)
 	-- Scale-native panel: the root and every child are sized in SCALE units,
 	-- so the layout stretches to any screen — phone to ultrawide — with no
@@ -3427,6 +3774,7 @@ local function buildModals(parent: Instance)
 	buildRollsPanel(gui)
 	buildShopPanel(gui)
 	buildFreeGemsPanel(gui)
+	buildSyndicatePanel(gui)
 
 	-- invite popup
 	local invite = panel("InvitePanel", {
