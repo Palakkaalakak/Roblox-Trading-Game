@@ -50,11 +50,14 @@ end
 
 -- Parse "ref_<userId>" out of the join data. Returns nil for anything else, so
 -- a malformed or absent value simply means "no referrer".
+--
+-- A syndicate recruitment link appends "~syn_<syndicateId>"; the referrer part
+-- is read the same either way, so older links keep working unchanged.
 function ReferralService.parseReferrer(launchData: any): number?
 	if typeof(launchData) ~= "string" then
 		return nil
 	end
-	local id = launchData:match("^ref_(%d+)$")
+	local id = launchData:match("^ref_(%d+)$") or launchData:match("^ref_(%d+)~")
 	if id == nil then
 		return nil
 	end
@@ -65,9 +68,27 @@ function ReferralService.parseReferrer(launchData: any): number?
 	return userId
 end
 
--- The launch data a client should attach to its invite.
-function ReferralService.launchDataFor(userId: number): string
-	return "ref_" .. tostring(userId)
+-- The syndicate a recruitment link points at, or nil for a plain invite.
+function ReferralService.parseSyndicate(launchData: any): string?
+	if typeof(launchData) ~= "string" then
+		return nil
+	end
+	local id = launchData:match("~syn_([%w_]+)$")
+	if id == nil or #id > 64 then
+		return nil
+	end
+	return id
+end
+
+-- The launch data a client should attach to its invite. Passing a syndicate id
+-- turns a plain "come play with me" into clan recruitment: the friend lands
+-- with the invite already pending.
+function ReferralService.launchDataFor(userId: number, syndicateId: string?): string
+	local base = "ref_" .. tostring(userId)
+	if syndicateId and syndicateId ~= "" then
+		return base .. "~syn_" .. syndicateId
+	end
+	return base
 end
 
 -- Credit `inviterId` for bringing `joiner`. Idempotent per (inviter, joiner).
@@ -124,12 +145,27 @@ local function onProfileLoaded(player: Player, profile: any)
 		pcall(function()
 			joinData = player:GetJoinData()
 		end)
+
 		local inviterId = ReferralService.parseReferrer(joinData and joinData.LaunchData)
 		-- never self-refer; Meta.joins is 1 on a first-ever join, which is what
 		-- stops an existing player from being "referred" later on
 		if inviterId and inviterId ~= player.UserId and (profile.Meta == nil or profile.Meta.joins <= 1) then
 			profile.ReferredBy = inviterId
 			task.spawn(creditInviter, inviterId, player.UserId)
+		end
+
+		-- came in on a syndicate recruitment link? hand them the invite now, so
+		-- the clan is waiting on their first screen rather than something they
+		-- have to go and find. Lazy require: SyndicateService requires DataService
+		-- which this service also uses, and a top-level require would cycle.
+		local syndicateId = ReferralService.parseSyndicate(joinData and joinData.LaunchData)
+		if syndicateId then
+			task.spawn(function()
+				local SyndicateService = require(script.Parent.SyndicateService)
+				if SyndicateService.linkInvite(profile, syndicateId) then
+					DataService.saveNow(player)
+				end
+			end)
 		end
 	end
 

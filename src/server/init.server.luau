@@ -20,6 +20,8 @@ local ordered = {
 	{ "Notification", require(Services.NotificationService) },
 	{ "Store", require(Services.StoreService) },
 	{ "Crafting", require(Services.CraftingService) },
+	-- after Crafting: counts the crafts it settles toward milestones + the goal
+	{ "EventProgress", require(Services.EventProgressService) },
 	{ "Roll", require(Services.RollService) },
 	{ "Product", require(Services.ProductService) },
 	-- after Product: registers its reward on that service's receipt registry

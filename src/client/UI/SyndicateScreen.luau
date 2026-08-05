@@ -8,6 +8,7 @@
 -- re-fetches after every action, so the UI can never drift from the truth.
 
 local Players = game:GetService("Players")
+local SocialService = game:GetService("SocialService")
 
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
@@ -36,6 +37,12 @@ local ERRORS = {
 	cannot_target_self = "You can't do that to yourself.",
 	player_not_here = "That player isn't in this server.",
 	loading = "Still loading — try again in a moment.",
+	too_many_requests = "You already have two open requests. Wait for one to fill.",
+	count_too_high = "That's more than you can ask for at once.",
+	unknown_item = "No item by that name.",
+	own_request = "You can't fill your own request.",
+	request_gone = "That request is already filled or expired.",
+	insufficient_items = "You don't have that many to give.",
 }
 
 local function explain(err: string?): string
@@ -49,6 +56,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	local mineView = body:WaitForChild("MineView") :: Frame
 	local browseView = body:WaitForChild("BrowseView") :: Frame
 	local invitesView = body:WaitForChild("InvitesView") :: Frame
+	local requestsView = body:WaitForChild("RequestsView") :: Frame
 
 	;(panel:WaitForChild("CloseButton") :: TextButton).Activated:Connect(function()
 		panel.Visible = false
@@ -99,11 +107,21 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			end
 		end
 		table.clear(tabButtons)
+		local inSyn = latest and latest.syndicate ~= nil
 		local specs = {
-			{ id = "mine", text = latest and latest.syndicate and "My Syndicate" or "Create" },
+			{ id = "mine", text = inSyn and "My Syndicate" or "Create" },
+		}
+		if inSyn then
+			-- the count is the hook: an open request is a job waiting for you
+			local open = #((latest.syndicate :: any).requests or {})
+			table.insert(specs, { id = "requests", text = open > 0 and ("Requests (%d)"):format(open) or "Requests" })
+		end
+		for _, extra in {
 			{ id = "browse", text = "Browse" },
 			{ id = "invites", text = ("Invites (%d)"):format(latest and #(latest.invites or {}) or 0) },
-		}
+		} do
+			table.insert(specs, extra)
+		end
 		for i, spec in specs do
 			local b = Instance.new("TextButton")
 			b.Name = "Tab_" .. spec.id
@@ -257,6 +275,144 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	end
 
 	----------------------------------------------------------------------
+	-- Recruit — the growth loop
+	--
+	-- Opens Roblox's own invite prompt carrying "who invited me AND which
+	-- syndicate", so a friend who accepts arrives with the invite already
+	-- pending instead of having to find the clan themselves. Same launch data
+	-- the free-gems referral uses, so a recruit still counts as a referral.
+	----------------------------------------------------------------------
+	local recruitBtn = actionRow:WaitForChild("RecruitButton") :: TextButton
+	recruitBtn.Activated:Connect(function()
+		local s = latest and latest.syndicate
+		if s == nil then
+			return
+		end
+		local player = Players.LocalPlayer
+		local canInvite = false
+		pcall(function()
+			canInvite = SocialService:CanSendGameInviteAsync(player)
+		end)
+		if not canInvite then
+			toast("Invites aren't available on this device.", Theme.Bad)
+			return
+		end
+		local ok = pcall(function()
+			local options = Instance.new("ExperienceInviteOptions")
+			options.PromptMessage = ("Join [%s] %s with me!"):format(s.tag, s.name)
+			options.LaunchData = ("ref_%d~syn_%s"):format(player.UserId, s.id)
+			SocialService:PromptGameInvite(player, options)
+		end)
+		if not ok then
+			pcall(function()
+				SocialService:PromptGameInvite(player)
+			end)
+		end
+	end)
+
+	----------------------------------------------------------------------
+	-- Requests
+	----------------------------------------------------------------------
+	local composer = requestsView:WaitForChild("Composer") :: Frame
+	local itemBox = composer:WaitForChild("ItemBox") :: TextBox
+	local countBox = composer:WaitForChild("CountBox") :: TextBox
+	local askBtn = composer:WaitForChild("AskButton") :: TextButton
+
+	-- Players type an item's NAME; the server wants its id. Fetched once and
+	-- kept, since the catalogue doesn't change inside a session.
+	local catalog: { any }? = nil
+	local function resolveItem(text: string): string?
+		local query = text:lower():gsub("^%s+", ""):gsub("%s+$", "")
+		if query == "" or catalog == nil then
+			return nil
+		end
+		local prefix = nil
+		for _, item in catalog do
+			local name = tostring(item.name):lower()
+			if name == query then
+				return item.itemId -- exact wins outright
+			end
+			if prefix == nil and name:sub(1, #query) == query then
+				prefix = item.itemId
+			end
+		end
+		return prefix
+	end
+
+	askBtn.Activated:Connect(function()
+		local itemId = resolveItem(itemBox.Text)
+		if itemId == nil then
+			toast("No item by that name.", Theme.Bad)
+			return
+		end
+		local count = tonumber(countBox.Text)
+		if count == nil or count < 1 then
+			toast("Enter how many you need.", Theme.Bad)
+			return
+		end
+		act(function()
+			return Net.invoke("PostSyndicateRequest", itemId, math.floor(count))
+		end, "Your syndicate has been asked.")
+		itemBox.Text, countBox.Text = "", ""
+	end)
+
+	local function renderRequests(s: any)
+		local list = requestsView:WaitForChild("List") :: ScrollingFrame
+		local template = list:WaitForChild("RequestRow") :: Frame
+		local empty = requestsView:WaitForChild("EmptyLabel") :: TextLabel
+		local requests = s.requests or {}
+		empty.Text = "Nothing needed right now. Ask for what you're short of — someone will send it."
+		empty.Visible = #requests == 0
+
+		local myId = Players.LocalPlayer.UserId
+		local byId: { [number]: string } = {}
+		for _, m in s.members do
+			byId[m.userId] = m.name
+		end
+
+		for i, req in requests do
+			local row = template:Clone()
+			row.Name = "req_" .. tostring(req.reqId)
+			row.LayoutOrder = i
+			row.Visible = true
+			local mine = req.userId == myId
+			local given = req.count - req.remaining
+
+			;(row:WaitForChild("ReqWho") :: TextLabel).Text = mine and "You asked for"
+				or ((byId[req.userId] or "A member") .. " needs")
+			local itemName = req.itemId
+			for _, item in (catalog or {}) do
+				if item.itemId == req.itemId then
+					itemName = item.name
+					break
+				end
+			end
+			;(row:WaitForChild("ReqWhat") :: TextLabel).Text =
+				("%s×  %s  ·  %s of %s given"):format(
+					Format.abbrev(req.remaining), itemName, Format.abbrev(given), Format.abbrev(req.count))
+
+			local track = row:WaitForChild("ReqTrack") :: Frame
+			;(track:WaitForChild("ReqFill") :: Frame).Size =
+				UDim2.fromScale(math.clamp(given / math.max(req.count, 1), 0, 1), 1)
+
+			-- you can't fill your own ask, so that row shows progress only
+			local btn = row:WaitForChild("GiveButton") :: TextButton
+			btn.Visible = not mine
+			if btn.Visible then
+				btn.Text = ("GIVE %s"):format(Format.abbrev(req.remaining))
+				btn.Activated:Connect(function()
+					act(function()
+						return Net.invoke("FillSyndicateRequest", req.reqId, req.remaining)
+					end, "Sent — your syndicate owes you one.")
+				end)
+			end
+
+			row.Parent = list
+			table.insert(spawned, row)
+		end
+	end
+
+	----------------------------------------------------------------------
 	-- Browse / Invites
 	----------------------------------------------------------------------
 	local function renderList(view: Frame, rowName: string, entries: { any }, emptyText: string, build: (Frame, any) -> ())
@@ -290,9 +446,12 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		mineView.Visible = activeTab == "mine" and inSyndicate
 		browseView.Visible = activeTab == "browse"
 		invitesView.Visible = activeTab == "invites"
+		requestsView.Visible = activeTab == "requests" and inSyndicate
 
 		if mineView.Visible then
 			renderMine(s)
+		elseif requestsView.Visible then
+			renderRequests(s)
 		elseif browseView.Visible then
 			task.spawn(function()
 				local dir = Net.invoke("BrowseSyndicates")
@@ -337,6 +496,14 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	end
 
 	function SyndicateScreen.open()
+		if catalog == nil then
+			task.spawn(function()
+				local result = Net.invoke("GetCatalog")
+				if result and result.ok then
+					catalog = result.items
+				end
+			end)
+		end
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		refresh()

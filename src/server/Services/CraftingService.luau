@@ -202,6 +202,109 @@ local function ensureMaterialProducer(pool: { any }, picks: { number }, windowId
 	return picks
 end
 
+--------------------------------------------------------------------------------
+-- Sold-out replacement (see EventConfig.Replacement)
+--
+-- A permanent recipe that has minted its whole supply is dead weight: it eats
+-- nothing and mints nothing, and a station full of them stops absorbing the
+-- commons the ladder exists to consume. Once one sells out, the next
+-- replacement window swaps in a spare with a fresh output and a fresh cap.
+--
+-- The choice is derived from (recipe id, window index) alone — no stored state,
+-- so every server independently agrees on the same substitution and nothing
+-- needs migrating. Rotating recipes are exempt: they already leave and come
+-- back on their own.
+--------------------------------------------------------------------------------
+
+local GENERATED_VARIANTS = 6 -- bounded, so every possible output can be registered at boot
+
+-- Fallback spares, derived from the recipe being replaced, for when the
+-- authored SparePool is exhausted. Deterministic and bounded, which is what
+-- lets Init register every output these can ever produce.
+function CraftingService.generatedSpares(recipe: any): { any }
+	local out = {}
+	for n = 1, GENERATED_VARIANTS do
+		local inputs = {}
+		for itemId, count in recipe.inputs do
+			-- each generation asks for a little more, so a long-lived station
+			-- keeps getting hungrier rather than looping the same recipe
+			inputs[itemId] = count + n
+		end
+		table.insert(out, {
+			rid = ("%s_r%d"):format(recipe.rid, n),
+			tier = recipe.tier,
+			blurb = recipe.blurb,
+			generated = true,
+			inputs = inputs,
+			output = {
+				sku = ("%s_r%d"):format(recipe.output.sku, n),
+				name = ("%s Mk%d"):format(recipe.output.name, n + 1),
+				totalSupply = math.max(1, math.floor(recipe.output.totalSupply * 0.8)),
+				imageId = recipe.output.imageId,
+			},
+		})
+	end
+	return out
+end
+
+local soldOutCache: { [string]: { at: number, value: boolean } } = {}
+local SOLDOUT_TTL = 15
+
+local function isSoldOut(itemId: string): boolean
+	local cached = soldOutCache[itemId]
+	if cached and (os.clock() - cached.at) < SOLDOUT_TTL then
+		return cached.value
+	end
+	local snap = EconomyService.snapshot(itemId)
+	-- a missing record is NOT sold out: it just hasn't been written yet, and
+	-- treating it as exhausted would replace brand-new recipes on sight
+	local value = snap ~= nil and (snap.reserveRemaining or 1) <= 0
+	soldOutCache[itemId] = { at = os.clock(), value = value }
+	return value
+end
+
+-- Every candidate that may stand in for `recipe`, in preference order:
+-- authored spares first, then generated variants.
+local function spareCandidates(recipe: any): { any }
+	local candidates = {}
+	for _, spare in EventConfig.Replacement.SparePool do
+		table.insert(candidates, spare)
+	end
+	for _, spare in CraftingService.generatedSpares(recipe) do
+		table.insert(candidates, spare)
+	end
+	return candidates
+end
+
+-- The recipe a station should actually offer in place of `recipe` right now.
+-- Returns `recipe` itself while it still has stock, or when replacement is off.
+function CraftingService.substitute(recipe: any, now: number): any
+	local rep = EventConfig.Replacement
+	if not (rep and rep.enabled) then
+		return recipe
+	end
+	if not isSoldOut(outputItemId(recipe.output.sku)) then
+		return recipe
+	end
+
+	local windowIdx = Rotation.windowIndex(now, rep.IntervalSeconds)
+	local candidates = spareCandidates(recipe)
+	if #candidates == 0 then
+		return recipe
+	end
+	-- start from a per-recipe offset so two stations selling out in the same
+	-- window don't both grab the same spare, then walk on past any spare that
+	-- is itself exhausted
+	local offset = #recipe.rid + windowIdx
+	for step = 0, #candidates - 1 do
+		local candidate = candidates[((offset + step) % #candidates) + 1]
+		if not isSoldOut(outputItemId(candidate.output.sku)) then
+			return candidate
+		end
+	end
+	return recipe -- everything is spent; show the original as sold out
+end
+
 -- Active event descriptors:
 -- { id, name, kind, category, endsAt?, rotatesAt?, recipes }
 -- category: "permanent" (always-on station) | "limited" (has an end date,
@@ -210,13 +313,23 @@ function CraftingService.activeEvents(now: number): { any }
 	local out = {}
 	for _, event in EventConfig.Events do
 		if eventActive(event, now) then
+			local limited = (event.endsAt or event.startsAt) ~= nil
+			-- LIMITED events are meant to end, so a sold-out recipe there stays
+			-- sold out; only always-on stations restock with a spare.
+			local recipes = event.recipes
+			if not limited then
+				recipes = {}
+				for i, recipe in event.recipes do
+					recipes[i] = CraftingService.substitute(recipe, now)
+				end
+			end
 			table.insert(out, {
 				id = event.id,
 				name = event.name,
 				kind = event.kind,
-				category = (event.endsAt or event.startsAt) and "limited" or "permanent",
+				category = limited and "limited" or "permanent",
 				endsAt = event.endsAt,
-				recipes = event.recipes,
+				recipes = recipes,
 			})
 		end
 	end
@@ -495,6 +608,16 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		if ok then
 			Syndicate.addXp(userId, "craft")
 		end
+		-- milestone + communal-goal progress. Bots are excluded on purpose: a
+		-- communal goal bots can finish isn't a communal goal.
+		if player then
+			local okProgress, Progress = pcall(function()
+				return require(script.Parent.EventProgressService)
+			end)
+			if okProgress then
+				Progress.recordCraft(player)
+			end
+		end
 	end
 
 	AnalyticsService.log("craft", {
@@ -550,6 +673,26 @@ function CraftingService.Init()
 	if EventConfig.RotatingRecipes then
 		for _, recipe in EventConfig.RotatingRecipes.Pool do
 			addOutput(recipe, ROTATING_EVENT_ID)
+		end
+	end
+	-- Replacement outputs are registered NOW, not when a substitution first
+	-- happens: a recipe swapped in mid-session must already have an economy
+	-- record, or its very first craft would fail with no reserve to draw from.
+	-- Generated variants are bounded (GENERATED_VARIANTS), which is what makes
+	-- enumerating them here possible at all.
+	local rep = EventConfig.Replacement
+	if rep and rep.enabled then
+		for _, spare in rep.SparePool do
+			addOutput(spare, "evt_replacement")
+		end
+		for _, event in EventConfig.Events do
+			if not (event.endsAt or event.startsAt) then
+				for _, recipe in event.recipes do
+					for _, spare in CraftingService.generatedSpares(recipe) do
+						addOutput(spare, event.id)
+					end
+				end
+			end
 		end
 	end
 	EconomyService.registerItems(defs)

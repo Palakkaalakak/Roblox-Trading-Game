@@ -24,6 +24,7 @@ local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
+local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
 
 local EventsScreen = {}
 
@@ -65,8 +66,11 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	----------------------------------------------------------------------
 	-- Tab bar (built here; make room by pushing the list down)
 	----------------------------------------------------------------------
-	list.Position = UDim2.fromOffset(12, 80)
-	list.Size = UDim2.new(1, -24, 1, -92)
+	-- tab bar at 42, progress strip under it, then the list fills what's left
+	local progressStrip = panel:WaitForChild("ProgressStrip") :: Frame
+	progressStrip.Position = UDim2.fromOffset(12, 80)
+	list.Position = UDim2.fromOffset(12, 168)
+	list.Size = UDim2.new(1, -24, 1, -180)
 
 	local tabRow = Instance.new("Frame")
 	tabRow.Name = "TabRow"
@@ -920,6 +924,113 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 	end)
 
+	----------------------------------------------------------------------
+	-- Progress strip: the communal goal and your milestone track
+	--
+	-- Refreshed on its own schedule rather than with the recipe list, because
+	-- the goal moves from OTHER people's crafts — the bar needs to creep while
+	-- you're just looking at the panel, which is the whole point of it.
+	----------------------------------------------------------------------
+	local goalName = progressStrip:WaitForChild("GoalName") :: TextLabel
+	local goalMeta = progressStrip:WaitForChild("GoalMeta") :: TextLabel
+	local goalFill = (progressStrip:WaitForChild("GoalTrack") :: Frame):WaitForChild("GoalFill") :: Frame
+	local milestoneLabel = progressStrip:WaitForChild("MilestoneLabel") :: TextLabel
+	local claimGoalBtn = progressStrip:WaitForChild("ClaimGoalButton") :: TextButton
+	local claimMsBtn = progressStrip:WaitForChild("ClaimMilestoneButton") :: TextButton
+
+	local claimableTier: number? = nil
+	local progressBusy = false
+	local refreshProgress
+
+	local function renderProgress(p: any)
+		local goal = p.goal
+		goalName.Text = goal.name
+		local pct = math.clamp(goal.total / math.max(goal.target, 1), 0, 1)
+		goalFill.Size = UDim2.fromScale(pct, 1)
+		if goal.complete then
+			goalMeta.Text = ("Complete! %s / %s crafts  ·  you did %s"):format(
+				Format.abbrev(goal.total), Format.abbrev(goal.target), Format.abbrev(goal.yourCrafts))
+		else
+			goalMeta.Text = ("%s / %s crafts by everyone  ·  you did %s  ·  %s"):format(
+				Format.abbrev(goal.total), Format.abbrev(goal.target),
+				Format.abbrev(goal.yourCrafts), goal.blurb)
+		end
+		claimGoalBtn.Visible = goal.canClaim == true
+		claimGoalBtn.Text = ("CLAIM %s"):format(goal.rewardName)
+
+		-- the first milestone that's reached but unclaimed is the one to offer
+		claimableTier = nil
+		for _, tier in p.tiers do
+			if tier.reached and not tier.claimed then
+				claimableTier = tier.index
+				milestoneLabel.Text = ("%s reached — %d× %s waiting"):format(
+					tier.name, tier.rewardCount, tier.rewardName)
+				break
+			end
+		end
+		if claimableTier == nil then
+			if p.nextMilestone then
+				milestoneLabel.Text = ("%s crafts  ·  %s more to %s"):format(
+					Format.abbrev(p.crafts),
+					Format.abbrev(p.nextMilestone.crafts - p.crafts),
+					p.nextMilestone.name)
+			else
+				milestoneLabel.Text = ("%s crafts  ·  every milestone earned"):format(Format.abbrev(p.crafts))
+			end
+		end
+		claimMsBtn.Visible = claimableTier ~= nil
+	end
+
+	refreshProgress = function()
+		task.spawn(function()
+			local result = Net.invoke("GetCraftProgress")
+			if result and result.ok and panel.Visible then
+				renderProgress(result)
+			end
+		end)
+	end
+
+	local function claim(fn: () -> any, failText: string)
+		if progressBusy then
+			return
+		end
+		progressBusy = true
+		task.spawn(function()
+			local result = fn()
+			progressBusy = false
+			if result and result.ok then
+				toast("Reward claimed!", Theme.Good)
+			else
+				toast(failText, Theme.Bad)
+			end
+			refreshProgress()
+		end)
+	end
+
+	claimGoalBtn.Activated:Connect(function()
+		claim(function()
+			return Net.invoke("ClaimCommunalGoal")
+		end, "Couldn't claim that right now.")
+	end)
+	claimMsBtn.Activated:Connect(function()
+		local tier = claimableTier
+		if tier == nil then
+			return
+		end
+		claim(function()
+			return Net.invoke("ClaimMilestone", tier)
+		end, "Couldn't claim that milestone.")
+	end)
+
+	task.spawn(function()
+		while true do
+			task.wait(15)
+			if panel.Visible then
+				refreshProgress()
+			end
+		end
+	end)
+
 	function EventsScreen.open()
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
@@ -927,6 +1038,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			renderEvents(lastEvents)
 		end
 		refresh()
+		refreshProgress()
 	end
 
 	function EventsScreen.toggle()

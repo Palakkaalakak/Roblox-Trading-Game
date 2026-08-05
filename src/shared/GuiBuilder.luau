@@ -37,6 +37,7 @@ local ICONS = {
 	Star = "rbxassetid://17368097932",
 	Trophy = "rbxassetid://16912465495", -- crown (ranking / leaderboards)
 	Shop = "rbxassetid://15402855334", -- coin chest
+	Friends = "rbxassetid://17368071983", -- Simulator Icon Pack / Menus / Friends (syndicates)
 	Robux = "rbxassetid://15403000023", -- Bobux (Robux) icon for price buttons
 }
 local FONT = Enum.Font.GothamBold
@@ -184,7 +185,7 @@ local function buildHud(parent: Instance)
 	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.37))
 	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.27))
 	-- no RANKS button: leaderboards are the physical boards in the world
-	iconButton("SyndicateButton", ICONS.Player, "SYNDICATE", UDim2.fromScale(0.955, 0.17))
+	iconButton("SyndicateButton", ICONS.Friends, "SYNDICATE", UDim2.fromScale(0.955, 0.17))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
@@ -2542,16 +2543,153 @@ local function buildSyndicatePanel(parent: Instance)
 		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, actionRow)
-	for i, spec in { { "PolicyButton", "Anyone can join", C.BgLight }, { "LeaveButton", "Leave", C.Bad } } do
+	-- Recruit is the growth button, so it leads and wears the gold.
+	for i, spec in
+		{
+			{ "RecruitButton", "Recruit Friends", C.Gold },
+			{ "PolicyButton", "Anyone can join", C.BgLight },
+			{ "LeaveButton", "Leave", C.Bad },
+		}
+	do
 		local b = button(spec[1], {
 			LayoutOrder = i,
 			Size = UDim2.fromOffset(150, 30),
 			Text = spec[2],
 			TextSize = 13,
 			BackgroundColor3 = spec[3],
+			TextColor3 = spec[1] == "RecruitButton" and C.Bg or C.TextPrimary,
 		}, actionRow)
 		corner(b, 6)
 	end
+
+	----------------------------------------------------------------------
+	-- REQUESTS — the give-and-take board (see SyndicateConfig)
+	----------------------------------------------------------------------
+	local reqView = new("Frame", {
+		Name = "RequestsView",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, body)
+
+	local composer = new("Frame", {
+		Name = "Composer",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 42),
+	}, reqView)
+	corner(composer, 6)
+	local itemBox = new("TextBox", {
+		Name = "ItemBox",
+		Position = UDim2.fromOffset(10, 7),
+		Size = UDim2.new(0.5, -20, 0, 28),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT_LIGHT,
+		PlaceholderText = "Item you need (type its name)",
+		Text = "",
+		TextColor3 = C.TextPrimary,
+		TextSize = 13,
+		ClearTextOnFocus = false,
+	}, composer)
+	corner(itemBox, 5)
+	local countBox = new("TextBox", {
+		Name = "CountBox",
+		Position = UDim2.new(0.5, 0, 0, 7),
+		Size = UDim2.fromOffset(80, 28),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Font = FONT_LIGHT,
+		PlaceholderText = "How many",
+		Text = "",
+		TextColor3 = C.TextPrimary,
+		TextSize = 13,
+		ClearTextOnFocus = false,
+	}, composer)
+	corner(countBox, 5)
+	local askBtn = button("AskButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -10, 0, 7),
+		Size = UDim2.fromOffset(130, 28),
+		Text = "Ask Syndicate",
+		TextSize = 12,
+		BackgroundColor3 = C.Accent,
+	}, composer)
+	corner(askBtn, 5)
+
+	local reqList = new("ScrollingFrame", {
+		Name = "List",
+		Position = UDim2.fromOffset(0, 50),
+		Size = UDim2.new(1, 0, 1, -50),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, reqView)
+	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, reqList)
+
+	local reqRow = new("Frame", {
+		Name = "RequestRow",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, -8, 0, 48),
+		Visible = false,
+	}, reqList)
+	corner(reqRow, 6)
+	label("ReqWho", {
+		Position = UDim2.fromOffset(12, 5),
+		Size = UDim2.new(0.6, 0, 0, 19),
+		Text = "",
+		TextSize = 13,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, reqRow)
+	label("ReqWhat", {
+		Position = UDim2.fromOffset(12, 24),
+		Size = UDim2.new(0.6, 0, 0, 18),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, reqRow)
+	local reqTrack = new("Frame", {
+		Name = "ReqTrack",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -120, 0, 30),
+		Size = UDim2.fromOffset(120, 6),
+	}, reqRow)
+	corner(reqTrack, 3)
+	corner(new("Frame", {
+		Name = "ReqFill",
+		BackgroundColor3 = C.Good,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(0, 1),
+	}, reqTrack), 3)
+	local giveBtn = button("GiveButton", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		Size = UDim2.fromOffset(100, 28),
+		Text = "GIVE",
+		TextSize = 12,
+		BackgroundColor3 = C.Good,
+	}, reqRow)
+	corner(giveBtn, 6)
+	label("EmptyLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.45),
+		Size = UDim2.fromScale(0.9, 0.25),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+	}, reqView)
 
 	----------------------------------------------------------------------
 	-- BROWSE + INVITES (share a row shape)
@@ -3080,10 +3218,75 @@ local function buildEventsPanel(parent: Instance)
 		BackgroundColor3 = C.Bad,
 	}, events)
 
+	-- PROGRESS STRIP — the communal goal and your milestone track, pinned above
+	-- the recipe list so both are the first thing seen on opening the panel.
+	local strip = new("Frame", {
+		Name = "ProgressStrip",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(12, 40),
+		Size = UDim2.new(1, -24, 0, 78),
+	}, events)
+	corner(strip, 8)
+	stroke(strip, C.Stroke, 1)
+
+	label("GoalName", {
+		Position = UDim2.fromOffset(12, 6),
+		Size = UDim2.new(0.6, 0, 0, 18),
+		Text = "Server Forge",
+		TextSize = 14,
+		TextColor3 = C.Gold,
+	}, strip)
+	label("GoalMeta", {
+		Position = UDim2.fromOffset(12, 24),
+		Size = UDim2.new(0.7, 0, 0, 16),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+	}, strip)
+	local goalTrack = new("Frame", {
+		Name = "GoalTrack",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(12, 44),
+		Size = UDim2.new(1, -180, 0, 8),
+	}, strip)
+	corner(goalTrack, 4)
+	corner(new("Frame", {
+		Name = "GoalFill",
+		BackgroundColor3 = C.Gold,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(0, 1),
+	}, goalTrack), 4)
+	label("MilestoneLabel", {
+		Position = UDim2.fromOffset(12, 56),
+		Size = UDim2.new(1, -180, 0, 16),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextColor3 = C.Gem,
+	}, strip)
+
+	for i, spec in { { "ClaimGoalButton", "CLAIM REWARD", C.Gold, 8 }, { "ClaimMilestoneButton", "CLAIM", C.Good, 44 } } do
+		local b = button(spec[1], {
+			LayoutOrder = i,
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -12, 0, spec[4] :: number),
+			Size = UDim2.fromOffset(140, 28),
+			Text = spec[2] :: string,
+			TextSize = 12,
+			BackgroundColor3 = spec[3] :: Color3,
+			TextColor3 = C.Bg,
+			Visible = false,
+		}, strip)
+		corner(b, 6)
+	end
+
 	local list = new("ScrollingFrame", {
 		Name = "EventList",
-		Position = UDim2.fromOffset(12, 44),
-		Size = UDim2.new(1, -24, 1, -56),
+		Position = UDim2.fromOffset(12, 126),
+		Size = UDim2.new(1, -24, 1, -138),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,

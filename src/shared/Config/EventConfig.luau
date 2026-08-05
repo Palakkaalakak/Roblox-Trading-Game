@@ -500,6 +500,126 @@ local EventConfig: any = {
 			},
 		},
 	},
+
+	--------------------------------------------------------------------------
+	-- SOLD-OUT REPLACEMENT
+	--
+	-- A permanent station's recipe mints a capped number of copies and then it
+	-- is finished forever. Without this, every station slowly turns into a wall
+	-- of greyed-out "SOLD OUT" rows and the ladder stops accepting the commons
+	-- it exists to consume.
+	--
+	-- So: once a permanent recipe is sold out, the next replacement window
+	-- swaps it for a SPARE — a fresh recipe with its own new output and its own
+	-- new cap. Rotating recipes are exempt; they already rotate away on their
+	-- own and come back, so replacing them would just churn.
+	--
+	-- The swap is derived from the clock (which window we're in) and the recipe
+	-- id, never from stored state, so every server picks the same replacement
+	-- with no coordination and no migration. Spares are pre-authored below;
+	-- when the list runs out, CraftingService generates a variant from the
+	-- sold-out recipe instead, so a station can never run out of replacements.
+	Replacement = {
+		enabled = true,
+		IntervalSeconds = 1200, -- 20 minutes; a sold-out recipe is swapped at the next boundary
+		SparePool = {
+			{
+				rid = "spare_river_charm",
+				tier = 1,
+				blurb = "Cut from riverstone while the old mould cooled.",
+				inputs = { ["itm_1_1_stone_relic"] = 12, ["itm_1_2_copper_coin"] = 6 },
+				output = {
+					sku = "river_charm",
+					name = "River Charm",
+					totalSupply = 460,
+					imageId = "rbxassetid://15402892798", -- gem bag
+				},
+			},
+			{
+				rid = "spare_ashen_sigil",
+				tier = 2,
+				blurb = "Struck from the ashes of a finished run.",
+				inputs = { ["evt_refined_essence"] = 8, ["itm_1_3_amber_idol"] = 4 },
+				output = {
+					sku = "ashen_sigil",
+					name = "Ashen Sigil",
+					totalSupply = 300,
+					imageId = "rbxassetid://15403144723", -- fire
+				},
+			},
+			{
+				rid = "spare_tidebound_relic",
+				tier = 2,
+				blurb = "The sea gave this one back.",
+				inputs = { ["evt_refined_essence"] = 10, ["itm_1_5_jade_serpent"] = 3 },
+				output = {
+					sku = "tidebound_relic",
+					name = "Tidebound Relic",
+					totalSupply = 240,
+					imageId = "rbxassetid://15403275152", -- blue potion
+				},
+			},
+			{
+				rid = "spare_sunless_crown",
+				tier = 3,
+				blurb = "Forged to replace a crown nobody can make anymore.",
+				inputs = { ["evt_frost_artifact"] = 3, ["itm_1_7_frost_lantern"] = 4 },
+				output = {
+					sku = "sunless_crown",
+					name = "Sunless Crown",
+					totalSupply = 140,
+					imageId = "rbxassetid://16912465495", -- crown
+				},
+			},
+		},
+	},
+
+	--------------------------------------------------------------------------
+	-- MILESTONES — the personal reason to keep crafting.
+	--
+	-- Crafting is the value engine, but on its own it is a flat activity: the
+	-- thousandth craft feels exactly like the first. A milestone track gives
+	-- the whole activity a shape — visible progress, a next thing to reach,
+	-- and a reward that is itself a tradeable item, so hitting one puts new
+	-- goods into the economy rather than gems (gems only ever come from ads or
+	-- Robux; see AdConfig).
+	--
+	-- Rewards are ordinary items pulled from the shared reserve, so a milestone
+	-- is a redistribution, not an inflation.
+	Milestones = {
+		enabled = true,
+		Tiers = {
+			{ crafts = 5, name = "Apprentice", reward = { itemId = "itm_1_1_stone_relic", count = 5 } },
+			{ crafts = 25, name = "Journeyman", reward = { itemId = "itm_1_3_amber_idol", count = 4 } },
+			{ crafts = 75, name = "Artisan", reward = { itemId = "itm_1_5_jade_serpent", count = 4 } },
+			{ crafts = 200, name = "Master", reward = { itemId = "itm_1_7_frost_lantern", count = 3 } },
+			{ crafts = 500, name = "Grandmaster", reward = { itemId = "itm_1_10_obsidian_fang", count = 2 } },
+			{ crafts = 1200, name = "Legend", reward = { itemId = "itm_1_11_void_shard", count = 1 } },
+		},
+	},
+
+	--------------------------------------------------------------------------
+	-- COMMUNAL GOAL — the whole server pulling on one rope.
+	--
+	-- This is the piece that makes events social AND makes recruiting pay off
+	-- directly: the target is a fixed number of crafts by EVERYONE, so every
+	-- extra player in the experience visibly moves a bar that the player
+	-- watching it benefits from. Bringing a friend is not altruism, it is the
+	-- fastest way to finish the goal.
+	--
+	-- Only players who CONTRIBUTED can claim, so it can't be farmed by idling,
+	-- and the reward is an item so the payout is redistribution rather than a
+	-- gem faucet. The counter is keyed by window index, so it resets itself on
+	-- the clock with no reset job — the same trick the weekly leaderboards use.
+	CommunalGoal = {
+		enabled = true,
+		WindowSeconds = 24 * 3600, -- a fresh goal every day
+		Target = 400, -- crafts by everyone, combined
+		MinContribution = 1, -- crafts needed before you may claim
+		Reward = { itemId = "itm_1_8_crimson_crown", count = 1 },
+		Name = "Server Forge",
+		Blurb = "Everyone's crafts count. Finish it together, everyone who helped gets paid.",
+	},
 }
 
 --------------------------------------------------------------------------------
@@ -530,8 +650,31 @@ local function producers(): { [string]: { name: string, category: string } }
 			index["evt_" .. recipe.output.sku] = { name = "Rotating Recipes", category = "rotating" }
 		end
 	end
+	-- Spares stand in for sold-out PERMANENT recipes, so they inherit that
+	-- category: they can always come back, which is what isReobtainable asks.
+	local rep = EventConfig.Replacement
+	if rep and rep.enabled then
+		for _, recipe in rep.SparePool do
+			index["evt_" .. recipe.output.sku] = { name = "Restocked Recipes", category = "permanent" }
+		end
+	end
 	producerIndex = index
 	return index
+end
+
+-- The milestone tier a craft count has reached, and the next one to aim at.
+-- Pure, so the client can render the same track the server pays out from.
+function EventConfig.milestoneAt(crafts: number): (number, any?)
+	local reached = 0
+	local nextTier = nil
+	for i, tier in EventConfig.Milestones.Tiers do
+		if crafts >= tier.crafts then
+			reached = i
+		elseif nextTier == nil then
+			nextTier = tier
+		end
+	end
+	return reached, nextTier
 end
 
 -- Who makes this event item? nil for base-pool items and unknown ids.

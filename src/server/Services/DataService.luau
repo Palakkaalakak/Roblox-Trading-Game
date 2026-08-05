@@ -1,7 +1,7 @@
 --!strict
 -- DataService: player profile lifecycle (session-locked) + mailbox claim.
 --
--- Mailbox lives in its OWN DataStore ("Mailbox_v1", key = userId), append-only
+-- Mailbox lives in its OWN DataStore ("Mailbox_v5", key = "m_<userId>"), append-only
 -- via detached UpdateAsync — never written from the owner's in-memory profile.
 -- This kills the lost-update race where an offline settlement lands between the
 -- owner's read and save. Claiming removes exactly the claimed ids, preserving

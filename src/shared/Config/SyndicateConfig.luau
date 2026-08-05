@@ -40,6 +40,22 @@ local SyndicateConfig = {
 		Invite = "Invite only",
 	},
 
+	-- ── REQUESTS (the reciprocity loop) ──────────────────────────────────
+	-- Modelled on Clash of Clans troop donations, which are the single
+	-- strongest retention mechanic in that game: a clanmate gives you
+	-- something OUT OF THEIR OWN POCKET, which creates a real debt and a
+	-- reason to come back and repay it. Ours uses items, which is what this
+	-- game is already about — and it feeds the crafting ladder directly, since
+	-- a capstone needs hundreds of commons nobody farms alone.
+	MaxOpenRequestsPerMember = 2, -- stops one member flooding the board
+	MaxRequestCount = 500, -- ceiling on a single ask
+	RequestTtlSeconds = 24 * 3600,
+	MaxRequestsShown = 40,
+
+	-- Filling someone's request is worth more XP than a trade: it is the
+	-- behaviour the whole system exists to encourage.
+	DonationXp = 12,
+
 	-- XP awarded for things members already do. Deliberately small and additive:
 	-- a syndicate levels through sustained activity by several people, not one
 	-- whale doing something enormous once.

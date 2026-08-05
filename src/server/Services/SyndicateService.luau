@@ -22,11 +22,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local SyndicateConfig = require(ReplicatedStorage.Shared.Config.SyndicateConfig)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
+local Enums = require(ReplicatedStorage.Shared.Enums)
 
 local Net = require(script.Parent.Parent.Net)
 local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
+local EconomyService = require(script.Parent.EconomyService)
+local NotificationService = require(script.Parent.NotificationService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local SyndicateService = {}
@@ -149,6 +152,7 @@ local function describe(record: any, viewerId: number): any
 			role = entry.role,
 			joinedAt = entry.joinedAt,
 			xpContributed = entry.xp or 0,
+			donated = entry.donated or 0,
 		})
 	end
 	table.sort(members, function(a, b)
@@ -174,6 +178,7 @@ local function describe(record: any, viewerId: number): any
 		memberCap = SyndicateConfig.memberCap(level),
 		perks = SyndicateConfig.perksFor(level),
 		members = members,
+		requests = SyndicateService.liveRequests(record, os.time()),
 		yourRole = SyndicateService.roleOf(record, viewerId),
 	}
 end
@@ -528,6 +533,42 @@ function SyndicateService.invite(player: Player, targetUserId: any): any
 	return { ok = true }
 end
 
+-- An invite that arrived through a Roblox game invite link rather than from
+-- someone clicking "Invite" in-game. This is the growth loop: a member shares
+-- their syndicate, the friend installs and joins, and the syndicate is already
+-- waiting for them on the first screen instead of being something they'd have
+-- to go find. Called by ReferralService while the joiner's profile is loading,
+-- so it takes the profile directly — the Player may not be ready for remotes.
+--
+-- Everything is still validated here: a link cannot put someone into a full or
+-- invite-only syndicate, only offer them the same pending invite a member could
+-- have sent by hand.
+function SyndicateService.linkInvite(profile: any, syndicateId: string): boolean
+	if profile == nil or profile.SyndicateId ~= "" then
+		return false
+	end
+	local record = readRecord(syndicateId)
+	if record == nil then
+		return false
+	end
+	local level = SyndicateConfig.levelFor(record.xp or 0)
+	if SyndicateService.memberCount(record) >= SyndicateConfig.memberCap(level) then
+		return false
+	end
+	if record.policy == "Invite" then
+		return false -- an invite-only syndicate must invite deliberately
+	end
+	profile.SyndicateInvites = profile.SyndicateInvites or {}
+	profile.SyndicateInvites[syndicateId] = {
+		name = record.name,
+		tag = record.tag,
+		at = now(),
+		viaLink = true,
+	}
+	AnalyticsService.log("syndicate_link_invite", { id = syndicateId, target = profile.UserId })
+	return true
+end
+
 function SyndicateService.setPolicy(player: Player, policy: any): any
 	local profile = profileOf(player)
 	if profile == nil then
@@ -559,6 +600,205 @@ function SyndicateService.setPolicy(player: Player, policy: any): any
 	end
 	updateDirectory(committed)
 	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+--------------------------------------------------------------------------------
+-- Requests — the reciprocity loop (see SyndicateConfig)
+--------------------------------------------------------------------------------
+
+-- Live requests on a record, oldest first, with expired ones dropped. Pure.
+function SyndicateService.liveRequests(record: any, atTime: number): { any }
+	local out = {}
+	for _, req in (record and record.requests or {}) do
+		if (req.remaining or 0) > 0 and (req.expiresAt or 0) > atTime then
+			table.insert(out, req)
+		end
+	end
+	table.sort(out, function(a, b)
+		return (a.createdAt or 0) < (b.createdAt or 0)
+	end)
+	return out
+end
+
+function SyndicateService.postRequest(player: Player, itemId: any, count: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	if not Guard.isString(itemId, 64) or not Guard.isPositiveInt(count) then
+		return { ok = false, err = "bad_args" }
+	end
+	if (count :: number) > SyndicateConfig.MaxRequestCount then
+		return { ok = false, err = "count_too_high" }
+	end
+	if EconomyService.getItem(itemId :: string) == nil then
+		return { ok = false, err = "unknown_item" }
+	end
+
+	local key = tostring(player.UserId)
+	local at = now()
+	local committed, err = mutate(id, function(record)
+		if record.members[key] == nil then
+			return nil, "not_a_member"
+		end
+		record.requests = record.requests or {}
+		-- prune expired/filled here so the list can't grow without bound
+		local kept = {}
+		local mine = 0
+		for _, req in record.requests do
+			if (req.remaining or 0) > 0 and (req.expiresAt or 0) > at then
+				table.insert(kept, req)
+				if req.userId == player.UserId then
+					mine += 1
+				end
+			end
+		end
+		if mine >= SyndicateConfig.MaxOpenRequestsPerMember then
+			return nil, "too_many_requests"
+		end
+		table.insert(kept, {
+			reqId = ("r_%d_%s"):format(at, DataService.newId():sub(1, 6)),
+			userId = player.UserId,
+			itemId = itemId,
+			count = count,
+			remaining = count,
+			createdAt = at,
+			expiresAt = at + SyndicateConfig.RequestTtlSeconds,
+		})
+		record.requests = kept
+		return record
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+	-- tell the syndicate someone needs something; this is the nudge that makes
+	-- the loop social rather than a silent list
+	local item = EconomyService.getItem(itemId :: string)
+	for memberKey in committed.members do
+		local uid = tonumber(memberKey)
+		if uid and uid ~= player.UserId then
+			NotificationService.notify(uid, ("🤝 %s needs %d× %s — help them out!")
+				:format(player.Name, count, item and item.name or itemId))
+		end
+	end
+	AnalyticsService.log("syndicate_request", { id = id, by = player.UserId, itemId = itemId, count = count })
+	return { ok = true }
+end
+
+-- Give some of what a clanmate asked for, out of your own inventory.
+function SyndicateService.fillRequest(player: Player, reqId: any, count: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	if not Guard.isString(reqId, 64) or not Guard.isPositiveInt(count) then
+		return { ok = false, err = "bad_args" }
+	end
+
+	-- Reserve the units on the record FIRST (CAS), so two donors filling the
+	-- last of a request can't both succeed; then charge the donor and refund
+	-- the reservation if that fails.
+	local taken, target, itemId, fillSeq = 0, 0, nil, 0
+	local committed, err = mutate(id, function(record)
+		local at = now()
+		for _, req in (record.requests or {}) do
+			if req.reqId == reqId and (req.remaining or 0) > 0 and (req.expiresAt or 0) > at then
+				if req.userId == player.UserId then
+					return nil, "own_request"
+				end
+				taken = math.min(count :: number, req.remaining)
+				req.remaining -= taken
+				-- Per-request fill counter, incremented inside the transform so
+				-- it advances exactly once per COMMITTED write. It makes each
+				-- delivery's claimId unique, which matters because both the
+				-- mailbox and applyDelta dedupe on claimId: without it, one donor
+				-- filling the same request twice would have the second delivery
+				-- silently swallowed as a duplicate while still being charged.
+				req.fills = (req.fills or 0) + 1
+				fillSeq = req.fills
+				target, itemId = req.userId, req.itemId
+				return record
+			end
+		end
+		return nil, "request_gone"
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+
+	local charged = InventoryService.applyDelta(
+		player,
+		{ items = { [itemId :: string] = -taken } },
+		Enums.GrantSource.Trade
+	)
+	if not charged then
+		mutate(id, function(record)
+			for _, req in (record.requests or {}) do
+				if req.reqId == reqId then
+					req.remaining += taken
+				end
+			end
+			return record
+		end)
+		return { ok = false, err = "insufficient_items" }
+	end
+
+	-- deliver to the asker (mailbox when they're away, so it always lands)
+	local delivered = false
+	local targetPlayer = Players:GetPlayerByUserId(target)
+	if targetPlayer and DataService.isLoaded(targetPlayer) then
+		delivered = InventoryService.applyDelta(
+			targetPlayer,
+			{ items = { [itemId :: string] = taken } },
+			Enums.GrantSource.Trade,
+			("syn_fill_%s_%d_%d"):format(reqId, player.UserId, fillSeq)
+		)
+		if delivered then
+			task.spawn(function()
+				DataService.saveNow(targetPlayer)
+			end)
+		end
+	end
+	if not delivered then
+		DataService.mailboxAppend(target, {
+			claimId = ("syn_fill_%s_%d_%d"):format(reqId, player.UserId, fillSeq),
+			items = { [itemId :: string] = taken },
+			gems = 0,
+			source = Enums.GrantSource.Trade,
+			createdAt = now(),
+		})
+	end
+	task.spawn(function()
+		DataService.saveNow(player)
+	end)
+
+	-- credit the donor: syndicate XP plus a visible donation tally, which is
+	-- what turns generosity into standing inside the clan
+	mutate(id, function(record)
+		local key = tostring(player.UserId)
+		if record.members[key] then
+			record.members[key].donated = (record.members[key].donated or 0) + taken
+			record.members[key].xp = (record.members[key].xp or 0) + SyndicateConfig.DonationXp
+		end
+		record.xp = (record.xp or 0) + SyndicateConfig.DonationXp
+		return record
+	end)
+
+	local item = EconomyService.getItem(itemId :: string)
+	NotificationService.notify(target, ("🎁 %s sent you %d× %s"):format(
+		player.Name, taken, item and item.name or tostring(itemId)))
+	AnalyticsService.log("syndicate_donation", {
+		id = id, by = player.UserId, to = target, itemId = itemId, count = taken,
+	})
+	return { ok = true, count = taken }
 end
 
 --------------------------------------------------------------------------------
@@ -640,6 +880,12 @@ function SyndicateService.Start()
 	end)
 	Net.bindFunction("SetSyndicatePolicy", function(player, policy)
 		return SyndicateService.setPolicy(player, policy)
+	end)
+	Net.bindFunction("PostSyndicateRequest", function(player, itemId, count)
+		return SyndicateService.postRequest(player, itemId, count)
+	end)
+	Net.bindFunction("FillSyndicateRequest", function(player, reqId, count)
+		return SyndicateService.fillRequest(player, reqId, count)
 	end)
 
 	AnalyticsService.log("syndicate_service_started", {})

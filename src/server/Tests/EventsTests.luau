@@ -76,12 +76,36 @@ return {
 			local CraftingService = require(script.Parent.Parent.Services.CraftingService)
 			local now = os.time()
 			for _, event in EventConfig.Events do
+				-- `enabled` alone isn't enough: a seasonal event that has passed
+				-- its endsAt is switched off by the clock, and asserting on the
+				-- flag by itself makes this test fail on a date rather than on a
+				-- regression (which is exactly what it did once Midsummer ended).
+				local active = event.enabled
+					and (event.startsAt == nil or now >= event.startsAt)
+					and (event.endsAt == nil or now < event.endsAt)
 				for _, recipe in event.recipes do
 					local found = CraftingService.findActiveRecipe(event.id, recipe.rid, now)
-					if event.enabled then
-						assert(found ~= nil, event.id .. "/" .. recipe.rid .. " should resolve")
+					if active then
+						-- a permanent recipe may be SUBSTITUTED once sold out, so
+						-- what must hold is that the station still offers a recipe,
+						-- not that this exact rid comes back
+						local limited = (event.endsAt or event.startsAt) ~= nil
+						if found == nil and not limited then
+							local station = nil
+							for _, e in CraftingService.activeEvents(now) do
+								if e.id == event.id then
+									station = e
+								end
+							end
+							assert(
+								station ~= nil and #station.recipes > 0,
+								event.id .. "/" .. recipe.rid .. " vanished with no replacement"
+							)
+						else
+							assert(found ~= nil, event.id .. "/" .. recipe.rid .. " should resolve")
+						end
 					else
-						eq(found, nil, event.id .. "/" .. recipe.rid .. " must NOT resolve when disabled")
+						eq(found, nil, event.id .. "/" .. recipe.rid .. " must NOT resolve when inactive")
 					end
 				end
 			end

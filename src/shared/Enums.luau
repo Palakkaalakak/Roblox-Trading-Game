@@ -83,7 +83,12 @@ local Enums = {
 		"LeaveSyndicate", -- () -> {ok, disbanded?, err?}
 		"InviteToSyndicate", -- (targetUserId) -> {ok, err?}
 		"SyndicateModerate", -- (targetUserId, action) -> {ok, err?} — kick|promote|demote
+		"PostSyndicateRequest", -- (itemId, count) -> {ok, err?} — ask your clan for items
+		"FillSyndicateRequest", -- (reqId, count) -> {ok, count?, err?} — donate from your inventory
 		"SetSyndicatePolicy", -- (policy) -> {ok, err?} — Open|Request|Invite
+		"GetCraftProgress", -- () -> {ok, crafts, tiers, goal} — milestone track + communal goal
+		"ClaimMilestone", -- (index) -> {ok, name?, err?}
+		"ClaimCommunalGoal", -- () -> {ok, err?}
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"AdminResetEconomy", -- () -> {ok, reset} — admin only: every item back to full reserve
