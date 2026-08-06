@@ -14,6 +14,7 @@ local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
 local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
+local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local SyndicateConfig = require(game:GetService("ReplicatedStorage").Shared.Config.SyndicateConfig)
 
 local SyndicateScreen = {}
@@ -242,7 +243,11 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			;(row:WaitForChild("MemberName") :: TextLabel).Text = member.name
 				.. (member.userId == myId and "  (you)" or "")
 			;(row:WaitForChild("MemberRole") :: TextLabel).Text = member.role
-			;(row:WaitForChild("MemberXp") :: TextLabel).Text = Format.abbrev(member.xpContributed) .. " XP"
+			-- donations sit next to XP because generosity IS the standing here:
+			-- a member who gives is worth more to the clan than one who idles
+			;(row:WaitForChild("MemberXp") :: TextLabel).Text = member.donated > 0
+					and ("%s XP  ·  %s given"):format(Format.abbrev(member.xpContributed), Format.abbrev(member.donated))
+				or (Format.abbrev(member.xpContributed) .. " XP")
 
 			-- moderation buttons appear only where the server would allow the
 			-- action anyway, so the UI never offers something that will fail
@@ -361,7 +366,9 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		local template = list:WaitForChild("RequestRow") :: Frame
 		local empty = requestsView:WaitForChild("EmptyLabel") :: TextLabel
 		local requests = s.requests or {}
-		empty.Text = "Nothing needed right now. Ask for what you're short of — someone will send it."
+		empty.Text = "No one needs anything right now."
+			.. "\n\nAsk for what you're short of — a clanmate can send it straight"
+			.. " from their inventory, and they earn syndicate XP for doing it."
 		empty.Visible = #requests == 0
 
 		local myId = Players.LocalPlayer.UserId
@@ -378,17 +385,18 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			local mine = req.userId == myId
 			local given = req.count - req.remaining
 
-			;(row:WaitForChild("ReqWho") :: TextLabel).Text = mine and "You asked for"
-				or ((byId[req.userId] or "A member") .. " needs")
-			local itemName = req.itemId
+			;(row:WaitForChild("ReqWho") :: TextLabel).Text = mine and "Your request"
+				or ((byId[req.userId] or "A member") .. " needs this")
+			local itemName, itemImage = req.itemId, ""
 			for _, item in (catalog or {}) do
 				if item.itemId == req.itemId then
-					itemName = item.name
+					itemName, itemImage = item.name, item.imageId or ""
 					break
 				end
 			end
+			;(row:WaitForChild("ArtHolder") :: Frame):WaitForChild("ReqIcon").Image = itemImage
 			;(row:WaitForChild("ReqWhat") :: TextLabel).Text =
-				("%s×  %s  ·  %s of %s given"):format(
+				("%s× %s  ·  %s of %s sent"):format(
 					Format.abbrev(req.remaining), itemName, Format.abbrev(given), Format.abbrev(req.count))
 
 			local track = row:WaitForChild("ReqTrack") :: Frame
@@ -396,15 +404,28 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 				UDim2.fromScale(math.clamp(given / math.max(req.count, 1), 0, 1), 1)
 
 			-- you can't fill your own ask, so that row shows progress only
+			-- Offer only what the player can actually cover, so the button never
+			-- promises a donation the server will refuse. Falls back to the full
+			-- remainder when the inventory hasn't arrived yet.
+			local held = (InventoryController.inventory:get() or {})[req.itemId] or 0
+			local offer = math.min(held, req.remaining)
 			local btn = row:WaitForChild("GiveButton") :: TextButton
 			btn.Visible = not mine
 			if btn.Visible then
-				btn.Text = ("GIVE %s"):format(Format.abbrev(req.remaining))
-				btn.Activated:Connect(function()
-					act(function()
-						return Net.invoke("FillSyndicateRequest", req.reqId, req.remaining)
-					end, "Sent — your syndicate owes you one.")
-				end)
+				if offer > 0 then
+					btn.Text = ("GIVE %s"):format(Format.abbrev(offer))
+					btn.BackgroundColor3 = Theme.Good
+					btn.AutoButtonColor = true
+					btn.Activated:Connect(function()
+						act(function()
+							return Net.invoke("FillSyndicateRequest", req.reqId, offer)
+						end, "Sent — your syndicate owes you one.")
+					end)
+				else
+					btn.Text = "NONE TO GIVE"
+					btn.BackgroundColor3 = Theme.BgLight
+					btn.AutoButtonColor = false
+				end
 			end
 
 			row.Parent = list
@@ -494,6 +515,15 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			end
 		end)
 	end
+
+	-- GIVE amounts are derived from what the player is holding, so a trade or a
+	-- roll landing while the board is open would otherwise leave stale numbers on
+	-- buttons that then fail server-side.
+	InventoryController.inventory.Changed:Connect(function()
+		if panel.Visible and activeTab == "requests" and latest and latest.syndicate then
+			SyndicateScreen._render(latest)
+		end
+	end)
 
 	function SyndicateScreen.open()
 		if catalog == nil then

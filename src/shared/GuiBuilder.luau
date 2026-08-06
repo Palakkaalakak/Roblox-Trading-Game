@@ -2497,8 +2497,8 @@ local function buildSyndicatePanel(parent: Instance)
 		TextYAlignment = Enum.TextYAlignment.Center,
 	}, memberRow)
 	label("MemberXp", {
-		Position = UDim2.fromScale(0.62, 0),
-		Size = UDim2.fromOffset(90, 38),
+		Position = UDim2.fromScale(0.56, 0),
+		Size = UDim2.fromOffset(160, 38),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 12,
@@ -2564,6 +2564,11 @@ local function buildSyndicatePanel(parent: Instance)
 
 	----------------------------------------------------------------------
 	-- REQUESTS — the give-and-take board (see SyndicateConfig)
+	--
+	-- Each row has to answer three things at a glance: WHO needs help, WHAT they
+	-- need (with the item's own art, so it's recognisable without reading), and
+	-- HOW CLOSE they are. The give button carries the number, so pressing it is
+	-- never a guess about how much leaves your inventory.
 	----------------------------------------------------------------------
 	local reqView = new("Frame", {
 		Name = "RequestsView",
@@ -2576,112 +2581,150 @@ local function buildSyndicatePanel(parent: Instance)
 		Name = "Composer",
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 42),
+		Size = UDim2.new(1, 0, 0, 46),
 	}, reqView)
-	corner(composer, 6)
-	local itemBox = new("TextBox", {
-		Name = "ItemBox",
-		Position = UDim2.fromOffset(10, 7),
-		Size = UDim2.new(0.5, -20, 0, 28),
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
+	corner(composer, 8)
+	grad(composer, Color3.fromRGB(48, 50, 62), Color3.fromRGB(32, 33, 42))
+	gradStroke(composer, Color3.fromRGB(70, 74, 92), Color3.fromRGB(38, 40, 50), 1.5)
+
+	label("ComposerHint", {
+		Position = UDim2.fromOffset(12, 4),
+		Size = UDim2.new(1, -24, 0, 13),
+		Text = "SHORT OF SOMETHING? ASK — CLANMATES CAN SEND IT FROM THEIR OWN STASH",
 		Font = FONT_LIGHT,
-		PlaceholderText = "Item you need (type its name)",
-		Text = "",
-		TextColor3 = C.TextPrimary,
-		TextSize = 13,
-		ClearTextOnFocus = false,
+		TextSize = 10,
+		TextColor3 = C.TextDim,
 	}, composer)
-	corner(itemBox, 5)
-	local countBox = new("TextBox", {
-		Name = "CountBox",
-		Position = UDim2.new(0.5, 0, 0, 7),
-		Size = UDim2.fromOffset(80, 28),
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		Font = FONT_LIGHT,
-		PlaceholderText = "How many",
-		Text = "",
-		TextColor3 = C.TextPrimary,
-		TextSize = 13,
-		ClearTextOnFocus = false,
-	}, composer)
-	corner(countBox, 5)
+
+	local function field(name: string, placeholder: string, pos: UDim2, size: UDim2): TextBox
+		local box = new("TextBox", {
+			Name = name,
+			Position = pos,
+			Size = size,
+			BackgroundColor3 = Color3.fromRGB(22, 23, 30),
+			BorderSizePixel = 0,
+			Font = FONT_LIGHT,
+			PlaceholderText = placeholder,
+			PlaceholderColor3 = Color3.fromRGB(110, 114, 130),
+			Text = "",
+			TextColor3 = C.TextPrimary,
+			TextSize = 13,
+			ClearTextOnFocus = false,
+		}, composer)
+		corner(box, 6)
+		stroke(box, Color3.fromRGB(58, 61, 76), 1)
+		new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, box)
+		return box
+	end
+	field("ItemBox", "Item you need", UDim2.fromOffset(12, 18), UDim2.new(0.52, -20, 0, 24))
+	field("CountBox", "How many", UDim2.new(0.52, 0, 0, 18), UDim2.fromOffset(90, 24))
+
 	local askBtn = button("AskButton", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -10, 0, 7),
-		Size = UDim2.fromOffset(130, 28),
-		Text = "Ask Syndicate",
+		Position = UDim2.new(1, -12, 0, 18),
+		Size = UDim2.fromOffset(140, 24),
+		Text = "ASK SYNDICATE",
 		TextSize = 12,
 		BackgroundColor3 = C.Accent,
 	}, composer)
-	corner(askBtn, 5)
+	corner(askBtn, 6)
+	gradStroke(askBtn, Color3.fromRGB(140, 165, 255), Color3.fromRGB(35, 50, 130), 1.5)
 
 	local reqList = new("ScrollingFrame", {
 		Name = "List",
-		Position = UDim2.fromOffset(0, 50),
-		Size = UDim2.new(1, 0, 1, -50),
+		Position = UDim2.fromOffset(0, 54),
+		Size = UDim2.new(1, 0, 1, -54),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 	}, reqView)
-	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, reqList)
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, reqList)
 
 	local reqRow = new("Frame", {
 		Name = "RequestRow",
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, -8, 0, 48),
+		Size = UDim2.new(1, -8, 0, 58),
 		Visible = false,
 	}, reqList)
-	corner(reqRow, 6)
+	corner(reqRow, 8)
+	grad(reqRow, Color3.fromRGB(46, 48, 60), Color3.fromRGB(31, 32, 41))
+	gradStroke(reqRow, Color3.fromRGB(66, 70, 88), Color3.fromRGB(36, 38, 48), 1.5)
+
+	-- the item's own art, so a request is recognisable before it's read
+	local artHolder = new("Frame", {
+		Name = "ArtHolder",
+		BackgroundColor3 = Color3.fromRGB(22, 23, 30),
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(9, 9),
+		Size = UDim2.fromOffset(40, 40),
+	}, reqRow)
+	corner(artHolder, 8)
+	stroke(artHolder, Color3.fromRGB(58, 61, 76), 1)
+	new("ImageLabel", {
+		Name = "ReqIcon",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.8, 0.8),
+		Image = "",
+		ScaleType = Enum.ScaleType.Fit,
+	}, artHolder)
+
 	label("ReqWho", {
-		Position = UDim2.fromOffset(12, 5),
-		Size = UDim2.new(0.6, 0, 0, 19),
+		Position = UDim2.fromOffset(58, 6),
+		Size = UDim2.new(1, -230, 0, 17),
 		Text = "",
 		TextSize = 13,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextYAlignment = Enum.TextYAlignment.Center,
 	}, reqRow)
 	label("ReqWhat", {
-		Position = UDim2.fromOffset(12, 24),
-		Size = UDim2.new(0.6, 0, 0, 18),
+		Position = UDim2.fromOffset(58, 23),
+		Size = UDim2.new(1, -230, 0, 15),
 		Text = "",
 		Font = FONT_LIGHT,
-		TextSize = 12,
+		TextSize = 11,
 		TextColor3 = C.TextDim,
 		TextYAlignment = Enum.TextYAlignment.Center,
 	}, reqRow)
+
 	local reqTrack = new("Frame", {
 		Name = "ReqTrack",
-		BackgroundColor3 = C.BgLight,
+		BackgroundColor3 = Color3.fromRGB(20, 21, 28),
 		BorderSizePixel = 0,
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -120, 0, 30),
-		Size = UDim2.fromOffset(120, 6),
+		Position = UDim2.fromOffset(58, 41),
+		Size = UDim2.new(1, -230, 0, 9),
 	}, reqRow)
-	corner(reqTrack, 3)
-	corner(new("Frame", {
+	corner(reqTrack, 5)
+	stroke(reqTrack, Color3.fromRGB(14, 15, 20), 1)
+	local reqFill = new("Frame", {
 		Name = "ReqFill",
 		BackgroundColor3 = C.Good,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(0, 1),
-	}, reqTrack), 3)
+	}, reqTrack)
+	corner(reqFill, 5)
+	grad(reqFill, Color3.fromRGB(130, 245, 160), Color3.fromRGB(30, 165, 80))
+
 	local giveBtn = button("GiveButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(100, 28),
+		Size = UDim2.fromOffset(150, 34),
 		Text = "GIVE",
-		TextSize = 12,
+		TextSize = 13,
 		BackgroundColor3 = C.Good,
+		TextColor3 = C.Bg,
 	}, reqRow)
-	corner(giveBtn, 6)
+	corner(giveBtn, 7)
+	gradStroke(giveBtn, Color3.fromRGB(140, 250, 170), Color3.fromRGB(20, 110, 50), 1.5)
+
 	label("EmptyLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.45),
-		Size = UDim2.fromScale(0.9, 0.25),
+		Size = UDim2.fromScale(0.82, 0.3),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -3218,70 +3261,131 @@ local function buildEventsPanel(parent: Instance)
 		BackgroundColor3 = C.Bad,
 	}, events)
 
-	-- PROGRESS STRIP — the communal goal and your milestone track, pinned above
-	-- the recipe list so both are the first thing seen on opening the panel.
+	-- PROGRESS STRIP — two cards above the recipe list, so the first thing a
+	-- player sees on opening Crafting is "here's what everyone is building" and
+	-- "here's what you're building toward", not a wall of recipes.
+	--
+	-- Styled with the shop's gloss helpers (goldFill / sheen / gradStroke)
+	-- rather than the flat panels the rest of the UI uses: these two cards are
+	-- the reward surface, so they should read as the shiniest thing on screen.
 	local strip = new("Frame", {
 		Name = "ProgressStrip",
-		BackgroundColor3 = C.Bg,
-		BorderSizePixel = 0,
+		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(12, 40),
-		Size = UDim2.new(1, -24, 0, 78),
+		Size = UDim2.new(1, -24, 0, 96),
 	}, events)
-	corner(strip, 8)
-	stroke(strip, C.Stroke, 1)
-
-	label("GoalName", {
-		Position = UDim2.fromOffset(12, 6),
-		Size = UDim2.new(0.6, 0, 0, 18),
-		Text = "Server Forge",
-		TextSize = 14,
-		TextColor3 = C.Gold,
-	}, strip)
-	label("GoalMeta", {
-		Position = UDim2.fromOffset(12, 24),
-		Size = UDim2.new(0.7, 0, 0, 16),
-		Text = "",
-		Font = FONT_LIGHT,
-		TextSize = 12,
-		TextColor3 = C.TextDim,
-	}, strip)
-	local goalTrack = new("Frame", {
-		Name = "GoalTrack",
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(12, 44),
-		Size = UDim2.new(1, -180, 0, 8),
-	}, strip)
-	corner(goalTrack, 4)
-	corner(new("Frame", {
-		Name = "GoalFill",
-		BackgroundColor3 = C.Gold,
-		BorderSizePixel = 0,
-		Size = UDim2.fromScale(0, 1),
-	}, goalTrack), 4)
-	label("MilestoneLabel", {
-		Position = UDim2.fromOffset(12, 56),
-		Size = UDim2.new(1, -180, 0, 16),
-		Text = "",
-		Font = FONT_LIGHT,
-		TextSize = 12,
-		TextColor3 = C.Gem,
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, strip)
 
-	for i, spec in { { "ClaimGoalButton", "CLAIM REWARD", C.Gold, 8 }, { "ClaimMilestoneButton", "CLAIM", C.Good, 44 } } do
-		local b = button(spec[1], {
-			LayoutOrder = i,
-			AnchorPoint = Vector2.new(1, 0),
-			Position = UDim2.new(1, -12, 0, spec[4] :: number),
-			Size = UDim2.fromOffset(140, 28),
-			Text = spec[2] :: string,
-			TextSize = 12,
-			BackgroundColor3 = spec[3] :: Color3,
-			TextColor3 = C.Bg,
-			Visible = false,
+	-- One card shape, built twice: a titled panel with a glossy progress bar,
+	-- a meta line under it, and a claim button that only appears when there is
+	-- something to take.
+	local function progressCard(cardName: string, order: number, titleText: string, accent: Color3, gold: boolean)
+		local card = new("Frame", {
+			Name = cardName,
+			LayoutOrder = order,
+			BackgroundColor3 = C.Bg,
+			BorderSizePixel = 0,
+			Size = UDim2.new(0.5, -5, 1, 0),
 		}, strip)
-		corner(b, 6)
+		corner(card, 8)
+		grad(card, Color3.fromRGB(48, 50, 62), Color3.fromRGB(30, 31, 40))
+		gradStroke(card, accent, Color3.fromRGB(40, 42, 52), 1.5)
+		sheen(card, 8)
+
+		local title = label("Title", {
+			Position = UDim2.fromOffset(12, 8),
+			Size = UDim2.new(1, -24, 0, 18),
+			Text = titleText,
+			TextSize = 14,
+			TextColor3 = accent,
+			ZIndex = 2,
+		}, card)
+		textStroke(title, 1.4, 0.35)
+
+		-- the bar: recessed track, glossy fill, and a percentage sitting on it
+		local track = new("Frame", {
+			Name = "Track",
+			BackgroundColor3 = Color3.fromRGB(20, 21, 28),
+			BorderSizePixel = 0,
+			Position = UDim2.fromOffset(12, 32),
+			Size = UDim2.new(1, -24, 0, 14),
+			ZIndex = 2,
+		}, card)
+		corner(track, 7)
+		stroke(track, Color3.fromRGB(14, 15, 20), 1)
+		local fill = new("Frame", {
+			Name = "Fill",
+			BackgroundColor3 = accent,
+			BorderSizePixel = 0,
+			Size = UDim2.fromScale(0, 1),
+			ZIndex = 2,
+		}, track)
+		corner(fill, 7)
+		if gold then
+			goldFill(fill)
+		else
+			grad(fill, Color3.fromRGB(120, 235, 255), Color3.fromRGB(40, 150, 220))
+		end
+		local pct = label("Pct", {
+			Size = UDim2.fromScale(1, 1),
+			Text = "",
+			TextSize = 11,
+			TextColor3 = C.Text,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ZIndex = 3,
+		}, track)
+		textStroke(pct, 1.6, 0.1)
+
+		local meta = label("Meta", {
+			Position = UDim2.fromOffset(12, 50),
+			Size = UDim2.new(1, -24, 0, 15),
+			Text = "",
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextColor3 = C.TextDim,
+			ZIndex = 2,
+		}, card)
+		local sub = label("Sub", {
+			Position = UDim2.fromOffset(12, 66),
+			Size = UDim2.new(1, -24, 0, 24),
+			Text = "",
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextColor3 = C.TextDim,
+			TextWrapped = true,
+			ZIndex = 2,
+		}, card)
+
+		-- Claim replaces the sub-line when it appears, so a card never grows and
+		-- the two cards stay the same height as each other.
+		local claim = button("Claim", {
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -10, 1, -8),
+			Size = UDim2.fromOffset(150, 26),
+			Text = "CLAIM",
+			TextSize = 12,
+			BackgroundColor3 = gold and GOLD_LO or C.Good,
+			TextColor3 = gold and GOLD_TEXT or C.Bg,
+			Visible = false,
+			ZIndex = 3,
+		}, card)
+		corner(claim, 6)
+		if gold then
+			goldFill(claim)
+			gradStroke(claim, GOLD_HI, GOLD_EDGE, 1.5)
+		else
+			gradStroke(claim, Color3.fromRGB(120, 240, 150), Color3.fromRGB(20, 110, 50), 1.5)
+		end
+		return card, fill, pct, meta, sub, claim
 	end
+
+	progressCard("GoalCard", 1, "SERVER FORGE", C.Gold, true)
+	progressCard("MilestoneCard", 2, "YOUR CRAFTING", C.Gem, false)
 
 	local list = new("ScrollingFrame", {
 		Name = "EventList",

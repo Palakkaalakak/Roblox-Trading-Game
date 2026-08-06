@@ -931,54 +931,111 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	-- the goal moves from OTHER people's crafts — the bar needs to creep while
 	-- you're just looking at the panel, which is the whole point of it.
 	----------------------------------------------------------------------
-	local goalName = progressStrip:WaitForChild("GoalName") :: TextLabel
-	local goalMeta = progressStrip:WaitForChild("GoalMeta") :: TextLabel
-	local goalFill = (progressStrip:WaitForChild("GoalTrack") :: Frame):WaitForChild("GoalFill") :: Frame
-	local milestoneLabel = progressStrip:WaitForChild("MilestoneLabel") :: TextLabel
-	local claimGoalBtn = progressStrip:WaitForChild("ClaimGoalButton") :: TextButton
-	local claimMsBtn = progressStrip:WaitForChild("ClaimMilestoneButton") :: TextButton
+	local goalCard = progressStrip:WaitForChild("GoalCard") :: Frame
+	local msCard = progressStrip:WaitForChild("MilestoneCard") :: Frame
+	local function part(card: Frame, name: string): any
+		return card:FindFirstChild(name, true)
+	end
+	local goalTitle = part(goalCard, "Title") :: TextLabel
+	local goalFill = part(goalCard, "Fill") :: Frame
+	local goalPct = part(goalCard, "Pct") :: TextLabel
+	local goalMeta = part(goalCard, "Meta") :: TextLabel
+	local goalSub = part(goalCard, "Sub") :: TextLabel
+	local claimGoalBtn = part(goalCard, "Claim") :: TextButton
+
+	local msFill = part(msCard, "Fill") :: Frame
+	local msPct = part(msCard, "Pct") :: TextLabel
+	local msMeta = part(msCard, "Meta") :: TextLabel
+	local msSub = part(msCard, "Sub") :: TextLabel
+	local claimMsBtn = part(msCard, "Claim") :: TextButton
 
 	local claimableTier: number? = nil
 	local progressBusy = false
 	local refreshProgress
 
-	local function renderProgress(p: any)
-		local goal = p.goal
-		goalName.Text = goal.name
-		local pct = math.clamp(goal.total / math.max(goal.target, 1), 0, 1)
-		goalFill.Size = UDim2.fromScale(pct, 1)
-		if goal.complete then
-			goalMeta.Text = ("Complete! %s / %s crafts  ·  you did %s"):format(
-				Format.abbrev(goal.total), Format.abbrev(goal.target), Format.abbrev(goal.yourCrafts))
-		else
-			goalMeta.Text = ("%s / %s crafts by everyone  ·  you did %s  ·  %s"):format(
-				Format.abbrev(goal.total), Format.abbrev(goal.target),
-				Format.abbrev(goal.yourCrafts), goal.blurb)
+	-- "2h 14m" — how long until the goal resets. Coarse on purpose: a live
+	-- ticking second counter on a 24h window is noise.
+	local function untilText(endsAt: number?): string
+		if endsAt == nil then
+			return ""
 		end
-		claimGoalBtn.Visible = goal.canClaim == true
-		claimGoalBtn.Text = ("CLAIM %s"):format(goal.rewardName)
+		local left = math.max(endsAt - os.time(), 0)
+		if left >= 3600 then
+			return ("%dh %dm left"):format(left // 3600, (left % 3600) // 60)
+		end
+		return ("%dm left"):format(math.max(left // 60, 1))
+	end
 
-		-- the first milestone that's reached but unclaimed is the one to offer
+	-- The claim button sits on the same line as the sub-text, so the text has to
+	-- give up its right-hand side whenever a button is showing or the two draw
+	-- on top of each other.
+	local function fitSub(sub: TextLabel, claimVisible: boolean)
+		sub.Size = claimVisible and UDim2.new(1, -180, 0, 24) or UDim2.new(1, -24, 0, 24)
+	end
+
+	local function renderProgress(p: any)
+		----------------------------------------------------------------
+		-- Communal goal
+		----------------------------------------------------------------
+		local goal = p.goal
+		goalTitle.Text = goal.name:upper()
+		local frac = math.clamp(goal.total / math.max(goal.target, 1), 0, 1)
+		goalFill.Size = UDim2.fromScale(frac, 1)
+		goalPct.Text = ("%s / %s"):format(Format.abbrev(goal.total), Format.abbrev(goal.target))
+		goalMeta.Text = ("You crafted %s of these  ·  %s"):format(
+			Format.abbrev(goal.yourCrafts), untilText(goal.endsAt))
+
+		claimGoalBtn.Visible = goal.canClaim == true
+		fitSub(goalSub, claimGoalBtn.Visible)
+		if goal.canClaim then
+			claimGoalBtn.Text = ("CLAIM %d× %s"):format(goal.rewardCount, goal.rewardName)
+			goalSub.Text = ""
+		elseif goal.complete then
+			goalSub.Text = goal.yourCrafts > 0 and "Reward claimed. Nice work."
+				or "Finished without you — craft next time to share the reward."
+			goalSub.TextColor3 = Theme.Good
+		else
+			goalSub.Text = ("Everyone's crafts count. Reward: %d× %s"):format(goal.rewardCount, goal.rewardName)
+			goalSub.TextColor3 = Theme.TextDim
+		end
+
+		----------------------------------------------------------------
+		-- Personal milestones
+		----------------------------------------------------------------
 		claimableTier = nil
+		local claimTier = nil
 		for _, tier in p.tiers do
 			if tier.reached and not tier.claimed then
-				claimableTier = tier.index
-				milestoneLabel.Text = ("%s reached — %d× %s waiting"):format(
-					tier.name, tier.rewardCount, tier.rewardName)
+				claimableTier, claimTier = tier.index, tier
 				break
 			end
 		end
-		if claimableTier == nil then
-			if p.nextMilestone then
-				milestoneLabel.Text = ("%s crafts  ·  %s more to %s"):format(
-					Format.abbrev(p.crafts),
-					Format.abbrev(p.nextMilestone.crafts - p.crafts),
-					p.nextMilestone.name)
-			else
-				milestoneLabel.Text = ("%s crafts  ·  every milestone earned"):format(Format.abbrev(p.crafts))
-			end
+
+		msMeta.Text = ("%s crafts made"):format(Format.abbrev(p.crafts))
+		if p.nextMilestone then
+			-- The bar runs from ZERO to the next tier's number, so it agrees with
+			-- the label sitting on it. Measuring the current band instead made
+			-- the bar read 0% next to a label saying "5 / 25", which looks broken
+			-- even though both were technically right.
+			msFill.Size = UDim2.fromScale(math.clamp(p.crafts / math.max(p.nextMilestone.crafts, 1), 0, 1), 1)
+			msPct.Text = ("%s / %s"):format(Format.abbrev(p.crafts), Format.abbrev(p.nextMilestone.crafts))
+			msSub.Text = ("%s more to %s"):format(
+				Format.abbrev(p.nextMilestone.crafts - p.crafts), p.nextMilestone.name)
+		else
+			msFill.Size = UDim2.fromScale(1, 1)
+			msPct.Text = "MAX"
+			msSub.Text = "Every milestone earned."
 		end
+
 		claimMsBtn.Visible = claimableTier ~= nil
+		fitSub(msSub, claimMsBtn.Visible)
+		if claimTier then
+			claimMsBtn.Text = ("CLAIM %d× %s"):format(claimTier.rewardCount, claimTier.rewardName)
+			msSub.Text = ("%s reached!"):format(claimTier.name)
+			msSub.TextColor3 = Theme.Good
+		else
+			msSub.TextColor3 = Theme.TextDim
+		end
 	end
 
 	refreshProgress = function()
