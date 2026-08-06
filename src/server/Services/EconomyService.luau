@@ -782,9 +782,27 @@ end
 function EconomyService.Start()
 	-- remote: full item directory (board want-pickers etc)
 	Net.bindFunction("GetCatalog", function(player)
+		-- Sold-out replacement variants are internal machinery: they exist so a
+		-- spent station always has something to offer. Listing the unused ones
+		-- buries real items under rows of near-identical "Mk" entries, so they
+		-- only appear once copies actually exist. Lazy require: CraftingService
+		-- pulls in this service, and a top-level require would cycle.
+		local generated = {}
+		pcall(function()
+			generated = require(script.Parent.CraftingService).generatedOutputIds()
+		end)
+
 		local items = {}
 		for itemId, item in registry do
-			table.insert(items, { itemId = itemId, name = item.name, imageId = item.imageId })
+			local hide = false
+			if generated[itemId] then
+				local record = hotCache[itemId]
+				local circulating = record and record.supply or 0
+				hide = circulating <= 0
+			end
+			if not hide then
+				table.insert(items, { itemId = itemId, name = item.name, imageId = item.imageId })
+			end
 		end
 		table.sort(items, function(a, b)
 			return a.name < b.name

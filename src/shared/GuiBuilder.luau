@@ -569,7 +569,7 @@ local function buildTradePanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 		ZIndex = 11,
 	}, picker)
@@ -673,7 +673,7 @@ local function buildStorePanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, store)
 
@@ -832,7 +832,7 @@ local function buildBoardPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, boardPanel)
 	-- context-aware post: label + action depend on the active tab
@@ -1376,7 +1376,7 @@ local function buildBoardPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 		ZIndex = 11,
 	}, post)
@@ -1656,7 +1656,7 @@ local function buildShopPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -10, 0.5, 0),
 		Size = UDim2.fromOffset(28, 28),
-		Text = "✕",
+		Text = "X",
 		TextScaled = true,
 		BackgroundColor3 = C.Bad,
 	}, titleBar)
@@ -2121,7 +2121,7 @@ local function buildFreeGemsPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(30, 30),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, free)
 	-- DEBUG ONLY — remove this button + FreeGemsScreen's wiring for it, and
@@ -2306,7 +2306,7 @@ local function buildSyndicatePanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, syn)
 
@@ -2546,14 +2546,14 @@ local function buildSyndicatePanel(parent: Instance)
 	-- Recruit is the growth button, so it leads and wears the gold.
 	for i, spec in
 		{
-			{ "RecruitButton", "Recruit Friends", C.Gold },
-			{ "PolicyButton", "Anyone can join", C.BgLight },
-			{ "LeaveButton", "Leave", C.Bad },
+			{ "RecruitButton", "Recruit Friends", C.Gold, 150 },
+			{ "PolicyButton", "Who can join: Anyone can join", C.BgLight, 230 },
+			{ "LeaveButton", "Leave", C.Bad, 110 },
 		}
 	do
 		local b = button(spec[1], {
 			LayoutOrder = i,
-			Size = UDim2.fromOffset(150, 30),
+			Size = UDim2.fromOffset(spec[4] :: number, 30),
 			Text = spec[2],
 			TextSize = 13,
 			BackgroundColor3 = spec[3],
@@ -2629,6 +2629,62 @@ local function buildSyndicatePanel(parent: Instance)
 	}, composer)
 	corner(askBtn, 6)
 	gradStroke(askBtn, Color3.fromRGB(140, 165, 255), Color3.fromRGB(35, 50, 130), 1.5)
+
+	-- Item picker: typing in ItemBox filters the real item list and drops these
+	-- results over the board. Typing a name blind and hoping it matched was a
+	-- guessing game — the player should pick the actual item, with its art, the
+	-- same way every other picker in the game works.
+	local results = new("ScrollingFrame", {
+		Name = "Results",
+		Position = UDim2.fromOffset(12, 46),
+		-- exactly six rows (30 + 2 padding each) + the frame padding, so the
+		-- list never ends on a half-clipped row
+		Size = UDim2.new(0.52, -20, 0, 200),
+		BackgroundColor3 = Color3.fromRGB(24, 25, 33),
+		BorderSizePixel = 0,
+		ScrollBarThickness = 5,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		Visible = false,
+		ZIndex = 20,
+	}, reqView)
+	corner(results, 8)
+	stroke(results, Color3.fromRGB(70, 74, 92), 1.5)
+	new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, results)
+	new("UIPadding", {
+		PaddingTop = UDim.new(0, 4),
+		PaddingBottom = UDim.new(0, 4),
+		PaddingLeft = UDim.new(0, 4),
+		PaddingRight = UDim.new(0, 4),
+	}, results)
+
+	local resultRow = button("ResultRow", {
+		Size = UDim2.new(1, -8, 0, 30),
+		Text = "",
+		BackgroundColor3 = Color3.fromRGB(38, 40, 51),
+		Visible = false,
+		ZIndex = 21,
+	}, results)
+	corner(resultRow, 6)
+	new("ImageLabel", {
+		Name = "Icon",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(4, 3),
+		Size = UDim2.fromOffset(24, 24),
+		Image = "",
+		ScaleType = Enum.ScaleType.Fit,
+		ZIndex = 22,
+	}, resultRow)
+	label("ItemName", {
+		Position = UDim2.fromOffset(34, 0),
+		Size = UDim2.new(1, -40, 1, 0),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 12,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		ZIndex = 22,
+	}, resultRow)
 
 	local reqList = new("ScrollingFrame", {
 		Name = "List",
@@ -2836,7 +2892,7 @@ local function buildRollsPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(30, 30),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, rolls)
 	local hint = label("Hint", {
@@ -3257,7 +3313,7 @@ local function buildEventsPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, events)
 
@@ -3613,7 +3669,7 @@ local function buildProfilePanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, root)
 
@@ -4053,7 +4109,7 @@ local function buildModals(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, inv)
 	local grid = new("ScrollingFrame", {
@@ -4127,7 +4183,7 @@ local function buildModals(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -8, 0, 8),
 		Size = UDim2.fromOffset(26, 26),
-		Text = "✕",
+		Text = "X",
 		BackgroundColor3 = C.Bad,
 	}, search)
 	local searchBox = new("TextBox", {

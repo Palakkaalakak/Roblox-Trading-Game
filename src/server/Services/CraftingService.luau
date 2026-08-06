@@ -247,6 +247,29 @@ function CraftingService.generatedSpares(recipe: any): { any }
 	return out
 end
 
+-- Every output the generated fallbacks can ever produce. These exist so a
+-- sold-out station always has something to offer, but until one is actually
+-- substituted in and crafted it is pure machinery — it must not show up in
+-- item pickers, where seven near-identical "Mk" rows bury the real item.
+local generatedIds: { [string]: boolean }? = nil
+function CraftingService.generatedOutputIds(): { [string]: boolean }
+	if generatedIds then
+		return generatedIds
+	end
+	local ids: { [string]: boolean } = {}
+	for _, event in EventConfig.Events do
+		if not (event.endsAt or event.startsAt) then
+			for _, recipe in event.recipes do
+				for _, spare in CraftingService.generatedSpares(recipe) do
+					ids[outputItemId(spare.output.sku)] = true
+				end
+			end
+		end
+	end
+	generatedIds = ids
+	return ids
+end
+
 local soldOutCache: { [string]: { at: number, value: boolean } } = {}
 local SOLDOUT_TTL = 15
 

@@ -44,9 +44,14 @@ local function now(): number
 	return os.time()
 end
 
+-- Tell the OTHER servers their copy is stale. Deliberately does NOT drop this
+-- server's entry: the caller has just written the authoritative record and
+-- cached it, and clearing it here forced a full GetAsync round-trip on the very
+-- next read — which is the read that renders the screen the player is looking
+-- at right after pressing the button. The payload carries this server's JobId
+-- so the subscriber can ignore its own echo for the same reason.
 local function invalidate(syndicateId: string)
-	cache[syndicateId] = nil
-	StoreAdapters.publish(SYNC_TOPIC, { id = syndicateId })
+	StoreAdapters.publish(SYNC_TOPIC, { id = syndicateId, from = game.JobId })
 end
 
 local function readRecord(syndicateId: string, force: boolean?): any?
@@ -187,30 +192,60 @@ end
 -- Directory (browse/search) — a small summary row per syndicate
 --------------------------------------------------------------------------------
 
+-- The browse directory is a CONVENIENCE INDEX, not a source of truth: every
+-- row in it is re-derived from the syndicate records themselves. So this must
+-- never sit in the response path of a player's action — a directory write is a
+-- ~0.5s UpdateAsync on a single globally-shared key, and having it inline made
+-- founding a syndicate or flipping a join setting feel broken.
+--
+-- Writes are queued and flushed on a timer instead. Coalescing also fixes the
+-- worse scaling problem: every syndicate in the game shares the "all" key, so
+-- inline writes meant unrelated players' actions queued behind each other.
+local dirtyDirectory: { [string]: any } = {}
+local REMOVED = newproxy() -- sentinel: this id must be deleted, not written
+
 local function updateDirectory(record: any)
-	pcall(function()
-		dirStore:UpdateAsync("all", function(old)
-			old = old or {}
-			old[record.id] = {
-				name = record.name,
-				tag = record.tag,
-				level = SyndicateConfig.levelFor(record.xp or 0),
-				members = SyndicateService.memberCount(record),
-				policy = record.policy,
-			}
-			return old
-		end)
-	end)
+	dirtyDirectory[record.id] = {
+		name = record.name,
+		tag = record.tag,
+		level = SyndicateConfig.levelFor(record.xp or 0),
+		members = SyndicateService.memberCount(record),
+		policy = record.policy,
+	}
 end
 
-local function removeFromDirectory(syndicateId: string)
-	pcall(function()
+local function flushDirectory()
+	if next(dirtyDirectory) == nil then
+		return
+	end
+	local pending = dirtyDirectory
+	dirtyDirectory = {}
+	local ok = pcall(function()
 		dirStore:UpdateAsync("all", function(old)
 			old = old or {}
-			old[syndicateId] = nil
+			for id, row in pending do
+				old[id] = (row ~= REMOVED) and row or nil
+			end
 			return old
 		end)
 	end)
+	if not ok then
+		-- put them back so the next tick retries, without clobbering anything
+		-- that was queued while this attempt was in flight
+		for id, row in pending do
+			if dirtyDirectory[id] == nil then
+				dirtyDirectory[id] = row
+			end
+		end
+	end
+end
+
+-- Queued like updates, for the same reason: disbanding shouldn't make the
+-- player wait on a write to a shared index. A removal always beats a queued
+-- update for the same id, so a syndicate that dies in the same tick it changed
+-- can't come back.
+local function removeFromDirectory(syndicateId: string)
+	dirtyDirectory[syndicateId] = REMOVED
 end
 
 --------------------------------------------------------------------------------
@@ -813,10 +848,21 @@ end
 function SyndicateService.Start()
 	-- another server changed a syndicate: drop our cached copy
 	StoreAdapters.subscribe(SYNC_TOPIC, function(payload)
-		if payload and payload.id then
+		-- ignore our own echo: this server already holds the record it wrote,
+		-- and dropping it here would undo the point of keeping it (see invalidate)
+		if payload and payload.id and payload.from ~= game.JobId then
 			cache[payload.id] = nil
 		end
 	end)
+
+	-- Directory writes are batched off the action path (see updateDirectory).
+	task.spawn(function()
+		while true do
+			task.wait(DIRECTORY_FLUSH_SECONDS)
+			flushDirectory()
+		end
+	end)
+	game:BindToClose(flushDirectory)
 
 	Net.bindFunction("GetSyndicate", function(player)
 		local profile = profileOf(player)
