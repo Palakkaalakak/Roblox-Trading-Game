@@ -33,11 +33,11 @@ local SyndicateConfig = {
 	-- How a syndicate accepts new members. The ids are internal; JoinPolicyLabel
 	-- is what a player actually reads — "Policy: Request" means nothing to a
 	-- 12-year-old, "Anyone can join" does.
-	JoinPolicies = { "Open", "Request", "Invite" },
+	JoinPolicies = { "Request", "Open", "Invite" },
 	JoinPolicyLabels = {
-		Open = "Anyone can join",
 		Request = "Ask to join",
-		Invite = "Invite only",
+		Open = "Anyone can join",
+		Invite = "Invite-only",
 	},
 
 	-- ── REQUESTS (the reciprocity loop) ──────────────────────────────────

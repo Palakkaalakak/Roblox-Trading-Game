@@ -21,17 +21,17 @@ local SyndicateScreen = {}
 
 -- server error code -> something a player can act on
 local ERRORS = {
-	already_in_syndicate = "You're already in a syndicate.",
-	not_in_syndicate = "You're not in a syndicate.",
+	already_in_syndicate = "You're already in a group.",
+	not_in_syndicate = "You're not in a group.",
 	insufficient_gems = "You don't have enough gems.",
 	name_too_short = "That name is too short.",
 	tag_too_short = "That tag is too short.",
 	bad_name = "That name isn't allowed.",
 	bad_tag = "That tag isn't allowed.",
 	tag_not_alphanumeric = "Tags can only use letters and numbers.",
-	syndicate_full = "That syndicate is full.",
-	invite_only = "That syndicate is invite-only.",
-	request_required = "That syndicate only takes invited members.",
+	syndicate_full = "That group is full.",
+	invite_only = "That group is invite-only.",
+	request_required = "That group only takes invited members.",
 	owner_must_transfer = "Promote someone else before you leave.",
 	no_permission = "You don't have permission to do that.",
 	target_outranks_you = "You can't do that to someone ranked above you.",
@@ -126,7 +126,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		table.clear(tabButtons)
 		local inSyn = latest and latest.syndicate ~= nil
 		local specs = {
-			{ id = "mine", text = inSyn and "My Syndicate" or "Create" },
+			{ id = "mine", text = inSyn and "My Group" or "Create" },
 		}
 		if inSyn then
 			-- the count is the hook: an open request is a job waiting for you
@@ -171,13 +171,15 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	local nameBox = createView:WaitForChild("NameBox") :: TextBox
 	local tagBox = createView:WaitForChild("TagBox") :: TextBox
 	local createBtn = createView:WaitForChild("CreateButton") :: TextButton
+	-- "Tag" means nothing on its own, so the helper line says what it is for
 	;(createView:WaitForChild("CostLabel") :: TextLabel).Text =
-		("Costs %s gems. You'll be the Owner."):format(Format.comma(SyndicateConfig.CreateCostGems))
+		("The tag is a %d–%d letter short name shown next to your members' names, like [IRON].  ·  Costs %s gems — you'll be the Owner.")
+			:format(SyndicateConfig.TagMinLength, SyndicateConfig.TagMaxLength, Format.comma(SyndicateConfig.CreateCostGems))
 	createBtn.Activated:Connect(function()
 		local name, tag = nameBox.Text, tagBox.Text
 		act(function()
 			return Net.invoke("CreateSyndicate", name, tag)
-		end, "Syndicate founded!")
+		end, "Group created!")
 	end)
 
 	----------------------------------------------------------------------
@@ -195,7 +197,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		local lastOneHere = s ~= nil and #s.members <= 1
 		act(function()
 			return Net.invoke("LeaveSyndicate")
-		end, lastOneHere and "Syndicate disbanded." or "You left the syndicate.")
+		end, lastOneHere and "Group disbanded." or "You left the group.")
 	end)
 	policyBtn.Activated:Connect(function()
 		local s = latest and latest.syndicate
@@ -260,7 +262,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		-- Sitting between "Recruit Friends" and "Leave & Delete", a bare
 		-- "Ask to join" reads like an action you press to join something. It's a
 		-- setting, so it has to say which setting it is.
-		policyBtn.Text = "Who can join: " .. (SyndicateConfig.JoinPolicyLabels[s.policy] or tostring(s.policy))
+		policyBtn.Text = SyndicateConfig.JoinPolicyLabels[s.policy] or tostring(s.policy)
 		policyBtn.Visible = SyndicateConfig.can(s.yourRole or "Member", "setPolicy")
 
 		local myId = Players.LocalPlayer.UserId
@@ -360,95 +362,83 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	local countBox = composer:WaitForChild("CountBox") :: TextBox
 	local askBtn = composer:WaitForChild("AskButton") :: TextButton
 
-	-- Players type an item's NAME; the server wants its id. Fetched once and
-	-- kept, since the catalogue doesn't change inside a session.
 	local catalog: { any }? = nil
-
-	-- The player PICKS a real item rather than typing a name and hoping it
-	-- matched: typing filters the item list and the matches drop down with
-	-- their art, exactly like the other item pickers in the game.
-	local results = requestsView:WaitForChild("Results") :: ScrollingFrame
-	local resultTemplate = results:WaitForChild("ResultRow") :: TextButton
-	local resultRows: { Instance } = {}
 	local chosenId: string? = nil
-	local MAX_RESULTS = 6 -- matches the six-row height of the results frame
 
-	local function closeResults()
-		for _, r in resultRows do
-			r:Destroy()
-		end
-		table.clear(resultRows)
-		results.Visible = false
-	end
-
-	local function showResults(query: string)
-		for _, r in resultRows do
-			r:Destroy()
-		end
-		table.clear(resultRows)
-
-		local q = query:lower():gsub("^%s+", ""):gsub("%s+$", "")
-		if q == "" or catalog == nil then
-			results.Visible = false
-			return
-		end
-
-		-- rank: names that START with what was typed come first, then any
-		-- name merely containing it, so "sto" surfaces Stone Relic above
-		-- anything that happens to have "sto" in the middle
-		local starts, contains = {}, {}
-		for _, item in catalog do
-			local name = tostring(item.name):lower()
-			if name:sub(1, #q) == q then
-				table.insert(starts, item)
-			elseif name:find(q, 1, true) then
-				table.insert(contains, item)
-			end
-		end
-		local ranked = starts
-		for _, item in contains do
-			table.insert(ranked, item)
-		end
-
-		for i = 1, math.min(#ranked, MAX_RESULTS) do
-			local item = ranked[i]
-			local row = resultTemplate:Clone()
-			row.Name = "result_" .. item.itemId
-			row.LayoutOrder = i
-			row.Visible = true
-			;(row:WaitForChild("Icon") :: ImageLabel).Image = item.imageId or ""
-			;(row:WaitForChild("ItemName") :: TextLabel).Text = item.name
-			row.Activated:Connect(function()
-				chosenId = item.itemId
-				itemBox.Text = item.name
-				closeResults()
-			end)
-			row.Parent = results
-			table.insert(resultRows, row)
-		end
-		results.Visible = #resultRows > 0
-	end
-
-	itemBox:GetPropertyChangedSignal("Text"):Connect(function()
-		-- editing the text invalidates a previous pick, so an old selection
-		-- can't be submitted under a name the player has since changed
-		chosenId = nil
-		showResults(itemBox.Text)
+	-- THE SAME item picker the trade screen uses -- a searchable grid of item
+	-- cards -- rather than a second, different way to name an item. Cloned from
+	-- the trade panel so there is one widget to maintain and picking an item
+	-- looks identical wherever a player does it.
+	local pickerSource = gui:WaitForChild("TradePanel"):WaitForChild("ItemPicker") :: Frame
+	local picker = pickerSource:Clone()
+	picker.Name = "RequestItemPicker"
+	picker.Visible = false
+	picker.Parent = panel
+	local pickerSearch = picker:WaitForChild("SearchBox") :: TextBox
+	local pickerGrid = picker:WaitForChild("PickerGrid") :: ScrollingFrame
+	local tileTemplate = pickerGrid:WaitForChild("PickerTile") :: ImageButton
+	;(picker:WaitForChild("Title") :: TextLabel).Text = "What do you need?"
+	;(picker:WaitForChild("CloseButton") :: TextButton).Activated:Connect(function()
+		picker.Visible = false
 	end)
-	itemBox.FocusLost:Connect(function()
-		-- let a click on a result land before the list disappears
-		task.delay(0.15, function()
-			if chosenId ~= nil then
-				closeResults()
+
+	local tiles: { Instance } = {}
+	local function fillPicker(query: string)
+		for _, t in tiles do
+			t:Destroy()
+		end
+		table.clear(tiles)
+		local q = query:lower():gsub("^%s+", ""):gsub("%s+$", "")
+		local order = 0
+		for _, item in (catalog or {}) do
+			local name = tostring(item.name)
+			if q == "" or name:lower():find(q, 1, true) then
+				order += 1
+				local tile = tileTemplate:Clone()
+				tile.Name = "pick_" .. item.itemId
+				tile.LayoutOrder = order
+				tile.Visible = true
+				;(tile:WaitForChild("Icon") :: ImageLabel).Image = item.imageId or ""
+				;(tile:WaitForChild("ItemName") :: TextLabel).Text = name
+				-- the count badge is a trade-screen concept (how many you hold);
+				-- a request is about what you DON'T have, so it has no place here
+				local badge = tile:FindFirstChild("CountLabel")
+				if badge then
+					badge.Visible = false
+				end
+				tile.Activated:Connect(function()
+					chosenId = item.itemId
+					itemBox.Text = name
+					picker.Visible = false
+				end)
+				tile.Parent = pickerGrid
+				table.insert(tiles, tile)
 			end
-		end)
+		end
+	end
+
+	pickerSearch:GetPropertyChangedSignal("Text"):Connect(function()
+		fillPicker(pickerSearch.Text)
+	end)
+
+	-- the composer's field is a button that opens the picker, never free text
+	itemBox.TextEditable = false
+	itemBox.ClearTextOnFocus = false
+	local function openPicker()
+		pickerSearch.Text = ""
+		fillPicker("")
+		picker.Visible = true
+	end
+	itemBox.Focused:Connect(function()
+		itemBox:ReleaseFocus()
+		openPicker()
 	end)
 
 	askBtn.Activated:Connect(function()
 		local itemId = chosenId
 		if itemId == nil then
-			toast("Pick an item from the list first.", Theme.Bad)
-			showResults(itemBox.Text)
+			toast("Pick an item first.", Theme.Bad)
+			openPicker()
 			return
 		end
 		local count = tonumber(countBox.Text)
@@ -458,9 +448,8 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		end
 		act(function()
 			return Net.invoke("PostSyndicateRequest", itemId, math.floor(count))
-		end, "Your syndicate has been asked.")
+		end, "Your group has been asked.")
 		itemBox.Text, countBox.Text, chosenId = "", "", nil
-		closeResults()
 	end)
 
 	local function renderRequests(s: any)
@@ -469,8 +458,8 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		local empty = requestsView:WaitForChild("EmptyLabel") :: TextLabel
 		local requests = s.requests or {}
 		empty.Text = "No one needs anything right now."
-			.. "\n\nAsk for what you're short of — a clanmate can send it straight"
-			.. " from their inventory, and they earn syndicate XP for doing it."
+			.. "\n\nAsk for what you're short of — a group member can send it straight"
+			.. " from their inventory, and they earn group XP for doing it."
 		empty.Visible = #requests == 0
 
 		local myId = Players.LocalPlayer.UserId
@@ -521,7 +510,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 					btn.Activated:Connect(function()
 						act(function()
 							return Net.invoke("FillSyndicateRequest", req.reqId, offer)
-						end, "Sent — your syndicate owes you one.")
+						end, "Sent — your group owes you one.")
 					end)
 				else
 					btn.Text = "NONE TO GIVE"
@@ -581,20 +570,29 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 				if not (dir and dir.ok) or not browseView.Visible then
 					return
 				end
-				renderList(browseView, "BrowseRow", dir.syndicates, "No syndicates yet — found the first one!", function(row, entry)
+				renderList(browseView, "BrowseRow", dir.syndicates, "No groups yet — make the first one!", function(row, entry)
 					(row:WaitForChild("SynName") :: TextLabel).Text = ("[%s] %s"):format(entry.tag, entry.name)
-					;(row:WaitForChild("SynMeta") :: TextLabel).Text =
-						("Level %d  ·  %d members  ·  %s"):format(entry.level or 1, entry.members or 0, SyndicateConfig.JoinPolicyLabels[entry.policy] or "")
-					-- the button has to say what pressing it will actually do: an
-					-- open syndicate lets you straight in, a "Ask to join" one
-					-- only files a request, and an invite-only one can't be
-					-- joined from here at all
+					;(row:WaitForChild("SynMeta") :: TextLabel).Text = ("Level %d"):format(entry.level or 1)
+
+					local function column(name: string, value: number)
+						local col = row:WaitForChild(name) :: Frame
+						col.Visible = true
+						;(col:WaitForChild("Value") :: TextLabel).Text = Format.abbrev(value)
+					end
+					column("StatA", entry.members or 0)
+					column("StatB", entry.trades or 0)
+					column("StatC", entry.crafts or 0)
+
+					-- Invite-only groups are never listed, so the only cases here
+					-- are "walk in" and "apply". A member of a group already can't
+					-- join another, so they see the setting instead of a button
+					-- that would only be refused.
 					local btn = row:WaitForChild("ActionButton") :: TextButton
+					local policyText = row:WaitForChild("PolicyText") :: TextLabel
 					btn.Visible = not inSyndicate
-					if entry.policy == "Invite" then
-						btn.Text = "INVITE ONLY"
-						btn.BackgroundColor3 = Theme.BgLight
-						btn.AutoButtonColor = false
+					policyText.Visible = inSyndicate
+					if inSyndicate then
+						policyText.Text = SyndicateConfig.JoinPolicyLabels[entry.policy] or ""
 					else
 						local asks = entry.policy == "Request"
 						btn.Text = asks and "ASK TO JOIN" or "JOIN"
@@ -613,6 +611,13 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			renderList(invitesView, "InviteRow", payload.invites or {}, "No pending invites.", function(row, entry)
 				(row:WaitForChild("SynName") :: TextLabel).Text = ("[%s] %s"):format(entry.tag, entry.name)
 				;(row:WaitForChild("SynMeta") :: TextLabel).Text = "invited you"
+				-- same row template as Browse; an invite has no stats to compare
+				for _, name in { "StatA", "StatB", "StatC" } do
+					local col = row:FindFirstChild(name)
+					if col then
+						col.Visible = false
+					end
+				end
 				local btn = row:WaitForChild("ActionButton") :: TextButton
 				btn.Visible = not inSyndicate
 				btn.Activated:Connect(function()
@@ -639,6 +644,19 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	InventoryController.inventory.Changed:Connect(function()
 		if panel.Visible and activeTab == "requests" and latest and latest.syndicate then
 			SyndicateScreen._render(latest)
+		end
+	end)
+
+	-- Keep the open panel live. Group state changes from OTHER people --
+	-- someone joins, a request gets filled, XP ticks up -- so a screen that
+	-- only updated when you switched tabs was showing stale data most of
+	-- the time. Cheap: GetSyndicate is a cached read (~50ms).
+	task.spawn(function()
+		while true do
+			task.wait(6)
+			if panel.Visible and not busy then
+				refresh()
+			end
 		end
 	end)
 

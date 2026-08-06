@@ -68,9 +68,11 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	----------------------------------------------------------------------
 	-- tab bar at 42, progress strip under it, then the list fills what's left
 	local progressStrip = panel:WaitForChild("ProgressStrip") :: Frame
+	-- the strip is 96 tall from y=80, so it ends at 176; the list has to start
+	-- BELOW that with a real gap, not at 168 where it clipped the cards
 	progressStrip.Position = UDim2.fromOffset(12, 80)
-	list.Position = UDim2.fromOffset(12, 168)
-	list.Size = UDim2.new(1, -24, 1, -180)
+	list.Position = UDim2.fromOffset(12, 188)
+	list.Size = UDim2.new(1, -24, 1, -200)
 
 	local tabRow = Instance.new("Frame")
 	tabRow.Name = "TabRow"
@@ -978,7 +980,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		-- Communal goal
 		----------------------------------------------------------------
 		local goal = p.goal
-		goalTitle.Text = goal.name:upper()
+		-- the config name alone ("Server Forge") says nothing about what the card
+		-- is, so lead with the fact that it is a shared, whole-server goal
+		goalTitle.Text = "SERVER GOAL: " .. goal.name:upper()
 		local frac = math.clamp(goal.total / math.max(goal.target, 1), 0, 1)
 		goalFill.Size = UDim2.fromScale(frac, 1)
 		goalPct.Text = ("%s / %s"):format(Format.abbrev(goal.total), Format.abbrev(goal.target))

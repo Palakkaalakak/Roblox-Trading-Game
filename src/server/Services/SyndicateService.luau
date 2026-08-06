@@ -211,6 +211,9 @@ local function updateDirectory(record: any)
 		level = SyndicateConfig.levelFor(record.xp or 0),
 		members = SyndicateService.memberCount(record),
 		policy = record.policy,
+		xp = record.xp or 0,
+		trades = (record.stats and record.stats.trade) or 0,
+		crafts = (record.stats and record.stats.craft) or 0,
 	}
 end
 
@@ -278,12 +281,19 @@ function SyndicateService.addXp(userId: number, source: string)
 			end
 			record.xp = (record.xp or 0) + amount
 			record.members[key].xp = (record.members[key].xp or 0) + amount
+			-- per-source tallies: cheap here (we're already inside the CAS) and
+			-- they give the browse list real numbers to compare groups on
+			record.stats = record.stats or {}
+			record.stats[source] = (record.stats[source] or 0) + 1
 			return record
 		end)
 		if committed then
 			local levelAfter = SyndicateConfig.levelFor(committed.xp or 0)
+			-- refresh the browse row on every XP gain, not just level-ups: the
+			-- row now shows XP and activity counts, and the write is queued and
+			-- coalesced so doing it often costs nothing
+			updateDirectory(committed)
 			if levelAfter > levelBefore then
-				updateDirectory(committed)
 				AnalyticsService.log("syndicate_levelup", {
 					id = syndicateId, level = levelAfter, xp = committed.xp,
 				})
@@ -892,10 +902,17 @@ function SyndicateService.Start()
 		end)
 		local rows = {}
 		for id, info in (all or {}) do
-			table.insert(rows, {
-				id = id, name = info.name, tag = info.tag,
-				level = info.level, members = info.members, policy = info.policy,
-			})
+			-- invite-only groups are unlisted: you can't join one from here, so
+			-- showing it is a row that exists only to be refused
+			if info.policy ~= "Invite" then
+				table.insert(rows, {
+					id = id, name = info.name, tag = info.tag,
+					level = info.level, members = info.members, policy = info.policy,
+					xp = info.xp or 0,
+					netWorth = info.netWorth or 0,
+					trades = info.trades or 0,
+				})
+			end
 		end
 		table.sort(rows, function(a, b)
 			if a.level ~= b.level then

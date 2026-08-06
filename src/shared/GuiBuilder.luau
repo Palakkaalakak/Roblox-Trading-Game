@@ -28,6 +28,7 @@ local C = {
 	Warn = Color3.fromRGB(250, 190, 80),
 	Gem = Color3.fromRGB(120, 220, 232),
 	Gold = Color3.fromRGB(253, 179, 30),
+	Info = Color3.fromRGB(126, 190, 255), -- light blue: settings toggles, not actions
 }
 local ICONS = {
 	Gem = "rbxassetid://17368064384",
@@ -185,7 +186,7 @@ local function buildHud(parent: Instance)
 	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.37))
 	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.27))
 	-- no RANKS button: leaderboards are the physical boards in the world
-	iconButton("SyndicateButton", ICONS.Friends, "SYNDICATE", UDim2.fromScale(0.955, 0.17))
+	iconButton("SyndicateButton", ICONS.Friends, "GROUP", UDim2.fromScale(0.955, 0.17))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
@@ -2299,7 +2300,7 @@ local function buildSyndicatePanel(parent: Instance)
 	label("Title", {
 		Position = UDim2.fromOffset(14, 8),
 		Size = UDim2.new(1, -60, 0, 24),
-		Text = "Syndicates",
+		Text = "Groups",
 		TextSize = 18,
 	}, syn)
 	button("CloseButton", {
@@ -2341,13 +2342,13 @@ local function buildSyndicatePanel(parent: Instance)
 	label("Heading", {
 		Position = UDim2.fromOffset(0, 6),
 		Size = UDim2.new(1, 0, 0, 26),
-		Text = "Start your own syndicate",
+		Text = "Start your own group",
 		TextSize = 17,
 	}, createView)
 	label("Blurb", {
 		Position = UDim2.fromOffset(0, 34),
 		Size = UDim2.new(1, 0, 0, 40),
-		Text = "Your members' trades, board fills and crafts all earn XP for the syndicate. Levelling raises the member cap and unlocks perks.",
+		Text = "Every trade, board fill and craft your members make earns the group XP. Levelling raises the member cap and unlocks perks for everyone.",
 		Font = FONT_LIGHT,
 		TextSize = 12,
 		TextColor3 = C.TextDim,
@@ -2363,7 +2364,7 @@ local function buildSyndicatePanel(parent: Instance)
 		Font = FONT,
 		TextSize = 14,
 		TextColor3 = C.Text,
-		PlaceholderText = "Syndicate name",
+		PlaceholderText = "Group name",
 		Text = "",
 		ClearTextOnFocus = false,
 	}, createView)
@@ -2377,7 +2378,7 @@ local function buildSyndicatePanel(parent: Instance)
 		Font = FONT,
 		TextSize = 14,
 		TextColor3 = C.Text,
-		PlaceholderText = "TAG",
+		PlaceholderText = "Tag",
 		Text = "",
 		ClearTextOnFocus = false,
 	}, createView)
@@ -2392,7 +2393,8 @@ local function buildSyndicatePanel(parent: Instance)
 	corner(createBtn, 6)
 	label("CostLabel", {
 		Position = UDim2.fromOffset(0, 122),
-		Size = UDim2.new(1, 0, 0, 20),
+		Size = UDim2.new(1, 0, 0, 36),
+		TextWrapped = true,
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 12,
@@ -2425,7 +2427,7 @@ local function buildSyndicatePanel(parent: Instance)
 	label("SynName", {
 		Position = UDim2.fromOffset(14, 8),
 		Size = UDim2.new(0.7, 0, 0, 26),
-		Text = "Syndicate",
+		Text = "Group",
 		TextSize = 18,
 	}, banner)
 	label("SynMeta", {
@@ -2590,7 +2592,7 @@ local function buildSyndicatePanel(parent: Instance)
 	label("ComposerHint", {
 		Position = UDim2.fromOffset(12, 4),
 		Size = UDim2.new(1, -24, 0, 13),
-		Text = "SHORT OF SOMETHING? ASK — CLANMATES CAN SEND IT FROM THEIR OWN STASH",
+		Text = "SHORT OF SOMETHING? ASK — GROUP MEMBERS CAN SEND IT FROM THEIR OWN STASH",
 		Font = FONT_LIGHT,
 		TextSize = 10,
 		TextColor3 = C.TextDim,
@@ -2623,68 +2625,12 @@ local function buildSyndicatePanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -12, 0, 18),
 		Size = UDim2.fromOffset(140, 24),
-		Text = "ASK SYNDICATE",
+		Text = "ASK GROUP",
 		TextSize = 12,
 		BackgroundColor3 = C.Accent,
 	}, composer)
 	corner(askBtn, 6)
 	gradStroke(askBtn, Color3.fromRGB(140, 165, 255), Color3.fromRGB(35, 50, 130), 1.5)
-
-	-- Item picker: typing in ItemBox filters the real item list and drops these
-	-- results over the board. Typing a name blind and hoping it matched was a
-	-- guessing game — the player should pick the actual item, with its art, the
-	-- same way every other picker in the game works.
-	local results = new("ScrollingFrame", {
-		Name = "Results",
-		Position = UDim2.fromOffset(12, 46),
-		-- exactly six rows (30 + 2 padding each) + the frame padding, so the
-		-- list never ends on a half-clipped row
-		Size = UDim2.new(0.52, -20, 0, 200),
-		BackgroundColor3 = Color3.fromRGB(24, 25, 33),
-		BorderSizePixel = 0,
-		ScrollBarThickness = 5,
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		CanvasSize = UDim2.new(),
-		Visible = false,
-		ZIndex = 20,
-	}, reqView)
-	corner(results, 8)
-	stroke(results, Color3.fromRGB(70, 74, 92), 1.5)
-	new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, results)
-	new("UIPadding", {
-		PaddingTop = UDim.new(0, 4),
-		PaddingBottom = UDim.new(0, 4),
-		PaddingLeft = UDim.new(0, 4),
-		PaddingRight = UDim.new(0, 4),
-	}, results)
-
-	local resultRow = button("ResultRow", {
-		Size = UDim2.new(1, -8, 0, 30),
-		Text = "",
-		BackgroundColor3 = Color3.fromRGB(38, 40, 51),
-		Visible = false,
-		ZIndex = 21,
-	}, results)
-	corner(resultRow, 6)
-	new("ImageLabel", {
-		Name = "Icon",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(4, 3),
-		Size = UDim2.fromOffset(24, 24),
-		Image = "",
-		ScaleType = Enum.ScaleType.Fit,
-		ZIndex = 22,
-	}, resultRow)
-	label("ItemName", {
-		Position = UDim2.fromOffset(34, 0),
-		Size = UDim2.new(1, -40, 1, 0),
-		Text = "",
-		Font = FONT_LIGHT,
-		TextSize = 12,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		TextYAlignment = Enum.TextYAlignment.Center,
-		ZIndex = 22,
-	}, resultRow)
 
 	local reqList = new("ScrollingFrame", {
 		Name = "List",
@@ -2821,19 +2767,59 @@ local function buildSyndicatePanel(parent: Instance)
 		label("SynName", {
 			Position = UDim2.fromOffset(12, 0),
 			Size = UDim2.new(0.5, 0, 1, 0),
-			Text = "Syndicate",
+			Text = "Group",
 			TextSize = 14,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			TextYAlignment = Enum.TextYAlignment.Center,
 		}, row)
 		label("SynMeta", {
-			Position = UDim2.fromScale(0.54, 0),
-			Size = UDim2.fromOffset(180, 44),
+			Position = UDim2.fromOffset(12, 24),
+			Size = UDim2.new(0.38, 0, 0, 16),
+			Text = "",
+			Font = FONT_LIGHT,
+			TextSize = 11,
+			TextColor3 = C.TextDim,
+			TextYAlignment = Enum.TextYAlignment.Center,
+		}, row)
+
+		-- Three stat columns so groups can actually be compared at a glance,
+		-- rather than the row repeating a join setting the button already states.
+		for i, spec in { { "StatA", "MEMBERS" }, { "StatB", "TRADES" }, { "StatC", "CRAFTS" } } do
+			local col = new("Frame", {
+				Name = spec[1],
+				BackgroundTransparency = 1,
+				Position = UDim2.new(0.4 + (i - 1) * 0.13, 0, 0, 4),
+				Size = UDim2.new(0.12, 0, 1, -8),
+			}, row)
+			label("Caption", {
+				Size = UDim2.new(1, 0, 0, 13),
+				Text = spec[2],
+				Font = FONT_LIGHT,
+				TextSize = 9,
+				TextColor3 = C.TextDim,
+				TextXAlignment = Enum.TextXAlignment.Center,
+			}, col)
+			label("Value", {
+				Position = UDim2.fromOffset(0, 13),
+				Size = UDim2.new(1, 0, 0, 18),
+				Text = "0",
+				TextSize = 14,
+				TextXAlignment = Enum.TextXAlignment.Center,
+			}, col)
+		end
+
+		-- shown in place of the join button when the viewer is already in a group
+		label("PolicyText", {
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0.5, 0),
+			Size = UDim2.fromOffset(120, 28),
 			Text = "",
 			Font = FONT_LIGHT,
 			TextSize = 12,
 			TextColor3 = C.TextDim,
+			TextXAlignment = Enum.TextXAlignment.Right,
 			TextYAlignment = Enum.TextYAlignment.Center,
+			Visible = false,
 		}, row)
 		local act = button("ActionButton", {
 			AnchorPoint = Vector2.new(1, 0.5),
@@ -3347,12 +3333,15 @@ local function buildEventsPanel(parent: Instance)
 			BorderSizePixel = 0,
 			Size = UDim2.new(0.5, -5, 1, 0),
 		}, strip)
-		corner(card, 8)
-		grad(card, Color3.fromRGB(48, 50, 62), Color3.fromRGB(30, 31, 40))
-		gradStroke(card, accent, Color3.fromRGB(40, 42, 52), 1.5)
-		sheen(card, 8)
+		-- Flat panel + plain stroke, matching the recipe rows this sits above.
+		-- These first wore the shop's gloss treatment (gradient body, sheen,
+		-- metallic gold), which made them look pasted in from a different game:
+		-- the shop is deliberately the shiniest screen and nothing else should
+		-- compete with it.
+		corner(card, 6)
+		stroke(card, C.Stroke, 1)
 
-		local title = label("Title", {
+		label("Title", {
 			Position = UDim2.fromOffset(12, 8),
 			Size = UDim2.new(1, -24, 0, 18),
 			Text = titleText,
@@ -3360,19 +3349,17 @@ local function buildEventsPanel(parent: Instance)
 			TextColor3 = accent,
 			ZIndex = 2,
 		}, card)
-		textStroke(title, 1.4, 0.35)
 
 		-- the bar: recessed track, glossy fill, and a percentage sitting on it
 		local track = new("Frame", {
 			Name = "Track",
-			BackgroundColor3 = Color3.fromRGB(20, 21, 28),
+			BackgroundColor3 = C.BgLight,
 			BorderSizePixel = 0,
 			Position = UDim2.fromOffset(12, 32),
 			Size = UDim2.new(1, -24, 0, 14),
 			ZIndex = 2,
 		}, card)
 		corner(track, 7)
-		stroke(track, Color3.fromRGB(14, 15, 20), 1)
 		local fill = new("Frame", {
 			Name = "Fill",
 			BackgroundColor3 = accent,
@@ -3381,11 +3368,6 @@ local function buildEventsPanel(parent: Instance)
 			ZIndex = 2,
 		}, track)
 		corner(fill, 7)
-		if gold then
-			goldFill(fill)
-		else
-			grad(fill, Color3.fromRGB(120, 235, 255), Color3.fromRGB(40, 150, 220))
-		end
 		local pct = label("Pct", {
 			Size = UDim2.fromScale(1, 1),
 			Text = "",
@@ -3395,7 +3377,6 @@ local function buildEventsPanel(parent: Instance)
 			TextYAlignment = Enum.TextYAlignment.Center,
 			ZIndex = 3,
 		}, track)
-		textStroke(pct, 1.6, 0.1)
 
 		local meta = label("Meta", {
 			Position = UDim2.fromOffset(12, 50),
@@ -3425,23 +3406,17 @@ local function buildEventsPanel(parent: Instance)
 			Size = UDim2.fromOffset(150, 26),
 			Text = "CLAIM",
 			TextSize = 12,
-			BackgroundColor3 = gold and GOLD_LO or C.Good,
-			TextColor3 = gold and GOLD_TEXT or C.Bg,
+			BackgroundColor3 = C.Good,
+			TextColor3 = C.Bg,
 			Visible = false,
 			ZIndex = 3,
 		}, card)
 		corner(claim, 6)
-		if gold then
-			goldFill(claim)
-			gradStroke(claim, GOLD_HI, GOLD_EDGE, 1.5)
-		else
-			gradStroke(claim, Color3.fromRGB(120, 240, 150), Color3.fromRGB(20, 110, 50), 1.5)
-		end
 		return card, fill, pct, meta, sub, claim
 	end
 
-	progressCard("GoalCard", 1, "SERVER FORGE", C.Gold, true)
-	progressCard("MilestoneCard", 2, "YOUR CRAFTING", C.Gem, false)
+	progressCard("GoalCard", 1, "SERVER GOAL", C.Gold, true)
+	progressCard("MilestoneCard", 2, "YOUR MILESTONES", C.Gem, false)
 
 	local list = new("ScrollingFrame", {
 		Name = "EventList",
