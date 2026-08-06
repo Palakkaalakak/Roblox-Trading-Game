@@ -575,6 +575,56 @@ local EventConfig: any = {
 	},
 
 	--------------------------------------------------------------------------
+	-- UNIQUE CRAFT
+	--
+	-- One player at a time gets temporary access to craft an item that ALREADY
+	-- EXISTS in the game but is not currently the output of any live recipe.
+	--
+	-- WHY IT EXISTS. Every player wanting the same things makes them each
+	-- other's competitors rather than each other's counterparties, and a market
+	-- of competitors barely trades. A unique craft puts ONE player in the market
+	-- with a specific shopping list that nobody is bidding against, which means
+	-- (a) they can actually fill it, and (b) whoever is holding those inputs
+	-- finally has a buyer. That second half is what lets a brand-new player sell
+	-- anything at all without knowing how to trade.
+	--
+	-- It also teaches the four ways to get an item without a word of tutorial:
+	-- to fill the list you can roll, buy from the gem store, buy on the board,
+	-- or trade someone directly.
+	UniqueCraft = {
+		enabled = true,
+		DurationSeconds = 3 * 3600, -- how long the offer stays craftable
+		CooldownSeconds = 30 * 60, -- gap after one ends before the next is offered
+
+		-- Candidate OUTPUTS are ANY item that is (a) still re-obtainable, so
+		-- ended seasonal exclusives stay ended, and (b) not produced by any
+		-- live recipe right now. Rarity is deliberately NOT a filter — a rare
+		-- output is a real moment, and the item's own reserve already caps how
+		-- many can exist. Add rarities here only if the top end proves swingy.
+		ExcludeRarities = {},
+
+		-- How many DISTINCT input items the list asks for.
+		InputKinds = { min = 2, max = 3 },
+
+		-- The list is sized so its total input value lands in this band relative
+		-- to the output's value. Below 1.0 means the craft is profitable at
+		-- market prices — deliberate, because this is an on-ramp: the player
+		-- should be able to work out "inputs cost less than the output is worth"
+		-- from numbers the game already shows them. Raise toward 1.0 to make it
+		-- a genuine judgement call instead.
+		InputValueFraction = { min = 0.45, max = 0.7 },
+
+		-- Ask for at least this many of each input. Below this the "list" is a
+		-- handful of single items, which creates no demand for anyone and
+		-- defeats the point of the mechanic.
+		MinPerInput = 4,
+
+		-- Never ask for more than this many of a single item, so a list stays
+		-- fillable by a new player rather than becoming a grind.
+		MaxPerInput = 25,
+	},
+
+	--------------------------------------------------------------------------
 	-- MILESTONES — the personal reason to keep crafting.
 	--
 	-- Crafting is the value engine, but on its own it is a flat activity: the
@@ -586,8 +636,11 @@ local EventConfig: any = {
 	--
 	-- Rewards are ordinary items pulled from the shared reserve, so a milestone
 	-- is a redistribution, not an inflation.
+	-- TURNED OFF. Left fully intact: set enabled = true to bring the whole
+	-- track back (server awards and the Crafting panel card both key off
+	-- this flag alone).
 	Milestones = {
-		enabled = true,
+		enabled = false,
 		Tiers = {
 			{ crafts = 5, name = "Apprentice", reward = { itemId = "itm_1_1_stone_relic", count = 5 } },
 			{ crafts = 25, name = "Journeyman", reward = { itemId = "itm_1_3_amber_idol", count = 4 } },
@@ -611,8 +664,9 @@ local EventConfig: any = {
 	-- and the reward is an item so the payout is redistribution rather than a
 	-- gem faucet. The counter is keyed by window index, so it resets itself on
 	-- the clock with no reset job — the same trick the weekly leaderboards use.
+	-- TURNED OFF, same as Milestones above: flip enabled to restore.
 	CommunalGoal = {
-		enabled = true,
+		enabled = false,
 		WindowSeconds = 24 * 3600, -- a fresh goal every day
 		Target = 400, -- crafts by everyone, combined
 		MinContribution = 1, -- crafts needed before you may claim

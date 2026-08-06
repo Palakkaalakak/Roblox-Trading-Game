@@ -25,6 +25,7 @@ local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
+local EventConfig = require(game:GetService("ReplicatedStorage").Shared.Config.EventConfig)
 
 local EventsScreen = {}
 
@@ -68,11 +69,22 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	----------------------------------------------------------------------
 	-- tab bar at 42, progress strip under it, then the list fills what's left
 	local progressStrip = panel:WaitForChild("ProgressStrip") :: Frame
-	-- the strip is 96 tall from y=80, so it ends at 176; the list has to start
-	-- BELOW that with a real gap, not at 168 where it clipped the cards
-	progressStrip.Position = UDim2.fromOffset(12, 80)
-	list.Position = UDim2.fromOffset(12, 188)
-	list.Size = UDim2.new(1, -24, 1, -200)
+
+	-- The milestone / server-goal cards are switched off in EventConfig. With
+	-- both off the strip is hidden and the list takes the space back, so
+	-- turning them on again is one flag and needs no layout edit here.
+	local showProgress = EventConfig.Milestones.enabled or EventConfig.CommunalGoal.enabled
+	progressStrip.Visible = showProgress
+	if showProgress then
+		-- the strip is 96 tall from y=80, so it ends at 176; the list starts
+		-- below that with a real gap (at 168 it clipped the cards)
+		progressStrip.Position = UDim2.fromOffset(12, 80)
+		list.Position = UDim2.fromOffset(12, 188)
+		list.Size = UDim2.new(1, -24, 1, -200)
+	else
+		list.Position = UDim2.fromOffset(12, 80)
+		list.Size = UDim2.new(1, -24, 1, -92)
+	end
 
 	local tabRow = Instance.new("Frame")
 	tabRow.Name = "TabRow"
@@ -787,7 +799,13 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local out = {}
 		for _, recipe in event.recipes do
 			local keep
-			if activeTab == "craft" then
+			if event.id == "evt_unique" then
+				-- The Unique Craft shows on EVERY tab. It is personal, it
+				-- expires, and it is deliberately NOT craftable on arrival —
+				-- filtering it out of "Can Craft" would hide the one thing the
+				-- player is meant to go and act on.
+				keep = true
+			elseif activeTab == "craft" then
 				keep = recipe.craftable and recipe.output.remaining > 0
 			elseif activeTab == "recipes" then
 				keep = event.category == "permanent" or event.category == "rotating"
@@ -808,6 +826,30 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			return "No recipes available right now, check back soon!"
 		end
 		return "No limited events running — new seasons land here!"
+	end
+
+	-- The panel is a fixed 560 tall, which left a wall of empty dark space under
+	-- a short list (one craftable recipe and ~500px of nothing). Shrink it to hug
+	-- its content, up to the full height, so the panel always looks filled.
+	local PANEL_FULL_HEIGHT = panel.Size.Y.Offset
+	local listTop = list.Position.Y.Offset
+	local function fitPanelToContent()
+		local layout = list:FindFirstChildWhichIsA("UIListLayout")
+		if layout == nil then
+			return
+		end
+		-- one frame for the layout to measure what was just parented
+		task.defer(function()
+			if not panel.Visible then
+				return
+			end
+			local content = layout.AbsoluteContentSize.Y
+			local wanted = listTop + content + 14
+			panel.Size = UDim2.fromOffset(
+				panel.Size.X.Offset,
+				math.clamp(wanted, 220, PANEL_FULL_HEIGHT)
+			)
+		end)
 	end
 
 	renderEvents = function(events: { any })
@@ -842,6 +884,28 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 					shown += 1
 					local row = rowTemplate:Clone()
 					row.Name = "row_" .. event.id .. "_" .. recipe.rid
+					-- The Unique Craft is the one row here that belongs to this
+					-- player alone and expires, so it gets a gold edge and a tag.
+					-- Without it, it reads as just another recipe in the list.
+					if event.id == "evt_unique" then
+						local edge = row:FindFirstChildWhichIsA("UIStroke")
+						if edge then
+							edge.Color = Theme.Gold
+							edge.Thickness = 2
+						end
+						local tag = Instance.new("TextLabel")
+						tag.Name = "YoursTag"
+						tag.BackgroundTransparency = 1
+						tag.AnchorPoint = Vector2.new(1, 1)
+						tag.Position = UDim2.new(1, -12, 1, -6)
+						tag.Size = UDim2.fromOffset(220, 14)
+						tag.Font = Theme.Font
+						tag.Text = "ONLY YOU CAN MAKE THIS"
+						tag.TextSize = 10
+						tag.TextColor3 = Theme.Gold
+						tag.TextXAlignment = Enum.TextXAlignment.Right
+						tag.Parent = row
+					end
 					row.Parent = list
 					table.insert(spawned, row)
 					renderRow(row, event, recipe, order)
@@ -857,6 +921,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			none.Parent = list
 			table.insert(spawned, none)
 		end
+
+		fitPanelToContent()
 	end
 
 	local function selectTab(tab: string)
@@ -1043,6 +1109,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	end
 
 	refreshProgress = function()
+		if not showProgress then
+			return
+		end
 		task.spawn(function()
 			local result = Net.invoke("GetCraftProgress")
 			if result and result.ok and panel.Visible then

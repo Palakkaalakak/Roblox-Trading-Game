@@ -40,11 +40,25 @@ local EconomyService = require(script.Parent.EconomyService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local ROTATING_EVENT_ID = "evt_rotating"
+local UNIQUE_EVENT_ID = "evt_unique"
+
+-- Lazy: UniqueCraftService reads activeEvents() from here, so requiring it
+-- at the top would cycle.
+local function uniqueCrafts(): any
+	return require(script.Parent.UniqueCraftService)
+end
 
 local CraftingService = {}
 
 local function outputItemId(sku: string): string
 	return "evt_" .. sku
+end
+
+-- A recipe's output id. Normally "evt_<sku>", but a Unique Craft names an item
+-- that ALREADY exists, so it carries an explicit itemId and we use that — the
+-- craft then draws on that item's own reserve and cap like any other source.
+local function recipeOutputId(recipe: any): string
+	return recipe.output.itemId or outputItemId(recipe.output.sku)
 end
 
 --------------------------------------------------------------------------------
@@ -462,7 +476,7 @@ local function describeRecipe(recipe: any, profile: any, now: number): any
 		craftable = false
 	end
 
-	local outId = outputItemId(recipe.output.sku)
+	local outId = recipeOutputId(recipe)
 	local snap = EconomyService.snapshot(outId)
 	-- NO RECORD MEANS NOTHING HAS BEEN TAKEN YET, so the reserve is full — it
 	-- must NOT read as 0, which is "fully crafted". Getting this backwards makes
@@ -472,7 +486,11 @@ local function describeRecipe(recipe: any, profile: any, now: number): any
 	-- cached client-side: consumed inputs are REDISTRIBUTED back into an item's
 	-- reserve (crafting, roll item-payments), so a recipe that was fully crafted
 	-- can legitimately become available again and the UI has to notice.
-	local remaining = snap and snap.reserveRemaining or recipe.output.totalSupply
+	-- A Unique Craft outputs an item that already exists, so its cap lives on
+	-- the ITEM, not on the recipe — fall back to the snapshot for both halves
+	-- or the row renders "?/? left".
+	local total = recipe.output.totalSupply or (snap and snap.totalSupply)
+	local remaining = snap and snap.reserveRemaining or total
 	return {
 		rid = recipe.rid,
 		tier = recipe.tier or 1,
@@ -485,7 +503,7 @@ local function describeRecipe(recipe: any, profile: any, now: number): any
 			name = recipe.output.name,
 			imageId = recipe.output.imageId,
 			remaining = remaining,
-			total = recipe.output.totalSupply,
+			total = total,
 		},
 	}
 end
@@ -507,6 +525,21 @@ local function handleGetEvents(player: Player)
 			endsAt = event.endsAt,
 			rotatesAt = event.rotatesAt,
 			recipes = recipes,
+		})
+	end
+
+	-- the player's own Unique Craft, rendered through the same recipe shape as
+	-- everything else. Listed FIRST: it is the one thing on this screen that is
+	-- theirs alone and it expires, so it should not be buried under the ladder.
+	local unique = uniqueCrafts().recipeFor(player, now)
+	if unique then
+		table.insert(events, 1, {
+			id = UNIQUE_EVENT_ID,
+			name = "Unique Craft",
+			kind = "crafting",
+			category = "limited",
+			endsAt = unique.expiresAt,
+			recipes = { describeRecipe(unique, profile, now) },
 		})
 	end
 	return { ok = true, events = events, now = now }
@@ -556,14 +589,22 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		return { ok = false, err = "bad_args" }
 	end
 
-	local recipe = CraftingService.findActiveRecipe(eventId :: string, rid :: string, os.time())
+	local isBot = userId < 0
+	local player = if isBot then nil else Players:GetPlayerByUserId(userId)
+
+	local recipe
+	if eventId == UNIQUE_EVENT_ID then
+		-- per-player, so it resolves from the player's own offer rather than
+		-- the global active set (and a bot can never hold one)
+		recipe = if player then uniqueCrafts().recipeFor(player, os.time()) else nil
+	else
+		recipe = CraftingService.findActiveRecipe(eventId :: string, rid :: string, os.time())
+	end
 	if recipe == nil then
 		return { ok = false, err = "recipe_not_active" }
 	end
-	local outId = outputItemId(recipe.output.sku)
+	local outId = recipeOutputId(recipe)
 
-	local isBot = userId < 0
-	local player = if isBot then nil else Players:GetPlayerByUserId(userId)
 	local function delta(d: any, source: string): (boolean, string?)
 		if isBot then
 			return bots().applyDelta(userId, d, source)

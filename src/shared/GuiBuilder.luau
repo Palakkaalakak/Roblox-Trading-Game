@@ -3482,8 +3482,12 @@ local function buildEventsPanel(parent: Instance)
 		Position = UDim2.fromOffset(10, 10),
 		Size = UDim2.fromOffset(220, 72),
 	}, row)
+	-- Centred, not left-aligned: the holder is a fixed width sized for four
+	-- chips, so a two-input recipe left a hole between the chips and the
+	-- arrow. Centring splits the slack evenly and reads as deliberate.
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, inputsHolder)
