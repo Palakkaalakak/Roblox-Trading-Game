@@ -828,30 +828,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		return "No limited events running — new seasons land here!"
 	end
 
-	-- The panel is a fixed 560 tall, which left a wall of empty dark space under
-	-- a short list (one craftable recipe and ~500px of nothing). Shrink it to hug
-	-- its content, up to the full height, so the panel always looks filled.
-	local PANEL_FULL_HEIGHT = panel.Size.Y.Offset
-	local listTop = list.Position.Y.Offset
-	local function fitPanelToContent()
-		local layout = list:FindFirstChildWhichIsA("UIListLayout")
-		if layout == nil then
-			return
-		end
-		-- one frame for the layout to measure what was just parented
-		task.defer(function()
-			if not panel.Visible then
-				return
-			end
-			local content = layout.AbsoluteContentSize.Y
-			local wanted = listTop + content + 14
-			panel.Size = UDim2.fromOffset(
-				panel.Size.X.Offset,
-				math.clamp(wanted, 220, PANEL_FULL_HEIGHT)
-			)
-		end)
-	end
-
 	renderEvents = function(events: { any })
 		clearRendered()
 		local order = 0
@@ -922,7 +898,6 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			table.insert(spawned, none)
 		end
 
-		fitPanelToContent()
 	end
 
 	local function selectTab(tab: string)

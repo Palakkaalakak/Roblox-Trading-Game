@@ -3482,12 +3482,8 @@ local function buildEventsPanel(parent: Instance)
 		Position = UDim2.fromOffset(10, 10),
 		Size = UDim2.fromOffset(220, 72),
 	}, row)
-	-- Centred, not left-aligned: the holder is a fixed width sized for four
-	-- chips, so a two-input recipe left a hole between the chips and the
-	-- arrow. Centring splits the slack evenly and reads as deliberate.
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, inputsHolder)
@@ -4319,6 +4315,22 @@ function GuiBuilder.build()
 	end
 	buildHud(starterGui)
 	buildModals(starterGui)
+
+	-- A ScrollingFrame clips its descendants, and a UIStroke straddles the
+	-- edge it is drawn on. Rows are sized (1, -8) and left-aligned, so they
+	-- sit flush at x=0 and the OUTER half of their left border was being cut
+	-- off while the right kept its 8px gutter -- a visibly lopsided box.
+	-- Giving every list a left gutter fixes it everywhere at once, including
+	-- any list added later.
+	for _, gui in { starterGui:FindFirstChild("TradingHUD"), starterGui:FindFirstChild("TradingModals") } do
+		if gui then
+			for _, scroll in gui:GetDescendants() do
+				if scroll:IsA("ScrollingFrame") and scroll:FindFirstChildWhichIsA("UIPadding") == nil then
+					new("UIPadding", { PaddingLeft = UDim.new(0, 6) }, scroll)
+				end
+			end
+		end
+	end
 	return "GUI built into StarterGui (TradingHUD + TradingModals)"
 end
 
