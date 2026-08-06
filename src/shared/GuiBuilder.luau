@@ -4319,14 +4319,19 @@ function GuiBuilder.build()
 	-- A ScrollingFrame clips its descendants, and a UIStroke straddles the
 	-- edge it is drawn on. Rows are sized (1, -8) and left-aligned, so they
 	-- sit flush at x=0 and the OUTER half of their left border was being cut
-	-- off while the right kept its 8px gutter -- a visibly lopsided box.
+	-- off while the right kept its 8px gutter -- a visibly lopsided box. The
+	-- first row loses its TOP border to the same clip, so both edges get a
+	-- gutter (the gem store shows this most clearly).
 	-- Giving every list a left gutter fixes it everywhere at once, including
 	-- any list added later.
 	for _, gui in { starterGui:FindFirstChild("TradingHUD"), starterGui:FindFirstChild("TradingModals") } do
 		if gui then
 			for _, scroll in gui:GetDescendants() do
 				if scroll:IsA("ScrollingFrame") and scroll:FindFirstChildWhichIsA("UIPadding") == nil then
-					new("UIPadding", { PaddingLeft = UDim.new(0, 6) }, scroll)
+					new("UIPadding", {
+						PaddingLeft = UDim.new(0, 6),
+						PaddingTop = UDim.new(0, 6),
+					}, scroll)
 				end
 			end
 		end

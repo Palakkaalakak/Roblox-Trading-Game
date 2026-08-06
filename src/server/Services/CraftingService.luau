@@ -576,6 +576,16 @@ local function handleGetRecipeGraph(player: Player)
 			})
 		end
 	end
+	-- the player's own Unique Craft, or its "How to make" tree would find no
+	-- producer for the output and draw a single lonely node
+	local unique = uniqueCrafts().recipeFor(player, now)
+	if unique then
+		table.insert(out, {
+			eventId = UNIQUE_EVENT_ID,
+			eventName = "Unique Craft",
+			recipe = describeRecipe(unique, profile, now),
+		})
+	end
 	return { ok = true, recipes = out }
 end
 
