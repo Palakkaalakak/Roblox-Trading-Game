@@ -603,8 +603,19 @@ local EventConfig: any = {
 		-- many can exist. Add rarities here only if the top end proves swingy.
 		ExcludeRarities = {},
 
-		-- How many DISTINCT input items the list asks for.
+		-- How many DISTINCT input items the list asks for, and how many of
+		-- each. Kept deliberately SMALL: a Unique Craft has to be reachable
+		-- by a brand-new player, so the shape is "three different commons
+		-- for a rare", not a bulk order. The output is then chosen to suit
+		-- the inputs (see InputValueFraction) rather than the other way
+		-- round -- sizing counts from the output's value is what produced
+		-- 25x Stone Relic for a Godly.
+		--
+		-- FUTURE: scale these with the player's level / wealth so veterans
+		-- get proportionally bigger lists. buildOffer already takes the
+		-- player's inventory, so it is the natural place to hang that.
 		InputKinds = { min = 2, max = 3 },
+		CountPerInput = { min = 1, max = 3 },
 
 		-- The list is sized so its total input value lands in this band relative
 		-- to the output's value. Below 1.0 means the craft is profitable at
@@ -613,15 +624,9 @@ local EventConfig: any = {
 		-- from numbers the game already shows them. Raise toward 1.0 to make it
 		-- a genuine judgement call instead.
 		InputValueFraction = { min = 0.45, max = 0.7 },
+		-- Widen the hunt for a matching output before giving up.
+		OutputValueTolerance = 3.0,
 
-		-- Ask for at least this many of each input. Below this the "list" is a
-		-- handful of single items, which creates no demand for anyone and
-		-- defeats the point of the mechanic.
-		MinPerInput = 4,
-
-		-- Never ask for more than this many of a single item, so a list stays
-		-- fillable by a new player rather than becoming a grind.
-		MaxPerInput = 25,
 	},
 
 	--------------------------------------------------------------------------

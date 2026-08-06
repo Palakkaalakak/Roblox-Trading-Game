@@ -131,78 +131,74 @@ function UniqueCraftService.buildOffer(outputs: { any }, inputs: { any }, rng: R
 	if #outputs == 0 or #inputs == 0 then
 		return nil
 	end
-	local pick = outputs[rng:NextInteger(1, #outputs)]
-	local outputValue = (pick.snapshot.value and pick.snapshot.value.value) or 0
-	if outputValue <= 0 then
-		return nil
-	end
-
 	local settings = cfg()
-	local kinds = rng:NextInteger(settings.InputKinds.min, settings.InputKinds.max)
-	local fraction = settings.InputValueFraction.min
-		+ rng:NextNumber() * (settings.InputValueFraction.max - settings.InputValueFraction.min)
-	local budget = outputValue * fraction
+	local have = owned or {}
 
-	-- shuffle a copy so each offer asks for a different corner of the catalogue
+	-- INPUTS FIRST, OUTPUT TO SUIT. Sizing counts from the output's value made a
+	-- Godly ask for 25x of everything, which no new player can reach. Picking a
+	-- few cheap items in small counts and then finding an output worth
+	-- proportionally more keeps every offer to roughly "three commons for a
+	-- rare", whatever the catalogue happens to contain.
 	local pool = table.clone(inputs)
 	for i = #pool, 2, -1 do
 		local j = rng:NextInteger(1, i)
 		pool[i], pool[j] = pool[j], pool[i]
 	end
-
-	-- Only consider inputs cheap enough that the budget buys SEVERAL. A list of
-	-- three single items is not a shopping list and creates no demand for
-	-- anybody -- which is the entire reason this mechanic exists.
-	local perKind = budget / math.max(kinds, 1)
-	local affordable = {}
-	for _, candidate in pool do
-		if candidate.itemId ~= pick.itemId
-			and candidate.value > 0
-			and perKind / candidate.value >= settings.MinPerInput
-		then
-			table.insert(affordable, candidate)
-		end
-	end
-	if #affordable == 0 then
-		return nil -- nothing cheap enough; caller retries with another output
-	end
-
-	-- The list must ask for something the player HASN'T got. An offer they can
-	-- fill from their own inventory teaches nothing and moves nothing: the whole
-	-- mechanic exists to send them out to buy or trade for the parts. So sort
-	-- candidates by how short of them the player is, shortest first.
-	local have = owned or {}
-	local function shortfall(c: any): number
-		local need = math.clamp(math.floor(perKind / c.value + 0.5), settings.MinPerInput, settings.MaxPerInput)
-		return need - (have[c.itemId] or 0)
-	end
-	table.sort(affordable, function(a, b)
-		return shortfall(a) > shortfall(b)
+	-- cheapest-leaning: sort the shuffled pool by value so a list is built from
+	-- the low end of the catalogue rather than whatever landed first
+	table.sort(pool, function(a, b)
+		return a.value < b.value
 	end)
+	local cheapCount = math.max(math.min(#pool, math.ceil(#pool * 0.6)), 1)
 
-	local chosen = {}
-	local anyShortfall = false
-	for i = 1, math.min(kinds, #affordable) do
-		local candidate = affordable[i]
-		local count = math.floor(perKind / candidate.value + 0.5)
-		count = math.clamp(count, settings.MinPerInput, settings.MaxPerInput)
-		chosen[candidate.itemId] = count
-		if count > (have[candidate.itemId] or 0) then
-			anyShortfall = true
+	local kinds = rng:NextInteger(settings.InputKinds.min, settings.InputKinds.max)
+	local chosen, inputValue, anyShortfall = {}, 0, false
+	local picked = 0
+	for _ = 1, kinds do
+		local candidate = pool[rng:NextInteger(1, cheapCount)]
+		if candidate and chosen[candidate.itemId] == nil then
+			local count = rng:NextInteger(settings.CountPerInput.min, settings.CountPerInput.max)
+			chosen[candidate.itemId] = count
+			inputValue += candidate.value * count
+			picked += 1
+			if count > (have[candidate.itemId] or 0) then
+				anyShortfall = true
+			end
 		end
 	end
-	if not anyShortfall and owned ~= nil then
-		return nil -- fillable from the shelf already; caller retries
-	end
-	if next(chosen) == nil then
+	if picked == 0 or inputValue <= 0 then
 		return nil
 	end
+	-- An offer fillable from the shelf teaches nothing and moves nothing: the
+	-- whole point is to send the player out to buy or trade for the parts.
+	if not anyShortfall and owned ~= nil then
+		return nil
+	end
+
+	-- Now find an output worth enough that the inputs cost InputValueFraction of
+	-- it -- i.e. the craft is visibly worth doing from numbers already on screen.
+	local fraction = settings.InputValueFraction.min
+		+ rng:NextNumber() * (settings.InputValueFraction.max - settings.InputValueFraction.min)
+	local wanted = inputValue / fraction
+	local tolerance = settings.OutputValueTolerance
+
+	local viable = {}
+	for _, candidate in outputs do
+		local value = (candidate.snapshot.value and candidate.snapshot.value.value) or 0
+		if value > inputValue and value <= wanted * tolerance then
+			table.insert(viable, candidate)
+		end
+	end
+	if #viable == 0 then
+		return nil -- nothing proportionate; caller retries with a different list
+	end
+	local pick = viable[rng:NextInteger(1, #viable)]
 
 	return {
 		outputItemId = pick.itemId,
 		outputName = pick.snapshot.name,
 		outputImageId = pick.snapshot.imageId,
-		outputValue = outputValue,
+		outputValue = (pick.snapshot.value and pick.snapshot.value.value) or 0,
 		inputs = chosen,
 		expiresAt = at + settings.DurationSeconds,
 	}
