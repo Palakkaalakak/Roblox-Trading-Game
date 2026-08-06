@@ -18,6 +18,8 @@ local Theme = {
 	Bad = Color3.fromRGB(240, 95, 95),
 	Warn = Color3.fromRGB(250, 190, 80),
 	Gem = Color3.fromRGB(120, 220, 232),
+	Gold = Color3.fromRGB(253, 179, 30),
+	Info = Color3.fromRGB(126, 190, 255),
 
 	Rarity = {
 		Common = Color3.fromRGB(154, 160, 166),

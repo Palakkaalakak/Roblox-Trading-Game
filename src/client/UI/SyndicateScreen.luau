@@ -130,8 +130,19 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		}
 		if inSyn then
 			-- the count is the hook: an open request is a job waiting for you
-			local open = #((latest.syndicate :: any).requests or {})
+			local syn = latest.syndicate :: any
+			local open = #(syn.requests or {})
 			table.insert(specs, { id = "requests", text = open > 0 and ("Requests (%d)"):format(open) or "Requests" })
+			local readyGoals = 0
+			for _, g in (syn.goals or {}) do
+				if g.done then
+					readyGoals += 1
+				end
+			end
+			table.insert(specs, { id = "goals", text = ("Goals (%d/%d)"):format(readyGoals, #(syn.goals or {})) })
+			if syn.yourRole == "Owner" then
+				table.insert(specs, { id = "settings", text = "Settings" })
+			end
 		end
 		for _, extra in {
 			{ id = "browse", text = "Browse" },
@@ -296,14 +307,77 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 					end)
 				end
 			end
-			wireMod("PromoteButton", "promote", "promote", member.name .. " promoted.")
+			-- "Promote to" opens the ladder rather than nudging one rank at a
+			-- time: with four roles, a single button hides where someone can go.
+			local promoteBtn = mods:WaitForChild("PromoteButton") :: TextButton
+			local assignable = SyndicateConfig.assignableRoles(s.yourRole or "Member")
+			local canPromote = canModerate
+				and SyndicateConfig.can(s.yourRole or "Member", "promote", s.permissions)
+				and #assignable > 0
+			promoteBtn.Visible = canPromote
+			if canPromote then
+				promoteBtn.Text = "Promote to"
+				promoteBtn.Activated:Connect(function()
+					-- a tiny inline menu; rebuilt each press so it always shows
+					-- the ranks this actor may actually assign right now
+					local existing = row:FindFirstChild("RankMenu")
+					if existing then
+						existing:Destroy()
+						return
+					end
+					local menu = Instance.new("Frame")
+					menu.Name = "RankMenu"
+					menu.BackgroundColor3 = Theme.BgLight
+					menu.BorderSizePixel = 0
+					menu.Position = UDim2.new(1, -200, 0, 30)
+					menu.Size = UDim2.fromOffset(130, #assignable * 26 + 8)
+					menu.ZIndex = 30
+					menu.Parent = row
+					local mc = Instance.new("UICorner")
+					mc.CornerRadius = Theme.CornerSmall
+					mc.Parent = menu
+					local ml = Instance.new("UIListLayout")
+					ml.Padding = UDim.new(0, 2)
+					ml.SortOrder = Enum.SortOrder.LayoutOrder
+					ml.Parent = menu
+					local pad = Instance.new("UIPadding")
+					pad.PaddingTop = UDim.new(0, 4)
+					pad.PaddingLeft = UDim.new(0, 4)
+					pad.PaddingRight = UDim.new(0, 4)
+					pad.Parent = menu
+					for ri, roleName in assignable do
+						local opt = Instance.new("TextButton")
+						opt.LayoutOrder = ri
+						opt.Size = UDim2.new(1, 0, 0, 24)
+						opt.Font = Theme.Font
+						opt.TextSize = 12
+						opt.Text = SyndicateConfig.RoleLabels[roleName] or roleName
+						opt.BackgroundColor3 = (roleName == member.role) and Theme.Accent or Theme.Bg
+						opt.TextColor3 = Theme.TextPrimary
+						opt.ZIndex = 31
+						opt.Parent = menu
+						local oc = Instance.new("UICorner")
+						oc.CornerRadius = Theme.CornerSmall
+						oc.Parent = opt
+						opt.Activated:Connect(function()
+							menu:Destroy()
+							if roleName == member.role then
+								return
+							end
+							act(function()
+								return Net.invoke("SyndicateSetRole", member.userId, roleName)
+							end, ("%s is now %s."):format(member.name, SyndicateConfig.RoleLabels[roleName] or roleName))
+						end)
+					end
+				end)
+			end
 			wireMod("DemoteButton", "demote", "demote", member.name .. " demoted.")
 			wireMod("KickButton", "kick", "kick", member.name .. " removed.")
-			-- promote/demote only make sense in one direction each
-			;(mods:WaitForChild("PromoteButton") :: TextButton).Visible =
-				(mods:WaitForChild("PromoteButton") :: TextButton).Visible and member.role == "Member"
+			-- demote only makes sense for someone who isn't already the bottom rank
+			local roles = SyndicateConfig.Roles
 			;(mods:WaitForChild("DemoteButton") :: TextButton).Visible =
-				(mods:WaitForChild("DemoteButton") :: TextButton).Visible and member.role == "Officer"
+				(mods:WaitForChild("DemoteButton") :: TextButton).Visible
+				and member.role ~= roles[#roles]
 
 			row.Parent = memberList
 			table.insert(spawned, row)
@@ -358,7 +432,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	-- Requests
 	----------------------------------------------------------------------
 	local composer = requestsView:WaitForChild("Composer") :: Frame
-	local itemBox = composer:WaitForChild("ItemBox") :: TextBox
+	local chooseBtn = composer:WaitForChild("ChooseItemButton") :: TextButton
 	local countBox = composer:WaitForChild("CountBox") :: TextBox
 	local askBtn = composer:WaitForChild("AskButton") :: TextButton
 
@@ -406,9 +480,15 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 				if badge then
 					badge.Visible = false
 				end
+				-- an item card ALWAYS shows its stats on hover, wherever it
+				-- appears -- picker, request row, anywhere
+				tooltip.attach(tile, function()
+					return EconomyController.get(item.itemId),
+						(InventoryController.inventory:get() or {})[item.itemId]
+				end)
 				tile.Activated:Connect(function()
 					chosenId = item.itemId
-					itemBox.Text = name
+					chooseBtn.Text = name
 					picker.Visible = false
 				end)
 				tile.Parent = pickerGrid
@@ -421,18 +501,19 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		fillPicker(pickerSearch.Text)
 	end)
 
-	-- the composer's field is a button that opens the picker, never free text
-	itemBox.TextEditable = false
-	itemBox.ClearTextOnFocus = false
 	local function openPicker()
 		pickerSearch.Text = ""
 		fillPicker("")
 		picker.Visible = true
+		-- pull stats for what is on screen so the hover card has real
+		-- numbers rather than "N/A" the first time you look at an item
+		local ids = {}
+		for _, item in (catalog or {}) do
+			table.insert(ids, item.itemId)
+		end
+		EconomyController.ensure(ids)
 	end
-	itemBox.Focused:Connect(function()
-		itemBox:ReleaseFocus()
-		openPicker()
-	end)
+	chooseBtn.Activated:Connect(openPicker)
 
 	askBtn.Activated:Connect(function()
 		local itemId = chosenId
@@ -449,7 +530,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		act(function()
 			return Net.invoke("PostSyndicateRequest", itemId, math.floor(count))
 		end, "Your group has been asked.")
-		itemBox.Text, countBox.Text, chosenId = "", "", nil
+		chooseBtn.Text, countBox.Text, chosenId = "Choose item...", "", nil
 	end)
 
 	local function renderRequests(s: any)
@@ -485,7 +566,12 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 					break
 				end
 			end
-			;(row:WaitForChild("ArtHolder") :: Frame):WaitForChild("ReqIcon").Image = itemImage
+			local art = row:WaitForChild("ArtHolder") :: Frame
+			;(art:WaitForChild("ReqIcon") :: ImageLabel).Image = itemImage
+			tooltip.attach(art, function()
+				return EconomyController.get(req.itemId),
+					(InventoryController.inventory:get() or {})[req.itemId]
+			end)
 			;(row:WaitForChild("ReqWhat") :: TextLabel).Text =
 				("%s× %s  ·  %s of %s sent"):format(
 					Format.abbrev(req.remaining), itemName, Format.abbrev(given), Format.abbrev(req.count))
@@ -525,6 +611,146 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	end
 
 	----------------------------------------------------------------------
+	-- Goals + Settings
+	--
+	-- Both are built here rather than in GuiBuilder: they are plain lists of
+	-- rows over data the server already returns, so a runtime build keeps the
+	-- shared builder (and every other panel that reads from it) untouched.
+	----------------------------------------------------------------------
+	local function makeListView(name: string): ScrollingFrame
+		local view = Instance.new("ScrollingFrame")
+		view.Name = name
+		view.BackgroundTransparency = 1
+		view.BorderSizePixel = 0
+		view.Size = UDim2.fromScale(1, 1)
+		view.ScrollBarThickness = 6
+		view.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		view.CanvasSize = UDim2.new()
+		view.Visible = false
+		view.Parent = body
+		local layout = Instance.new("UIListLayout")
+		layout.Padding = UDim.new(0, 6)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = view
+		return view
+	end
+	local goalsView = makeListView("GoalsView")
+	local settingsView = makeListView("SettingsView")
+
+	local function makeRow(parent: Instance, order: number, height: number): Frame
+		local row = Instance.new("Frame")
+		row.Name = "Row" .. order
+		row.LayoutOrder = order
+		row.BackgroundColor3 = Theme.Bg
+		row.BorderSizePixel = 0
+		row.Size = UDim2.new(1, -8, 0, height)
+		row.Parent = parent
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = row
+		local st = Instance.new("UIStroke")
+		st.Color = Theme.Stroke
+		st.Thickness = 1
+		st.Parent = row
+		table.insert(spawned, row)
+		return row
+	end
+
+	local function makeLabel(parent: Instance, text: string, pos: UDim2, size: UDim2,
+		textSize: number, colour: Color3, bold: boolean?): TextLabel
+		local lbl = Instance.new("TextLabel")
+		lbl.BackgroundTransparency = 1
+		lbl.Position = pos
+		lbl.Size = size
+		lbl.Font = bold and Theme.Font or Enum.Font.Gotham
+		lbl.Text = text
+		lbl.TextSize = textSize
+		lbl.TextColor3 = colour
+		lbl.TextXAlignment = Enum.TextXAlignment.Left
+		lbl.TextYAlignment = Enum.TextYAlignment.Center
+		lbl.Parent = parent
+		return lbl
+	end
+
+	local function renderGoals(s: any)
+		for i, goal in (s.goals or {}) do
+			local row = makeRow(goalsView, i, 58)
+			makeLabel(row, goal.name, UDim2.fromOffset(12, 6), UDim2.new(0.6, 0, 0, 18), 14,
+				goal.done and Theme.Good or Theme.TextPrimary, true)
+			makeLabel(row, goal.blurb, UDim2.fromOffset(12, 24), UDim2.new(0.62, 0, 0, 15), 11, Theme.TextDim)
+
+			-- progress bar: the whole point is seeing the group inch toward it
+			local track = Instance.new("Frame")
+			track.BackgroundColor3 = Theme.BgLight
+			track.BorderSizePixel = 0
+			track.Position = UDim2.fromOffset(12, 42)
+			track.Size = UDim2.new(0.62, 0, 0, 8)
+			track.Parent = row
+			local tc = Instance.new("UICorner")
+			tc.CornerRadius = UDim.new(0, 4)
+			tc.Parent = track
+			local fill = Instance.new("Frame")
+			fill.BackgroundColor3 = goal.done and Theme.Good or Theme.Accent
+			fill.BorderSizePixel = 0
+			fill.Size = UDim2.fromScale(math.clamp(goal.have / math.max(goal.target, 1), 0, 1), 1)
+			fill.Parent = track
+			local fc = Instance.new("UICorner")
+			fc.CornerRadius = UDim.new(0, 4)
+			fc.Parent = fill
+
+			local right = makeLabel(row,
+				goal.done and "COMPLETE" or ("%s / %s"):format(Format.abbrev(goal.have), Format.abbrev(goal.target)),
+				UDim2.new(1, -190, 0, 8), UDim2.fromOffset(120, 18), 13,
+				goal.done and Theme.Good or Theme.TextPrimary, true)
+			right.TextXAlignment = Enum.TextXAlignment.Right
+			local reward = makeLabel(row, ("+%s group XP"):format(Format.abbrev(goal.xp)),
+				UDim2.new(1, -190, 0, 28), UDim2.fromOffset(120, 16), 11, Theme.Gem)
+			reward.TextXAlignment = Enum.TextXAlignment.Right
+		end
+		if #(s.goals or {}) == 0 then
+			local row = makeRow(goalsView, 1, 44)
+			makeLabel(row, "No goals available.", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 1, 0), 13, Theme.TextDim)
+		end
+	end
+
+	local function renderSettings(s: any)
+		local order = 0
+		for _, role in SyndicateConfig.ConfigurableRoles do
+			order += 1
+			local header = makeRow(settingsView, order, 30)
+			header.BackgroundTransparency = 1
+			makeLabel(header, (SyndicateConfig.RoleLabels[role] or role):upper() .. " CAN:",
+				UDim2.fromOffset(4, 0), UDim2.new(1, -8, 1, 0), 12, Theme.Gold, true)
+
+			for _, perm in SyndicateConfig.EditablePermissions do
+				order += 1
+				local row = makeRow(settingsView, order, 34)
+				makeLabel(row, perm.label, UDim2.fromOffset(12, 0), UDim2.new(1, -140, 1, 0), 13, Theme.TextPrimary)
+
+				local allowed = SyndicateConfig.can(role, perm.key, s.permissions)
+				local toggle = Instance.new("TextButton")
+				toggle.AnchorPoint = Vector2.new(1, 0.5)
+				toggle.Position = UDim2.new(1, -10, 0.5, 0)
+				toggle.Size = UDim2.fromOffset(96, 24)
+				toggle.Font = Theme.Font
+				toggle.TextSize = 12
+				toggle.Text = allowed and "ALLOWED" or "BLOCKED"
+				toggle.BackgroundColor3 = allowed and Theme.Good or Theme.BgLight
+				toggle.TextColor3 = allowed and Theme.Bg or Theme.TextDim
+				toggle.Parent = row
+				local tc = Instance.new("UICorner")
+				tc.CornerRadius = Theme.CornerSmall
+				tc.Parent = toggle
+				toggle.Activated:Connect(function()
+					act(function()
+						return Net.invoke("SyndicateSetPermission", role, perm.key, not allowed)
+					end, nil)
+				end)
+			end
+		end
+	end
+
+	----------------------------------------------------------------------
 	-- Browse / Invites
 	----------------------------------------------------------------------
 	local function renderList(view: Frame, rowName: string, entries: { any }, emptyText: string, build: (Frame, any) -> ())
@@ -559,11 +785,17 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		browseView.Visible = activeTab == "browse"
 		invitesView.Visible = activeTab == "invites"
 		requestsView.Visible = activeTab == "requests" and inSyndicate
+		goalsView.Visible = activeTab == "goals" and inSyndicate
+		settingsView.Visible = activeTab == "settings" and inSyndicate
 
 		if mineView.Visible then
 			renderMine(s)
 		elseif requestsView.Visible then
 			renderRequests(s)
+		elseif goalsView.Visible then
+			renderGoals(s)
+		elseif settingsView.Visible then
+			renderSettings(s)
 		elseif browseView.Visible then
 			task.spawn(function()
 				local dir = Net.invoke("BrowseSyndicates")

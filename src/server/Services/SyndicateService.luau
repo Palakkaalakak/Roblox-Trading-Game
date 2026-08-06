@@ -126,7 +126,7 @@ function SyndicateService.mayActOn(record: any, actorId: number, targetId: numbe
 	if actorRole == nil then
 		return false, "not_a_member"
 	end
-	if not SyndicateConfig.can(actorRole, action) then
+	if not SyndicateConfig.can(actorRole, action, record and record.permissions) then
 		return false, "no_permission"
 	end
 	if targetId ~= 0 then
@@ -184,6 +184,8 @@ local function describe(record: any, viewerId: number): any
 		perks = SyndicateConfig.perksFor(level),
 		members = members,
 		requests = SyndicateService.liveRequests(record, os.time()),
+		permissions = record.permissions or {},
+		goals = SyndicateConfig.goalProgress(record.stats, record.goalsClaimed),
 		yourRole = SyndicateService.roleOf(record, viewerId),
 	}
 end
@@ -257,6 +259,52 @@ end
 
 -- Award XP for something a member did. Fire-and-forget: a failed XP write must
 -- never fail the trade/craft that earned it, so this is spawned and swallowed.
+-- Pay out any goal the group has just finished. Runs inside its own CAS so two
+-- servers crossing the same threshold at once can't both award it: the claim
+-- flag and the XP move together, or neither does.
+local function awardGoals(syndicateId: string)
+	local record = readRecord(syndicateId)
+	if record == nil then
+		return
+	end
+	local pending = {}
+	for _, goal in SyndicateConfig.goalProgress(record.stats, record.goalsClaimed) do
+		if goal.ready then
+			table.insert(pending, goal)
+		end
+	end
+	if #pending == 0 then
+		return
+	end
+	local committed = mutate(syndicateId, function(rec)
+		rec.goalsClaimed = rec.goalsClaimed or {}
+		local awarded = false
+		for _, goal in SyndicateConfig.goalProgress(rec.stats, rec.goalsClaimed) do
+			if goal.ready then
+				rec.goalsClaimed[goal.id] = true
+				rec.xp = (rec.xp or 0) + goal.xp
+				awarded = true
+			end
+		end
+		if not awarded then
+			return nil, "nothing_ready"
+		end
+		return rec
+	end)
+	if committed then
+		updateDirectory(committed)
+		for memberKey in committed.members do
+			local uid = tonumber(memberKey)
+			if uid then
+				for _, goal in pending do
+					NotificationService.notify(uid,
+						("Group goal complete: %s  (+%d XP)"):format(goal.name, goal.xp))
+				end
+			end
+		end
+	end
+end
+
 function SyndicateService.addXp(userId: number, source: string)
 	local amount = SyndicateConfig.XpSources[source]
 	if amount == nil or amount <= 0 then
@@ -298,6 +346,9 @@ function SyndicateService.addXp(userId: number, source: string)
 					id = syndicateId, level = levelAfter, xp = committed.xp,
 				})
 			end
+			-- every tallied stat changes here, so this is the one place a goal
+			-- can newly become complete
+			awardGoals(syndicateId)
 		end
 	end)
 end
@@ -520,9 +571,25 @@ local function moderate(player: Player, targetUserId: any, action: string): any
 		if action == "kick" then
 			record.members[targetKey] = nil
 		elseif action == "promote" then
-			record.members[targetKey].role = "Officer"
+			-- one rung up, rather than jumping straight to Officer: with four
+			-- roles, "promote" has to mean the next rank, not the top one
+			local roles = SyndicateConfig.Roles
+			local current = record.members[targetKey].role
+			for i = 2, #roles do
+				if roles[i] == current then
+					record.members[targetKey].role = roles[i - 1]
+					break
+				end
+			end
 		elseif action == "demote" then
-			record.members[targetKey].role = "Member"
+			local roles = SyndicateConfig.Roles
+			local current = record.members[targetKey].role
+			for i = 1, #roles - 1 do
+				if roles[i] == current then
+					record.members[targetKey].role = roles[i + 1]
+					break
+				end
+			end
 		end
 		return record
 	end)
@@ -537,6 +604,92 @@ local function moderate(player: Player, targetUserId: any, action: string): any
 		updateDirectory(committed)
 	end
 	AnalyticsService.log("syndicate_" .. action, { id = id, by = player.UserId, target = targetUserId })
+	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+-- Move a member straight to a named rank ("Promote to > Veteran"), rather than
+-- clicking promote repeatedly. Still bounded by the same rule as promote: you
+-- may only assign a rank strictly below your own, to someone you outrank.
+function SyndicateService.setRole(player: Player, targetUserId: any, role: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	if typeof(targetUserId) ~= "number" or not Guard.isString(role, 24) then
+		return { ok = false, err = "bad_args" }
+	end
+	local targetKey = tostring(targetUserId)
+
+	local committed, err = mutate(id, function(record)
+		local allowed, why = SyndicateService.mayActOn(record, player.UserId, targetUserId, "promote")
+		if not allowed then
+			return nil, why
+		end
+		local actorRole = SyndicateService.roleOf(record, player.UserId)
+		local permitted = false
+		for _, r in SyndicateConfig.assignableRoles(actorRole :: string) do
+			if r == role then
+				permitted = true
+			end
+		end
+		if not permitted then
+			return nil, "role_not_assignable"
+		end
+		record.members[targetKey].role = role
+		return record
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+	AnalyticsService.log("syndicate_setrole", {
+		id = id, by = player.UserId, target = targetUserId, role = role,
+	})
+	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+-- Owner-only: turn a permission on or off for a whole role. Stored on the
+-- record as overrides, read back through SyndicateConfig.can, so a group that
+-- has never touched this behaves exactly as the defaults describe.
+function SyndicateService.setPermission(player: Player, role: any, action: any, allowed: any): any
+	local profile = profileOf(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local id = profile.SyndicateId
+	if id == "" then
+		return { ok = false, err = "not_in_syndicate" }
+	end
+	if not Guard.isString(role, 24) or not Guard.isString(action, 24) or typeof(allowed) ~= "boolean" then
+		return { ok = false, err = "bad_args" }
+	end
+	if not SyndicateConfig.isConfigurableRole(role :: string) then
+		return { ok = false, err = "role_not_configurable" }
+	end
+	if not SyndicateConfig.isEditablePermission(action :: string) then
+		return { ok = false, err = "permission_locked" }
+	end
+
+	local committed, err = mutate(id, function(record)
+		-- only the Owner rewrites the rulebook; an Officer with `promote` must
+		-- not be able to grant themselves `disband` by editing permissions
+		if SyndicateService.roleOf(record, player.UserId) ~= "Owner" then
+			return nil, "no_permission"
+		end
+		record.permissions = record.permissions or {}
+		record.permissions[role] = record.permissions[role] or {}
+		record.permissions[role][action] = allowed
+		return record
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+	AnalyticsService.log("syndicate_setperm", {
+		id = id, by = player.UserId, role = role, action = action, allowed = allowed,
+	})
 	return { ok = true, syndicate = describe(committed, player.UserId) }
 end
 
@@ -834,6 +987,8 @@ function SyndicateService.fillRequest(player: Player, reqId: any, count: any): a
 			record.members[key].xp = (record.members[key].xp or 0) + SyndicateConfig.DonationXp
 		end
 		record.xp = (record.xp or 0) + SyndicateConfig.DonationXp
+		record.stats = record.stats or {}
+		record.stats.donation = (record.stats.donation or 0) + 1
 		return record
 	end)
 
@@ -934,6 +1089,12 @@ function SyndicateService.Start()
 	end)
 	Net.bindFunction("InviteToSyndicate", function(player, targetUserId)
 		return SyndicateService.invite(player, targetUserId)
+	end)
+	Net.bindFunction("SyndicateSetRole", function(player, targetUserId, role)
+		return SyndicateService.setRole(player, targetUserId, role)
+	end)
+	Net.bindFunction("SyndicateSetPermission", function(player, role, action, allowed)
+		return SyndicateService.setPermission(player, role, action, allowed)
 	end)
 	Net.bindFunction("SyndicateModerate", function(player, targetUserId, action)
 		if action ~= "kick" and action ~= "promote" and action ~= "demote" then

@@ -2618,7 +2618,18 @@ local function buildSyndicatePanel(parent: Instance)
 		new("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }, box)
 		return box
 	end
-	field("ItemBox", "Item you need", UDim2.fromOffset(12, 18), UDim2.new(0.52, -20, 0, 24))
+	-- a button, not a text field: the item is chosen from the card picker,
+	-- so there is nothing here to type
+	local chooseBtn = button("ChooseItemButton", {
+		Position = UDim2.fromOffset(12, 18),
+		Size = UDim2.new(0.52, -20, 0, 24),
+		Text = "Choose item...",
+		TextSize = 12,
+		BackgroundColor3 = C.BgLight,
+		TextColor3 = C.Text,
+	}, composer)
+	corner(chooseBtn, 6)
+	stroke(chooseBtn, C.Stroke, 1)
 	field("CountBox", "How many", UDim2.new(0.52, 0, 0, 18), UDim2.fromOffset(90, 24))
 
 	local askBtn = button("AskButton", {

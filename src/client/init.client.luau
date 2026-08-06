@@ -63,7 +63,7 @@ RollsScreen.wire(modalGui, tooltip, toast)
 ShopScreen.wire(modalGui, tooltip, toast)
 FreeGemsScreen.wire(modalGui, toast)
 WorldLeaderboards.start() -- fills the physical boards standing in the world
-SyndicateScreen.wire(modalGui, toast)
+SyndicateScreen.wire(modalGui, toast, tooltip)
 HUD.wire(hudGui, {
 	inventory = function()
 		InventoryScreen.toggle()

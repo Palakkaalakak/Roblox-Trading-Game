@@ -85,6 +85,8 @@ local Enums = {
 		"SyndicateModerate", -- (targetUserId, action) -> {ok, err?} — kick|promote|demote
 		"PostSyndicateRequest", -- (itemId, count) -> {ok, err?} — ask your clan for items
 		"FillSyndicateRequest", -- (reqId, count) -> {ok, count?, err?} — donate from your inventory
+		"SyndicateSetRole", -- (targetUserId, role) -> {ok, syndicate?, err?}
+		"SyndicateSetPermission", -- (role, action, allowed) -> {ok, syndicate?, err?} — owner only
 		"SetSyndicatePolicy", -- (policy) -> {ok, err?} — Open|Request|Invite
 		"GetCraftProgress", -- () -> {ok, crafts, tiers, goal} — milestone track + communal goal
 		"ClaimMilestone", -- (index) -> {ok, name?, err?}
