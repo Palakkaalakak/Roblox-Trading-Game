@@ -287,6 +287,13 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				entry = item
 			end
 			Components.setIcon(tile, entry)
+			local nameLabel = tile:FindFirstChild("ReelName")
+			if nameLabel then
+				nameLabel.Text = (entry and entry.name) or ""
+				-- tint by rarity so the reel reads at a glance, the same way
+				-- the odds list and tooltips already colour item names
+				nameLabel.TextColor3 = Components.rarityColor(entry and entry.rarity)
+			end
 			tile.Parent = strip
 			table.insert(reelTiles, tile)
 		end

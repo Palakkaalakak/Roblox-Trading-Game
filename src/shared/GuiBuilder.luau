@@ -3223,6 +3223,23 @@ local function buildRollsPanel(parent: Instance)
 		ZIndex = 31,
 	}, strip)
 	corner(reelTile, 8)
+	-- name under the art: an icon alone does not tell a player WHAT just
+	-- went past, which is most of the tension while the reel is spinning.
+	-- Sits over the bottom of the tile so it costs no extra height.
+	local reelName = label("ReelName", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.fromScale(1, 0.24),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.Text,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 32,
+	}, reelTile)
+	capText(reelName, 13)
+	textStroke(reelName, 2, 0.1) -- readable over any item art
 	-- center marker: the fixed "you get this" window, on top of the strip, with
 	-- the rarity-colored glow RollsScreen recolors as the reel lands
 	local marker = new("Frame", {
