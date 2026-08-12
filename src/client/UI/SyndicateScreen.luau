@@ -183,12 +183,14 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	subLayout.Parent = subTabRow
 
 	local SECTIONS = {
+		-- day-to-day first, administration last: Roles then Settings sit at the
+		-- end because most members never need either
 		{ id = "members", text = "Members" },
 		{ id = "goals", text = "Goals" },
 		{ id = "requests", text = "Requests" },
-		{ id = "settings", text = "Settings" },
 		{ id = "chat", text = "Chat" },
 		{ id = "roles", text = "Roles" },
+		{ id = "settings", text = "Settings" },
 	}
 	local sectionButtons: { [string]: TextButton } = {}
 	for i, spec in SECTIONS do
