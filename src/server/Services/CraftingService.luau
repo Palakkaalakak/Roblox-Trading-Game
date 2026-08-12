@@ -563,15 +563,18 @@ local function handleGetEvents(player: Player)
 	-- the player's own Unique Craft, rendered through the same recipe shape as
 	-- everything else. Listed FIRST: it is the one thing on this screen that is
 	-- theirs alone and it expires, so it should not be buried under the ladder.
-	local unique = uniqueCrafts().recipeFor(player, now)
-	if unique then
+	local uniques = uniqueCrafts().recipesFor(player, now)
+	if #uniques > 0 then
+		local described = {}
+		for _, recipe in uniques do
+			table.insert(described, describeRecipe(recipe, profile, now))
+		end
 		table.insert(events, 1, {
 			id = UNIQUE_EVENT_ID,
-			name = "Unique Craft",
+			name = "Unique Crafts",
 			kind = "crafting",
-			category = "limited",
-			endsAt = unique.expiresAt,
-			recipes = { describeRecipe(unique, profile, now) },
+			category = "unique",
+			recipes = described,
 		})
 	end
 	return { ok = true, events = events, now = now }
@@ -610,12 +613,11 @@ local function handleGetRecipeGraph(player: Player)
 	end
 	-- the player's own Unique Craft, or its "How to make" tree would find no
 	-- producer for the output and draw a single lonely node
-	local unique = uniqueCrafts().recipeFor(player, now)
-	if unique then
+	for _, recipe in uniqueCrafts().recipesFor(player, now) do
 		table.insert(out, {
 			eventId = UNIQUE_EVENT_ID,
-			eventName = "Unique Craft",
-			recipe = describeRecipe(unique, profile, now),
+			eventName = "Unique Crafts",
+			recipe = describeRecipe(recipe, profile, now),
 		})
 	end
 	return { ok = true, recipes = out }
@@ -638,7 +640,7 @@ local function craftCore(userId: number, eventId: any, rid: any)
 	if eventId == UNIQUE_EVENT_ID then
 		-- per-player, so it resolves from the player's own offer rather than
 		-- the global active set (and a bot can never hold one)
-		recipe = if player then uniqueCrafts().recipeFor(player, os.time()) else nil
+		recipe = if player then uniqueCrafts().recipeByRid(player, rid :: string, os.time()) else nil
 	else
 		recipe = CraftingService.findActiveRecipe(eventId :: string, rid :: string, os.time())
 	end

@@ -36,6 +36,11 @@ local TIER_COLOR: { [number]: Color3 } = {
 }
 local TIER_NAME: { [number]: string } = { [1] = "REFINE", [2] = "CRAFT", [3] = "GRAIL" }
 
+-- The little (i) badges on crafted ingredients in a recipe tree, which open
+-- that ingredient's own tree. Off for now; set true to restore -- the button,
+-- its handler and the recursion behind it are all still here.
+local SHOW_CHAIN_INFO = false
+
 local function timeText(untilUnix: number?): string
 	if untilUnix == nil then
 		return ""
@@ -99,6 +104,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	tabLayout.Parent = tabRow
 
 	local TABS = {
+		{ id = "unique", text = "Unique Crafts" },
 		{ id = "craft", text = "Can Craft" },
 		{ id = "recipes", text = "Recipes" },
 		{ id = "limited", text = "Limited" },
@@ -109,7 +115,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local b = Instance.new("TextButton")
 		b.Name = "Tab_" .. spec.id
 		b.LayoutOrder = i
-		b.Size = UDim2.fromOffset(150, 30)
+		-- share the row: four fixed-width tabs overflow the panel
+		b.Size = UDim2.new(1 / #TABS, -(6 * (#TABS - 1)) / #TABS, 0, 30)
 		b.BackgroundColor3 = Theme.BgLight
 		b.Font = Theme.Font
 		b.TextSize = 13
@@ -124,6 +131,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 
 	local spawned: { Instance } = {}
 	local lastEvents: { any }? = nil
+	local uniqueState: any = nil -- slots + next slot price, for the Unique tab
 	local crafting = false
 	local refresh -- fwd decl
 	local renderEvents -- fwd decl
@@ -440,7 +448,10 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		-- ingredient they don't have can jump straight to that item's own tree
 		-- and the station that makes it. Only on non-root nodes: the root IS
 		-- the tree you're already looking at.
-		if not highlight and findRecipeForOutput(itemId) then
+		--
+		-- TURNED OFF (SHOW_CHAIN_INFO). Flip the flag to bring them back — the
+		-- whole button, its handler and the recursion it drives are intact.
+		if SHOW_CHAIN_INFO and not highlight and findRecipeForOutput(itemId) then
 			local info = Instance.new("TextButton")
 			info.Name = "InfoButton"
 			info.AnchorPoint = Vector2.new(1, 0)
@@ -797,7 +808,12 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local out = {}
 		for _, recipe in event.recipes do
 			local keep
-			if activeTab == "craft" then
+			if event.category == "unique" or activeTab == "unique" then
+				-- Unique Crafts live on their own tab and only there: they are
+				-- personal and expiring, and mixing them into the recipe list
+				-- is what made them turn up in "Can Craft" uncraftable.
+				keep = (event.category == "unique") and (activeTab == "unique")
+			elseif activeTab == "craft" then
 				keep = recipe.craftable and recipe.output.remaining > 0
 			elseif activeTab == "recipes" then
 				keep = event.category == "permanent" or event.category == "rotating"
@@ -812,7 +828,9 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	end
 
 	local function emptyMessage(): string
-		if activeTab == "craft" then
+		if activeTab == "unique" then
+			return "No Unique Craft right now — a new one is on its way."
+		elseif activeTab == "craft" then
 			return "Nothing you can craft yet — trade for the inputs, then come back!"
 		elseif activeTab == "recipes" then
 			return "No recipes available right now, check back soon!"
@@ -880,6 +898,60 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				end
 			end
 		end
+		-- On the Unique Crafts tab, close with the slot offer: what the next
+		-- slot costs, or that they own them all. Built here rather than in
+		-- GuiBuilder because it is one row that only ever appears on one tab.
+		if activeTab == "unique" and uniqueState ~= nil then
+			local row = headerTemplate:Clone()
+			row.Visible = true
+			row.LayoutOrder = 9999
+			local name = row:WaitForChild("EventName") :: TextLabel
+			local time = row:WaitForChild("TimeLabel") :: TextLabel
+			if uniqueState.nextSlotCost == nil then
+				name.Text = ("All %d slots unlocked"):format(uniqueState.maxSlots)
+				name.TextColor3 = Theme.TextDim
+				time.Text = ""
+			else
+				name.Text = ("Slot %d of %d"):format(uniqueState.slots, uniqueState.maxSlots)
+				name.TextColor3 = Theme.TextDim
+				local buy = Instance.new("TextButton")
+				buy.Name = "BuySlotButton"
+				buy.AnchorPoint = Vector2.new(1, 0.5)
+				buy.Position = UDim2.new(1, -4, 0.5, 0)
+				buy.Size = UDim2.fromOffset(220, 26)
+				buy.Font = Theme.Font
+				buy.TextSize = 12
+				buy.Text = ("UNLOCK SLOT %d  -  %s GEMS"):format(
+					uniqueState.slots + 1, Format.comma(uniqueState.nextSlotCost))
+				buy.BackgroundColor3 = Theme.Gold
+				buy.TextColor3 = Theme.Bg
+				buy.Parent = row
+				local c = Instance.new("UICorner")
+				c.CornerRadius = Theme.CornerSmall
+				c.Parent = buy
+				buy.Activated:Connect(function()
+					if crafting then
+						return
+					end
+					crafting = true
+					task.spawn(function()
+						local result = Net.invoke("BuyUniqueCraftSlot")
+						crafting = false
+						if result and result.ok then
+							toast(("Slot %d unlocked!"):format(result.slots), Theme.Good)
+						elseif result and result.err == "insufficient_gems" then
+							toast("Not enough gems for that slot.", Theme.Bad)
+						else
+							toast("Couldn't unlock that slot.", Theme.Bad)
+						end
+						refresh()
+					end)
+				end)
+			end
+			row.Parent = list
+			table.insert(spawned, row)
+		end
+
 		if shown == 0 then
 			local none = headerTemplate:Clone()
 			none.Visible = true
@@ -909,6 +981,12 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 
 	refresh = function()
 		task.spawn(function()
+			task.spawn(function()
+				local u = Net.invoke("GetUniqueCrafts")
+				if u and u.ok then
+					uniqueState = u
+				end
+			end)
 			local result = Net.invoke("GetEvents")
 			if result.ok then
 				lastEvents = result.events

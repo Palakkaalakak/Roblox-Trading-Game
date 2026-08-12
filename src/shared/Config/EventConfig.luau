@@ -594,8 +594,24 @@ local EventConfig: any = {
 	-- or trade someone directly.
 	UniqueCraft = {
 		enabled = true,
-		DurationSeconds = 3 * 3600, -- how long the offer stays craftable
-		CooldownSeconds = 30 * 60, -- gap after one ends before the next is offered
+		DurationSeconds = 3 * 3600, -- how long an offer stays craftable
+		CooldownSeconds = 30 * 60, -- gap after one ends before that slot refills
+
+		-- SLOTS. Everyone starts with one offer at a time; further slots are
+		-- bought with gems and kept forever. Each slot holds an independent
+		-- offer with its own output, list and expiry.
+		--
+		-- This is deliberately a GEM SINK. Gems only ever enter the game
+		-- through ads and Robux, so they are genuinely scarce, and something
+		-- permanent worth spending them on keeps that scarcity meaningful.
+		-- It also scales the mechanic with investment rather than with time
+		-- played: more slots means more shopping lists in the market at once,
+		-- which is more demand for everyone else's items.
+		--
+		-- Index = the slot being unlocked, so SlotCosts[2] is the price of the
+		-- SECOND slot. Costs climb steeply: the point is a long-term goal, not
+		-- a thing a player buys out on day one.
+		SlotCosts = { 0, 750, 2000, 5000, 12000 },
 
 		-- Candidate OUTPUTS are ANY item that is (a) still re-obtainable, so
 		-- ended seasonal exclusives stay ended, and (b) not produced by any
@@ -760,6 +776,21 @@ function EventConfig.isReobtainable(itemId: string): boolean
 	end
 	local producer = producers()[itemId]
 	return producer ~= nil and producer.category ~= "limited"
+end
+
+
+-- Cost of unlocking `slot`, or nil when that slot does not exist. Slot 1 is
+-- free, so this only ever returns a price for slot 2 and up.
+function EventConfig.uniqueSlotCost(slot: number): number?
+	local costs = EventConfig.UniqueCraft.SlotCosts
+	if slot <= 1 or slot > #costs then
+		return nil
+	end
+	return costs[slot]
+end
+
+function EventConfig.maxUniqueSlots(): number
+	return #EventConfig.UniqueCraft.SlotCosts
 end
 
 return EventConfig

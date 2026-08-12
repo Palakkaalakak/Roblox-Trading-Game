@@ -14,8 +14,14 @@
 -- half is the point: it is how a brand-new player sells something without
 -- knowing the first thing about trading.
 --
--- WHERE THE STATE LIVES. On the player's profile (Profile.UniqueCraft), so it
--- saves with everything else and survives a rejoin. One offer at a time.
+-- WHERE THE STATE LIVES. On the player's profile (Profile.UniqueCrafts, keyed
+-- by slot), so it saves with everything else and survives a rejoin.
+--
+-- SLOTS. Everyone starts with one. Further slots are bought with gems and
+-- kept forever, each holding an independent offer with its own expiry and
+-- cooldown. That is a deliberate gem SINK -- gems only enter through ads and
+-- Robux -- and it scales the mechanic with investment: more slots means more
+-- shopping lists in the market at once, which is more demand for everyone.
 --
 -- HOW THE OFFER IS BUILT. Output: an item whose rarity is eligible, which has
 -- reserve left, and which no live recipe produces. Inputs: a few items priced
@@ -33,8 +39,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local EventConfig = require(ReplicatedStorage.Shared.Config.EventConfig)
 
+local Net = require(script.Parent.Parent.Net)
 local DataService = require(script.Parent.DataService)
 local EconomyService = require(script.Parent.EconomyService)
+local InventoryService = require(script.Parent.InventoryService)
 local NotificationService = require(script.Parent.NotificationService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
@@ -212,87 +220,167 @@ end
 -- Per-player offer lifecycle
 --------------------------------------------------------------------------------
 
--- The player's live offer, or nil. Expired offers are cleared here rather than
--- on a timer, so an offline player's clock still runs out correctly.
-function UniqueCraftService.offerFor(player: Player, now: number): any?
-	local profile = DataService.getProfile(player)
-	if profile == nil or not cfg().enabled then
-		return nil
-	end
-	local offer = profile.UniqueCraft
-	if offer == nil then
-		return nil
-	end
-	if (offer.expiresAt or 0) <= now then
-		profile.UniqueCraft = nil
-		profile.UniqueCraftNextAt = now + cfg().CooldownSeconds
-		return nil
-	end
-	return offer
+-- How many slots this player has unlocked. Everyone has at least one.
+function UniqueCraftService.slotsFor(profile: any): number
+	local owned = (profile and profile.UniqueCraftSlots) or 1
+	return math.clamp(owned, 1, EventConfig.maxUniqueSlots())
 end
 
--- Offer one if they don't have one and the cooldown has passed. Safe to call
--- often — it no-ops unless there is actually something to hand out.
-function UniqueCraftService.maybeOffer(player: Player, now: number): any?
+-- Live offers, indexed by slot. An expired offer is cleared here rather than on
+-- a timer, so an offline player's clock still runs out correctly and each slot
+-- starts its own cooldown independently.
+function UniqueCraftService.offersFor(player: Player, now: number): { any }
+	local profile = DataService.getProfile(player)
+	if profile == nil or not cfg().enabled then
+		return {}
+	end
+	profile.UniqueCrafts = profile.UniqueCrafts or {}
+	profile.UniqueCraftNextAt = profile.UniqueCraftNextAt or {}
+
+	local slots = UniqueCraftService.slotsFor(profile)
+	local live = {}
+	for slot = 1, slots do
+		local offer = profile.UniqueCrafts[slot]
+		if offer ~= nil then
+			if (offer.expiresAt or 0) <= now then
+				profile.UniqueCrafts[slot] = nil
+				profile.UniqueCraftNextAt[slot] = now + cfg().CooldownSeconds
+			else
+				live[slot] = offer
+			end
+		end
+	end
+	return live
+end
+
+-- Fill any empty slot whose cooldown has passed. Safe to call often — it
+-- no-ops unless there is actually something to hand out.
+function UniqueCraftService.maybeOffer(player: Player, now: number)
 	if not cfg().enabled then
-		return nil
+		return
 	end
 	local profile = DataService.getProfile(player)
 	if profile == nil then
-		return nil
+		return
 	end
-	if UniqueCraftService.offerFor(player, now) ~= nil then
-		return profile.UniqueCraft
-	end
-	if (profile.UniqueCraftNextAt or 0) > now then
-		return nil
-	end
+	local live = UniqueCraftService.offersFor(player, now)
+	local slots = UniqueCraftService.slotsFor(profile)
 
-	local rng = Random.new(now + player.UserId)
-	local outputs = UniqueCraftService.outputCandidates(now)
-	local inputs = inputCandidates()
-	-- a given output may have nothing cheap enough to ask for; try a few before
-	-- giving up so one awkward item doesn't deny the player an offer entirely
-	local offer = nil
-	for _ = 1, 8 do
-		offer = UniqueCraftService.buildOffer(outputs, inputs, rng, now, profile.Inventory)
-		if offer ~= nil then
-			break
+	local outputs, inputs = nil, nil
+	local granted = false
+	for slot = 1, slots do
+		if live[slot] == nil and (profile.UniqueCraftNextAt[slot] or 0) <= now then
+			-- built lazily: most calls fill nothing and shouldn't pay for the scan
+			outputs = outputs or UniqueCraftService.outputCandidates(now)
+			inputs = inputs or inputCandidates()
+			-- seed varies per slot so two slots never draw the same offer
+			local rng = Random.new(now + player.UserId * 31 + slot * 7919)
+			local offer = nil
+			for _ = 1, 8 do
+				offer = UniqueCraftService.buildOffer(outputs, inputs, rng, now, profile.Inventory)
+				-- two slots offering the same output would read as a duplicate
+				if offer ~= nil then
+					local clash = false
+					for _, other in profile.UniqueCrafts do
+						if other and other.outputItemId == offer.outputItemId then
+							clash = true
+						end
+					end
+					if not clash then
+						break
+					end
+					offer = nil
+				end
+			end
+			if offer ~= nil then
+				profile.UniqueCrafts[slot] = offer
+				granted = true
+				NotificationService.notify(
+					player.UserId,
+					("Unique Craft unlocked: %s — gather the parts and make one."):format(offer.outputName)
+				)
+				AnalyticsService.log("unique_craft_offered", {
+					userId = player.UserId, output = offer.outputItemId, slot = slot,
+				})
+			end
 		end
 	end
-	if offer == nil then
-		return nil
+	if granted then
+		task.spawn(function()
+			DataService.saveNow(player)
+		end)
 	end
-	profile.UniqueCraft = offer
+end
+
+-- Unlock the next slot for gems. Permanent once bought.
+function UniqueCraftService.buySlot(player: Player): any
+	local profile = DataService.getProfile(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local current = UniqueCraftService.slotsFor(profile)
+	local nextSlot = current + 1
+	local cost = EventConfig.uniqueSlotCost(nextSlot)
+	if cost == nil then
+		return { ok = false, err = "max_slots" }
+	end
+	local paid = InventoryService.applyDelta(player, { gems = -cost }, "unique_slot")
+	if not paid then
+		return { ok = false, err = "insufficient_gems" }
+	end
+	profile.UniqueCraftSlots = nextSlot
 	task.spawn(function()
 		DataService.saveNow(player)
 	end)
-	NotificationService.notify(
-		player.UserId,
-		("Unique Craft unlocked: %s — gather the parts and make one."):format(offer.outputName)
-	)
-	AnalyticsService.log("unique_craft_offered", {
-		userId = player.UserId, output = offer.outputItemId,
-	})
-	return offer
+	-- fill it straight away, or the purchase does nothing visible until the
+	-- next sweep and reads as broken
+	UniqueCraftService.maybeOffer(player, os.time())
+	AnalyticsService.log("unique_slot_bought", { userId = player.UserId, slot = nextSlot, gems = cost })
+	return { ok = true, slots = nextSlot }
 end
 
--- The offer expressed as an ordinary recipe, so it renders and crafts through
--- exactly the same code path as every other recipe.
-function UniqueCraftService.recipeFor(player: Player, now: number): any?
-	local offer = UniqueCraftService.offerFor(player, now)
-	if offer == nil then
-		return nil
+-- What the client needs to render the tab: every live offer plus the price of
+-- the next slot (nil when they own them all).
+function UniqueCraftService.stateFor(player: Player, now: number): any
+	local profile = DataService.getProfile(player)
+	if profile == nil then
+		return { ok = false, err = "loading" }
+	end
+	local slots = UniqueCraftService.slotsFor(profile)
+	local live = UniqueCraftService.offersFor(player, now)
+	local rows = {}
+	for slot = 1, slots do
+		local offer = live[slot]
+		table.insert(rows, {
+			slot = slot,
+			offer = offer,
+			-- an empty slot is waiting, not broken: say when it refills
+			refillsAt = offer == nil and (profile.UniqueCraftNextAt[slot] or now) or nil,
+		})
 	end
 	return {
-		rid = "unique",
+		ok = true,
+		slots = slots,
+		maxSlots = EventConfig.maxUniqueSlots(),
+		nextSlotCost = EventConfig.uniqueSlotCost(slots + 1),
+		rows = rows,
+		now = now,
+	}
+end
+
+-- An offer expressed as an ordinary recipe, so it renders and crafts through
+-- exactly the same code path as every other recipe.
+local function asRecipe(offer: any, slot: number): any
+	return {
+		rid = "unique_" .. tostring(slot),
 		tier = 2,
 		blurb = "Only you can make this, and only for a while. Buy or trade for the parts.",
 		inputs = offer.inputs,
 		unique = true,
+		slot = slot,
 		output = {
-			-- an EXISTING item: sku is derived back to its real id, so the
-			-- craft draws on that item's own reserve and cap like anything else
+			-- an EXISTING item: the sku IS its real id, so the craft draws on that
+			-- item's own reserve and cap like anything else
 			sku = offer.outputItemId,
 			itemId = offer.outputItemId,
 			name = offer.outputName,
@@ -300,6 +388,27 @@ function UniqueCraftService.recipeFor(player: Player, now: number): any?
 		},
 		expiresAt = offer.expiresAt,
 	}
+end
+
+function UniqueCraftService.recipesFor(player: Player, now: number): { any }
+	local out = {}
+	for slot, offer in UniqueCraftService.offersFor(player, now) do
+		table.insert(out, asRecipe(offer, slot))
+	end
+	table.sort(out, function(a, b)
+		return a.slot < b.slot
+	end)
+	return out
+end
+
+-- Resolve one recipe by its rid, for crafting.
+function UniqueCraftService.recipeByRid(player: Player, rid: string, now: number): any?
+	for _, recipe in UniqueCraftService.recipesFor(player, now) do
+		if recipe.rid == rid then
+			return recipe
+		end
+	end
+	return nil
 end
 
 function UniqueCraftService.eventId(): string
@@ -313,6 +422,13 @@ end
 function UniqueCraftService.Init() end
 
 function UniqueCraftService.Start()
+	Net.bindFunction("GetUniqueCrafts", function(player)
+		return UniqueCraftService.stateFor(player, os.time())
+	end)
+	Net.bindFunction("BuyUniqueCraftSlot", function(player)
+		return UniqueCraftService.buySlot(player)
+	end)
+
 	-- offer one shortly after a profile loads, so a brand-new player has a
 	-- concrete thing to chase before they have any idea what the game is
 	DataService.ProfileLoaded:Connect(function(player)

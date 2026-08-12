@@ -88,6 +88,8 @@ local Enums = {
 		"SyndicateSetRole", -- (targetUserId, role) -> {ok, syndicate?, err?}
 		"SyndicateSetPermission", -- (role, action, allowed) -> {ok, syndicate?, err?} — owner only
 		"SetSyndicatePolicy", -- (policy) -> {ok, err?} — Open|Request|Invite
+		"GetUniqueCrafts", -- () -> {ok, slots, maxSlots, nextSlotCost, rows}
+		"BuyUniqueCraftSlot", -- () -> {ok, slots?, err?} — gems for a permanent extra slot
 		"GetCraftProgress", -- () -> {ok, crafts, tiers, goal} — milestone track + communal goal
 		"ClaimMilestone", -- (index) -> {ok, name?, err?}
 		"ClaimCommunalGoal", -- () -> {ok, err?}
