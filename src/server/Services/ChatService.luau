@@ -38,18 +38,12 @@ local AnalyticsService = require(script.Parent.AnalyticsService)
 
 local GROUP_TOPIC = "group_chat"
 local HISTORY_PER_GROUP = 40
-local GROUP_MIN_SECONDS = 0.7
 local GROUP_MAX_LENGTH = 140
 
 local ChatService = {}
 
 -- groupId -> ring buffer of { userId, name, text, at }
 local history: { [string]: { any } } = {}
--- Separate budgets: a rejected trade phrase must not silence group chat.
--- Both are stamped only once a message is actually being delivered, so a
--- failed send never costs the player their next one.
-local lastTradeChat: { [number]: number } = {}
-local lastGroupChat: { [number]: number } = {}
 
 local function push(groupId: string, entry: any)
 	local buf = history[groupId]
@@ -76,11 +70,6 @@ local function tradeQuickChat(player: Player, tradeId: any, phraseId: any, itemI
 		return { ok = false, err = "unknown_phrase" } -- not in the file, not sent
 	end
 
-	local last = lastTradeChat[player.UserId] or 0
-	if os.clock() - last < QuickChatConfig.MinSecondsBetween then
-		return { ok = false, err = "too_fast" }
-	end
-
 	-- only the two people in the trade may speak into it, and only they hear it
 	local TradeService = require(script.Parent.TradeService)
 	local other = TradeService.partnerOf(player, tradeId :: string)
@@ -99,8 +88,6 @@ local function tradeQuickChat(player: Player, tradeId: any, phraseId: any, itemI
 		end
 		itemName = item.name
 	end
-
-	lastTradeChat[player.UserId] = os.clock() -- only now is it really sending
 
 	-- rendered from config, never from anything the player typed
 	local text = QuickChatConfig.render(phrase, itemName)
@@ -185,12 +172,6 @@ local function sendGroupChat(player: Player, message: any): any
 	if #clean == 0 then
 		return { ok = false, err = "empty" }
 	end
-	local last = lastGroupChat[player.UserId] or 0
-	if os.clock() - last < GROUP_MIN_SECONDS then
-		return { ok = false, err = "too_fast" }
-	end
-	lastGroupChat[player.UserId] = os.clock()
-
 	local entry = {
 		userId = player.UserId,
 		name = player.Name,
@@ -267,10 +248,6 @@ function ChatService.Start()
 		end
 	end)
 
-	Players.PlayerRemoving:Connect(function(player)
-		lastTradeChat[player.UserId] = nil
-		lastGroupChat[player.UserId] = nil
-	end)
 end
 
 return ChatService

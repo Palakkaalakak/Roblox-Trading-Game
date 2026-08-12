@@ -22,11 +22,6 @@
 -- players who cannot type: naming a thing is most of what negotiation is.
 
 local QuickChatConfig = {
-	-- How many phrases a player may send per trade, and how fast. Not a
-	-- security control — it stops the log becoming unreadable.
-	MaxPerTrade = 40,
-	MinSecondsBetween = 0.5,
-
 	-- Shown in the trade screen, grouped so the bar stays readable.
 	TradePhrases = {
 		-- ── what I think of this offer ──────────────────────────────────
