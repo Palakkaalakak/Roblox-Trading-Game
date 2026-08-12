@@ -3222,24 +3222,50 @@ local function buildRollsPanel(parent: Instance)
 		Visible = false, -- template
 		ZIndex = 31,
 	}, strip)
+	-- lift the art clear of the caption band so they do not overlap
+	new("UIPadding", { PaddingBottom = UDim.new(0, 6) }, reelTile)
 	corner(reelTile, 8)
-	-- name under the art: an icon alone does not tell a player WHAT just
-	-- went past, which is most of the tension while the reel is spinning.
-	-- Sits over the bottom of the tile so it costs no extra height.
-	local reelName = label("ReelName", {
+	-- Name caption. An icon alone does not tell a player WHAT just went past,
+	-- which is most of the tension while the reel spins. Laid on a dark band
+	-- rather than straight onto the art: item icons are bright and busy, and
+	-- bare text over them reads as smudge however heavy the stroke is.
+	local nameBar = new("Frame", {
+		Name = "NameBar",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.fromScale(0.5, 1),
-		Size = UDim2.fromScale(1, 0.24),
+		Size = UDim2.fromScale(1, 0.28),
+		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		ZIndex = 32,
+	}, reelTile)
+	corner(nameBar, 8)
+	-- the band is rounded on all four corners but only the bottom two should
+	-- show; this square-off patch covers the top pair so it sits flush
+	new("Frame", {
+		Name = "Squareoff",
+		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 0.5),
+		ZIndex = 32,
+	}, nameBar)
+
+	local reelName = label("ReelName", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
 		Text = "",
-		Font = FONT_LIGHT,
 		TextScaled = true,
 		TextColor3 = C.Text,
 		TextXAlignment = Enum.TextXAlignment.Center,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		ZIndex = 32,
-	}, reelTile)
-	capText(reelName, 13)
-	textStroke(reelName, 2, 0.1) -- readable over any item art
+		TextYAlignment = Enum.TextYAlignment.Center,
+		ZIndex = 33,
+	}, nameBar)
+	capText(reelName, 14)
+	new("UIPadding", {
+		PaddingLeft = UDim.new(0, 4),
+		PaddingRight = UDim.new(0, 4),
+	}, reelName)
 	-- center marker: the fixed "you get this" window, on top of the strip, with
 	-- the rarity-colored glow RollsScreen recolors as the reel lands
 	local marker = new("Frame", {

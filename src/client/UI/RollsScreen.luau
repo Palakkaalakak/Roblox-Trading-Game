@@ -287,7 +287,7 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				entry = item
 			end
 			Components.setIcon(tile, entry)
-			local nameLabel = tile:FindFirstChild("ReelName")
+			local nameLabel = tile:FindFirstChild("ReelName", true)
 			if nameLabel then
 				nameLabel.Text = (entry and entry.name) or ""
 				-- tint by rarity so the reel reads at a glance, the same way
