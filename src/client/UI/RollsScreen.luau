@@ -131,9 +131,9 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			card.LayoutOrder = order
 			;(card:WaitForChild("TierName") :: TextLabel).Text = tier.name
 			;(card:WaitForChild("Price") :: TextLabel).Text = ("%d gems"):format(tier.gems)
-			;(card:WaitForChild("Guarantee") :: TextLabel).Text = tier.minValue and tier.minValue > 0
-				and ("≥ %d value guaranteed"):format(tier.minValue)
-				or ""
+			-- the "≥ N value guaranteed" line is off; the floor still applies
+			-- server-side (RollConfig.floorFrac), it just isn't advertised
+			;(card:WaitForChild("Guarantee") :: TextLabel).Text = ""
 			fillOdds(card, tier.odds or {})
 			;(card:WaitForChild("Blurb") :: TextLabel).Text = tier.blurb or ""
 			card.Activated:Connect(function()
