@@ -671,6 +671,20 @@ local function sweep()
 	end
 end
 
+-- The OTHER participant in a trade, or nil when `player` is not in it.
+-- Used by ChatService so only the two people in a trade can talk into it.
+function TradeService.partnerOf(player: Player, tradeId: string): number?
+	local record = fetch(tradeId)
+	if record == nil then
+		return nil
+	end
+	local key = TradeCore.sideKeyOf(record, player.UserId)
+	if key == nil then
+		return nil
+	end
+	return record[TradeCore.otherKey(key)].userId
+end
+
 function TradeService.Init()
 	StoreAdapters.init()
 	tradeMap = StoreAdapters.sortedMap("Trades_v2")

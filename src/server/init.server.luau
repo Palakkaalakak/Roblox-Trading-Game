@@ -33,6 +33,8 @@ local ordered = {
 	{ "Syndicate", require(Services.SyndicateService) },
 	{ "TradeBoard", require(Services.TradeBoardService) },
 	{ "Trade", require(Services.TradeService) },
+	-- after Trade: relays quick chat between its participants
+	{ "Chat", require(Services.ChatService) },
 	{ "Profile", require(Services.ProfileService) },
 	{ "Bots", require(Services.BotService) },
 }

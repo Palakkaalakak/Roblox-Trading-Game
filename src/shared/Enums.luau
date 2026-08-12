@@ -97,6 +97,9 @@ local Enums = {
 		"GetCraftProgress", -- () -> {ok, crafts, tiers, goal} — milestone track + communal goal
 		"ClaimMilestone", -- (index) -> {ok, name?, err?}
 		"ClaimCommunalGoal", -- () -> {ok, err?}
+		"TradeQuickChat", -- (tradeId, phraseId, itemId?) -> {ok, err?} — canned phrases only
+		"SendGroupChat", -- (message) -> {ok, err?} — filtered per reader
+		"GetGroupChat", -- () -> {ok} — replays recent history to the caller
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"AdminResetEconomy", -- () -> {ok, reset} — admin only: every item back to full reserve
@@ -110,6 +113,8 @@ local Enums = {
 		"TradeSettled", -- (tradeId, receivedItems, receivedGems)
 		"TradeAborted", -- (tradeId, reason)
 		"Notify", -- (text) — generic notification toast
+		"TradeChat", -- ({tradeId, fromUserId, fromName, text, at})
+		"GroupChat", -- ({groupId, userId, name, text, at}) — already filtered for this reader
 		"BoardActivity", -- ({text, t}) — live trade-feed line (fills/swaps)
 	},
 }
