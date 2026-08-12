@@ -30,24 +30,23 @@ local SyndicateConfig = {
 	-- somebody of a HIGHER rank number than your own, which is the single
 	-- rule that stops an officer removing the owner.
 	OwnerRoleId = "owner", -- always rank 1, never deletable, never editable
+	MemberRoleId = "member", -- the floor rank everyone lands on; never deletable
 	MaxRoles = 8,
 	RoleNameMaxLength = 18,
 
-	-- The roles a brand-new group starts with. Copied onto the record at
-	-- creation, then it is the group's own to reshape.
+	-- The roles a brand-new group starts with: just the two that must exist.
+	-- Owner at the top, Member at the bottom, and nothing in between -- the
+	-- owner adds whatever middle ranks their group actually wants rather than
+	-- inheriting names we guessed at. Both of these are permanent: Owner
+	-- because somebody must be able to administer the group, Member because
+	-- deleting a role has to have somewhere to put its holders.
 	DefaultRoles = {
 		{ id = "owner", name = "Owner", rank = 1, permissions = {
 			invite = true, kick = true, promote = true, demote = true,
 			disband = true, setPolicy = true, request = true, recruit = true,
 			manageRoles = true,
 		} },
-		{ id = "officer", name = "Officer", rank = 2, permissions = {
-			invite = true, kick = true, request = true, recruit = true,
-		} },
-		{ id = "veteran", name = "Veteran", rank = 3, permissions = {
-			invite = true, request = true, recruit = true,
-		} },
-		{ id = "member", name = "Member", rank = 4, permissions = {
+		{ id = "member", name = "Member", rank = 2, permissions = {
 			request = true,
 		} },
 	},
@@ -231,6 +230,26 @@ function SyndicateConfig.can(record: any, roleId: string, action: string): boole
 	return SyndicateConfig.roleCan(SyndicateConfig.roleById(record, roleId), action)
 end
 
+-- The role a new member joins as, and where holders of a deleted role land.
+-- A fixed id rather than "whatever is last", so the floor cannot move when the
+-- owner reorders their ladder.
+function SyndicateConfig.defaultMemberRoleId(record: any): string
+	for _, role in SyndicateConfig.rolesOf(record) do
+		if role.id == SyndicateConfig.MemberRoleId then
+			return role.id
+		end
+	end
+	-- a group that somehow lost it falls back to the most junior rank
+	local roles = SyndicateConfig.rolesOf(record)
+	return roles[#roles] and roles[#roles].id or SyndicateConfig.MemberRoleId
+end
+
+-- Owner and Member are structural: one administers the group, the other is the
+-- floor every deletion falls back to. Neither can be removed.
+function SyndicateConfig.isPermanentRole(roleId: string): boolean
+	return roleId == SyndicateConfig.OwnerRoleId or roleId == SyndicateConfig.MemberRoleId
+end
+
 -- Does `actorRoleId` outrank `targetRoleId`? Lower rank number wins. Used for
 -- kick/promote: you may only act on somebody below you.
 function SyndicateConfig.outranks(record: any, actorRoleId: string, targetRoleId: string): boolean
@@ -265,11 +284,6 @@ function SyndicateConfig.isGrantablePermission(action: string): boolean
 	return false
 end
 
--- The role a new member joins as: the most junior one that exists.
-function SyndicateConfig.defaultMemberRoleId(record: any): string
-	local roles = SyndicateConfig.rolesOf(record)
-	return roles[#roles] and roles[#roles].id or "member"
-end
 
 -- Goal progress for a record's stats: how far along each goal is, whether it
 -- is done, and what it pays. Pure, so the client renders exactly what the

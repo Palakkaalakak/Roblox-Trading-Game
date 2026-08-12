@@ -18,6 +18,7 @@ local Components = require(script.Parent.Components)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
+local QuickChatConfig = require(game:GetService("ReplicatedStorage").Shared.Config.QuickChatConfig)
 local Net = require(script.Parent.Parent.Net)
 
 local localPlayer = Players.LocalPlayer
@@ -42,6 +43,185 @@ end
 
 function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local panel = gui:WaitForChild("TradePanel") :: Frame
+
+	----------------------------------------------------------------------
+	-- QUICK CHAT
+	--
+	-- Roblox blocks text chat between accounts in different age groups, so
+	-- for a large share of pairings the two people in a trade cannot type to
+	-- each other at all. Canned phrases are server-authored, so they carry no
+	-- such restriction: pressing one sends an ID and the server relays the
+	-- wording. This is the only way those players can negotiate.
+	--
+	-- Built here rather than in GuiBuilder because it hangs off the trade
+	-- panel and nothing else uses it.
+	----------------------------------------------------------------------
+	local chatPanel = Instance.new("Frame")
+	chatPanel.Name = "QuickChat"
+	chatPanel.AnchorPoint = Vector2.new(0, 0)
+	chatPanel.Position = UDim2.new(1, 10, 0, 0)
+	chatPanel.Size = UDim2.fromOffset(230, 640)
+	chatPanel.BackgroundColor3 = Theme.Panel
+	chatPanel.BorderSizePixel = 0
+	chatPanel.Visible = false
+	chatPanel.Parent = panel
+	local qc = Instance.new("UICorner")
+	qc.CornerRadius = Theme.Corner
+	qc.Parent = chatPanel
+	local qs = Instance.new("UIStroke")
+	qs.Color = Theme.Stroke
+	qs.Thickness = 1.5
+	qs.Parent = chatPanel
+
+	local qcTitle = Instance.new("TextLabel")
+	qcTitle.BackgroundTransparency = 1
+	qcTitle.Position = UDim2.fromOffset(12, 8)
+	qcTitle.Size = UDim2.new(1, -24, 0, 20)
+	qcTitle.Font = Theme.Font
+	qcTitle.Text = "Quick Chat"
+	qcTitle.TextSize = 15
+	qcTitle.TextColor3 = Theme.TextPrimary
+	qcTitle.TextXAlignment = Enum.TextXAlignment.Left
+	qcTitle.Parent = chatPanel
+
+	-- what has been said, newest last
+	local qcLog = Instance.new("ScrollingFrame")
+	qcLog.Name = "Log"
+	qcLog.BackgroundColor3 = Theme.Bg
+	qcLog.BorderSizePixel = 0
+	qcLog.Position = UDim2.fromOffset(10, 32)
+	qcLog.Size = UDim2.new(1, -20, 0, 150)
+	qcLog.ScrollBarThickness = 5
+	qcLog.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	qcLog.CanvasSize = UDim2.new()
+	qcLog.Parent = chatPanel
+	local lc = Instance.new("UICorner")
+	lc.CornerRadius = Theme.CornerSmall
+	lc.Parent = qcLog
+	local ll = Instance.new("UIListLayout")
+	ll.Padding = UDim.new(0, 2)
+	ll.SortOrder = Enum.SortOrder.LayoutOrder
+	ll.Parent = qcLog
+
+	-- the phrase buttons
+	local qcPhrases = Instance.new("ScrollingFrame")
+	qcPhrases.Name = "Phrases"
+	qcPhrases.BackgroundTransparency = 1
+	qcPhrases.BorderSizePixel = 0
+	qcPhrases.Position = UDim2.fromOffset(10, 190)
+	qcPhrases.Size = UDim2.new(1, -20, 1, -200)
+	qcPhrases.ScrollBarThickness = 5
+	qcPhrases.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	qcPhrases.CanvasSize = UDim2.new()
+	qcPhrases.Parent = chatPanel
+	local pl = Instance.new("UIListLayout")
+	pl.Padding = UDim.new(0, 4)
+	pl.SortOrder = Enum.SortOrder.LayoutOrder
+	pl.Parent = qcPhrases
+
+	local qcOrder = 0
+	local function appendQuickChat(payload: any)
+		qcOrder += 1
+		local row = Instance.new("TextLabel")
+		row.LayoutOrder = qcOrder
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.new(1, -10, 0, 0)
+		row.AutomaticSize = Enum.AutomaticSize.Y
+		row.Font = Enum.Font.Gotham
+		row.TextSize = 12
+		row.TextWrapped = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.RichText = false
+		-- your own lines are dimmed so the partner's stand out
+		local mine = payload.fromUserId == Players.LocalPlayer.UserId
+		row.TextColor3 = mine and Theme.TextDim or Theme.TextPrimary
+		row.Text = ("%s: %s"):format(mine and "You" or tostring(payload.fromName), tostring(payload.text))
+		row.Parent = qcLog
+		task.defer(function()
+			qcLog.CanvasPosition = Vector2.new(0, math.max(0, qcLog.AbsoluteCanvasSize.Y))
+		end)
+	end
+
+	-- An item-slot phrase ("I want your X") needs an item before it can be
+	-- sent. Naming a specific thing is most of what negotiating is, and it is
+	-- exactly what a fixed phrase list normally cannot express -- so it is
+	-- worth the extra tap.
+	local pendingSlotPhrase: string? = nil
+
+	local function sendPhrase(phraseId: string, itemId: string?)
+		local view = TradeController.trade:get()
+		if view == nil or view.tradeId == nil then
+			return
+		end
+		task.spawn(function()
+			Net.invoke("TradeQuickChat", view.tradeId, phraseId, itemId)
+		end)
+	end
+
+	local order = 0
+	for _, groupId in QuickChatConfig.GroupOrder do
+		order += 1
+		local head = Instance.new("TextLabel")
+		head.LayoutOrder = order
+		head.BackgroundTransparency = 1
+		head.Size = UDim2.new(1, -8, 0, 16)
+		head.Font = Theme.Font
+		head.Text = (QuickChatConfig.GroupLabels[groupId] or groupId):upper()
+		head.TextSize = 10
+		head.TextColor3 = Theme.TextDim
+		head.TextXAlignment = Enum.TextXAlignment.Left
+		head.Parent = qcPhrases
+
+		for _, phrase in QuickChatConfig.TradePhrases do
+			if phrase.group == groupId then
+				order += 1
+				local b = Instance.new("TextButton")
+				b.LayoutOrder = order
+				b.Size = UDim2.new(1, -8, 0, 26)
+				b.BackgroundColor3 = Theme.BgLight
+				b.Font = Enum.Font.Gotham
+				b.TextSize = 12
+				b.TextColor3 = Theme.TextPrimary
+				b.TextXAlignment = Enum.TextXAlignment.Left
+				-- show the slot phrases with a placeholder so it is obvious they
+				-- will ask which item
+				b.Text = "  " .. (phrase.slot == "item"
+					and (phrase.text):format("...")
+					or phrase.text)
+				b.Parent = qcPhrases
+				local bc = Instance.new("UICorner")
+				bc.CornerRadius = Theme.CornerSmall
+				bc.Parent = b
+				b.Activated:Connect(function()
+					if phrase.slot == "item" then
+						pendingSlotPhrase = phrase.id
+						TradeScreen.openPicker("inventory")
+					else
+						sendPhrase(phrase.id)
+					end
+				end)
+			end
+		end
+	end
+
+	-- consumed by the picker: when a slot phrase is waiting, the next item
+	-- picked completes it instead of being added to the offer
+	function TradeScreen._consumeSlotPick(itemId: string): boolean
+		if pendingSlotPhrase == nil then
+			return false
+		end
+		local phraseId = pendingSlotPhrase
+		pendingSlotPhrase = nil
+		sendPhrase(phraseId, itemId)
+		return true
+	end
+
+	Net.on("TradeChat", function(payload)
+		if payload then
+			appendQuickChat(payload)
+		end
+	end)
+
 	local title = panel:WaitForChild("Title") :: TextLabel
 	local statusLabel = panel:WaitForChild("StatusLabel") :: TextLabel
 	local acceptBtn = panel:WaitForChild("AcceptButton") :: TextButton
@@ -303,6 +483,12 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 	-- what happens when a picker tile is clicked, by (compose, source)
 	local function onPicked(itemId: string, source: string)
+		-- a quick-chat phrase waiting on an item ("I want your ...") claims the
+		-- pick instead of it going into the offer
+		if TradeScreen._consumeSlotPick(itemId) then
+			picker.Visible = false
+			return
+		end
 		if compose then
 			local offer = source == "inventory" and compose.give or compose.want
 			if WildcardConfig.isWildcard(itemId) then
@@ -445,6 +631,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			local c = compose
 			compose = nil
 			panel.Visible = false
+			chatPanel.Visible = false
 			picker.Visible = false
 			if autoToggle then
 				autoToggle.Visible = false
@@ -461,6 +648,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		if compose then
 			compose = nil
 			panel.Visible = false
+			chatPanel.Visible = false
 			picker.Visible = false
 			if autoToggle then
 				autoToggle.Visible = false
@@ -539,6 +727,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
+		chatPanel.Visible = true
 		title.Text = "📌 Post a board trade"
 		yourSide.header.Text = "You give (escrowed on post)"
 		theirSide.header.Text = "You want — click slots to add"
@@ -604,6 +793,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 		if view == nil then
 			panel.Visible = false
+			chatPanel.Visible = false
 			picker.Visible = false
 			stopCountdown()
 			tooltip.hide()
@@ -611,6 +801,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
+		chatPanel.Visible = true
 		if theirSide.wantBox then
 			theirSide.wantBox.Visible = false
 			theirSide.gemsLabel.Visible = true

@@ -377,22 +377,24 @@ return {
 			local SC = require(ReplicatedStorage.Shared.Config.SyndicateConfig)
 			local SS = require(script.Parent.Parent.Services.SyndicateService)
 
-			-- built the OLD way: no role table, role stored as a display name.
-			-- ensureRoles migrates it, so this covers the upgrade path as well
-			-- as the rank rules themselves.
+			-- A group starts with only Owner and Member; any middle rank is one
+			-- the owner created, so the test builds one explicitly.
 			local record = {
 				id = "s_1",
+				roles = {
+					{ id = "owner", name = "Owner", rank = 1, permissions = {
+						kick = true, promote = true, demote = true } },
+					{ id = "officer", name = "Officer", rank = 2, permissions = { kick = true } },
+					{ id = "member", name = "Member", rank = 3, permissions = {} },
+				},
 				members = {
-					["1"] = { role = "Owner" },
-					["2"] = { role = "Officer" },
-					["3"] = { role = "Member" },
-					["4"] = { role = "Member" },
+					["1"] = { role = "owner" },
+					["2"] = { role = "officer" },
+					["3"] = { role = "member" },
+					["4"] = { role = "member" },
 				},
 			}
-			SS.ensureRoles(record)
-			assert(#record.roles > 0, "migration seeded a role table")
-			eq(SS.roleOf(record, 1), SC.OwnerRoleId, "owner name mapped to the owner id")
-			eq(SS.roleOf(record, 3), "member", "member name mapped to the member id")
+			eq(SS.roleOf(record, 1), SC.OwnerRoleId)
 			eq(SS.roleOf(record, 99), nil, "non-member has no role")
 			eq(SS.memberCount(record), 4)
 
@@ -422,6 +424,19 @@ return {
 			eq(SC.outranks(record, "owner", "officer"), true)
 			eq(SC.outranks(record, "member", "owner"), false)
 			eq(SC.outranks(record, "officer", "officer"), false, "peers do not outrank")
+
+			-- migration: a record from before roles were editable has no role
+			-- table and stores display NAMES. It must come forward cleanly.
+			local legacy = {
+				id = "s_2",
+				members = { ["1"] = { role = "Owner" }, ["2"] = { role = "Member" } },
+			}
+			SS.ensureRoles(legacy)
+			eq(#legacy.roles, 2, "seeded with exactly Owner + Member")
+			eq(SS.roleOf(legacy, 1), SC.OwnerRoleId, "Owner name mapped to the owner id")
+			eq(SS.roleOf(legacy, 2), SC.MemberRoleId, "Member name mapped to the member id")
+			eq(SC.isPermanentRole(SC.MemberRoleId), true, "Member cannot be deleted")
+			eq(SC.isPermanentRole("officer"), false, "a created role can be deleted")
 		end,
 
 		["perks: listing order honors boost then recency"] = function()

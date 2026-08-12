@@ -26,6 +26,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextService = game:GetService("TextService")
+local RunService = game:GetService("RunService")
 
 local QuickChatConfig = require(ReplicatedStorage.Shared.Config.QuickChatConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
@@ -128,6 +129,13 @@ local function deliverToPlayer(reader: Player, groupId: string, entry: any)
 			-- Test the length, not the value.
 			if ok2 and typeof(forReader) == "string" and #forReader > 0 then
 				text = forReader
+			elseif RunService:IsStudio() then
+				-- STUDIO ONLY. The filter backend is not available for a local
+				-- test player: FilterStringAsync succeeds but
+				-- GetChatForUserAsync returns "", so every message would be
+				-- silently dropped and group chat could not be tested at all.
+				-- Gated on IsStudio so a live server can never take this path.
+				text = entry.rawText
 			else
 				return -- nothing readable for this viewer; send them nothing
 			end

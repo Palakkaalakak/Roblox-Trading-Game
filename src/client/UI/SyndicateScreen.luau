@@ -169,6 +169,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	-- tabs competing with Browse and Invites.
 	----------------------------------------------------------------------
 	local mineSection = "members"
+	local chatPrimed = false -- history is pulled once per session, not per open
 	local subTabRow = Instance.new("Frame")
 	subTabRow.Name = "SectionRow"
 	subTabRow.BackgroundTransparency = 1
@@ -186,6 +187,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		{ id = "goals", text = "Goals" },
 		{ id = "requests", text = "Requests" },
 		{ id = "settings", text = "Settings" },
+		{ id = "chat", text = "Chat" },
 		{ id = "roles", text = "Roles" },
 	}
 	local sectionButtons: { [string]: TextButton } = {}
@@ -680,6 +682,129 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	local settingsView = makeListView("SettingsView")
 	local rolesView = makeListView("RolesView")
 
+	-- CHAT. A scrolling log with the input pinned to the bottom, which is the
+	-- shape every player already knows. Messages arrive already filtered FOR
+	-- THIS READER (see ChatService), so the client only ever renders what the
+	-- server decided this particular person may see.
+	local chatView = Instance.new("Frame")
+	chatView.Name = "ChatView"
+	chatView.BackgroundTransparency = 1
+	chatView.Size = UDim2.fromScale(1, 1)
+	chatView.Visible = false
+	chatView.Parent = body
+
+	local chatLog = Instance.new("ScrollingFrame")
+	chatLog.Name = "Log"
+	chatLog.BackgroundTransparency = 1
+	chatLog.BorderSizePixel = 0
+	chatLog.Position = UDim2.fromOffset(0, 0)
+	chatLog.Size = UDim2.new(1, 0, 1, -42)
+	chatLog.ScrollBarThickness = 6
+	chatLog.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	chatLog.CanvasSize = UDim2.new()
+	chatLog.Parent = chatView
+	local chatLayout = Instance.new("UIListLayout")
+	chatLayout.Padding = UDim.new(0, 3)
+	chatLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	chatLayout.Parent = chatLog
+
+	local chatBar = Instance.new("Frame")
+	chatBar.Name = "ChatBar"
+	chatBar.AnchorPoint = Vector2.new(0, 1)
+	chatBar.Position = UDim2.new(0, 0, 1, 0)
+	chatBar.Size = UDim2.new(1, 0, 0, 34)
+	chatBar.BackgroundColor3 = Theme.Bg
+	chatBar.BorderSizePixel = 0
+	chatBar.Parent = chatView
+	local cbc = Instance.new("UICorner")
+	cbc.CornerRadius = Theme.CornerSmall
+	cbc.Parent = chatBar
+
+	local chatBox = Instance.new("TextBox")
+	chatBox.Position = UDim2.fromOffset(10, 5)
+	chatBox.Size = UDim2.new(1, -110, 0, 24)
+	chatBox.BackgroundColor3 = Theme.BgLight
+	chatBox.BorderSizePixel = 0
+	chatBox.Font = Enum.Font.Gotham
+	chatBox.PlaceholderText = "Message your group..."
+	chatBox.Text = ""
+	chatBox.TextColor3 = Theme.TextPrimary
+	chatBox.TextSize = 13
+	chatBox.TextXAlignment = Enum.TextXAlignment.Left
+	chatBox.ClearTextOnFocus = false
+	chatBox.Parent = chatBar
+	local cbx = Instance.new("UICorner")
+	cbx.CornerRadius = Theme.CornerSmall
+	cbx.Parent = chatBox
+	local cbp = Instance.new("UIPadding")
+	cbp.PaddingLeft = UDim.new(0, 8)
+	cbp.PaddingRight = UDim.new(0, 8)
+	cbp.Parent = chatBox
+
+	local sendBtn = Instance.new("TextButton")
+	sendBtn.AnchorPoint = Vector2.new(1, 0.5)
+	sendBtn.Position = UDim2.new(1, -10, 0.5, 0)
+	sendBtn.Size = UDim2.fromOffset(84, 24)
+	sendBtn.Font = Theme.Font
+	sendBtn.TextSize = 12
+	sendBtn.Text = "SEND"
+	sendBtn.BackgroundColor3 = Theme.Accent
+	sendBtn.TextColor3 = Theme.TextPrimary
+	sendBtn.Parent = chatBar
+	local sbc = Instance.new("UICorner")
+	sbc.CornerRadius = Theme.CornerSmall
+	sbc.Parent = sendBtn
+
+	local chatOrder = 0
+	local function appendChat(payload: any)
+		chatOrder += 1
+		local row = Instance.new("TextLabel")
+		row.Name = "msg_" .. chatOrder
+		row.LayoutOrder = chatOrder
+		row.BackgroundTransparency = 1
+		row.Size = UDim2.new(1, -12, 0, 0)
+		row.AutomaticSize = Enum.AutomaticSize.Y
+		row.Font = Enum.Font.Gotham
+		row.TextSize = 13
+		row.TextColor3 = Theme.TextPrimary
+		row.TextWrapped = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.RichText = false
+		row.Text = ("%s:  %s"):format(tostring(payload.name), tostring(payload.text))
+		row.Parent = chatLog
+		-- keep the newest line in view, the way any chat window behaves
+		task.defer(function()
+			chatLog.CanvasPosition = Vector2.new(0, math.max(0, chatLog.AbsoluteCanvasSize.Y))
+		end)
+	end
+
+	local function sendChat()
+		local text = chatBox.Text
+		if text:gsub("%s", "") == "" then
+			return
+		end
+		chatBox.Text = ""
+		task.spawn(function()
+			local result = Net.invoke("SendGroupChat", text)
+			if not (result and result.ok) then
+				toast(explain(result and result.err), Theme.Bad)
+			end
+		end)
+	end
+	sendBtn.Activated:Connect(sendChat)
+	chatBox.FocusLost:Connect(function(enter)
+		if enter then
+			sendChat()
+		end
+	end)
+
+	Net.on("GroupChat", function(payload)
+		if payload then
+			appendChat(payload)
+		end
+	end)
+
+
 	local function makeRow(parent: Instance, order: number, height: number): Frame
 		local row = Instance.new("Frame")
 		row.Name = "Row" .. order
@@ -855,6 +980,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			-- Owner is skipped: it always has everything and none of it is
 			-- editable, so listing it is a screen of locked rows saying nothing.
 			if role.id ~= SyndicateConfig.OwnerRoleId then
+				local permanent = SyndicateConfig.isPermanentRole(role.id)
 				local roleRow = addRow(36)
 				local nameBox = Instance.new("TextBox")
 				nameBox.Position = UDim2.fromOffset(12, 5)
@@ -904,11 +1030,13 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 						return Net.invoke("SyndicateMoveRole", role.id, 1)
 					end, nil)
 				end)
-				smallBtn("X", -10, Theme.Bad, function()
-					act(function()
-						return Net.invoke("SyndicateDeleteRole", role.id)
-					end, ("%s deleted."):format(role.name))
-				end)
+				if not permanent then
+					smallBtn("X", -10, Theme.Bad, function()
+						act(function()
+							return Net.invoke("SyndicateDeleteRole", role.id)
+						end, ("%s deleted."):format(role.name))
+					end)
+				end
 
 				for _, perm in SyndicateConfig.PermissionCatalogue do
 					if perm.ownerOnly ~= true then
@@ -983,11 +1111,12 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		goalsView.Visible = inMine and mineSection == "goals"
 		settingsView.Visible = inMine and mineSection == "settings"
 		rolesView.Visible = inMine and mineSection == "roles"
+		chatView.Visible = inMine and mineSection == "chat"
 		browseView.Visible = activeTab == "browse"
 		invitesView.Visible = activeTab == "invites"
 
 		-- the section row sits above whichever section is showing
-		for _, view in { mineView, requestsView, goalsView, settingsView, rolesView } do
+		for _, view in { mineView, requestsView, goalsView, settingsView, rolesView, chatView } do
 			if view.Visible then
 				view.Position = UDim2.fromOffset(0, 32)
 				view.Size = UDim2.new(1, 0, 1, -32)
@@ -1004,6 +1133,15 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			renderSettings(s)
 		elseif rolesView.Visible then
 			renderRoles(s)
+		elseif chatView.Visible then
+			-- history replays through the same filtered path as live
+			-- messages, so it arrives via the GroupChat event too
+			if not chatPrimed then
+				chatPrimed = true
+				task.spawn(function()
+					Net.invoke("GetGroupChat")
+				end)
+			end
 		elseif browseView.Visible then
 			task.spawn(function()
 				local dir = Net.invoke("BrowseSyndicates")

@@ -679,6 +679,28 @@ function ensureRoles(record: any): any
 			})
 		end
 	end
+	-- Member is structural now: it is the floor a deleted role falls back to,
+	-- and a group that lost it (older records could delete it) would have no
+	-- valid landing rank. Put it back at the bottom of whatever ladder exists.
+	local hasMember = false
+	for _, role in record.roles do
+		if role.id == SyndicateConfig.MemberRoleId then
+			hasMember = true
+		end
+	end
+	if not hasMember then
+		local lowest = 1
+		for _, role in record.roles do
+			lowest = math.max(lowest, role.rank or 1)
+		end
+		table.insert(record.roles, {
+			id = SyndicateConfig.MemberRoleId,
+			name = "Member",
+			rank = lowest + 1,
+			permissions = { request = true },
+		})
+	end
+
 	local known: { [string]: boolean } = {}
 	for _, role in record.roles do
 		known[role.id] = true
@@ -777,13 +799,12 @@ function SyndicateService.deleteRole(player: Player, roleId: any): any
 	if not Guard.isString(roleId, 64) then
 		return { ok = false, err = "bad_args" }
 	end
-	if roleId == SyndicateConfig.OwnerRoleId then
+	-- Owner and Member are structural: one administers the group, the other is
+	-- the floor a deleted role's holders fall back to.
+	if SyndicateConfig.isPermanentRole(roleId :: string) then
 		return { ok = false, err = "role_locked" }
 	end
 	return ownerOnly(player, function(record)
-		if #record.roles <= 2 then
-			return nil, "need_two_roles" -- owner + something to be
-		end
 		local kept = {}
 		local found = false
 		for _, role in record.roles do
@@ -812,7 +833,7 @@ function SyndicateService.moveRole(player: Player, roleId: any, direction: any):
 	if not Guard.isString(roleId, 64) or typeof(direction) ~= "number" then
 		return { ok = false, err = "bad_args" }
 	end
-	if roleId == SyndicateConfig.OwnerRoleId then
+	if SyndicateConfig.isPermanentRole(roleId :: string) then
 		return { ok = false, err = "role_locked" }
 	end
 	return ownerOnly(player, function(record)
