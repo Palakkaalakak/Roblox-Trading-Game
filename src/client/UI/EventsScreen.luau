@@ -169,10 +169,8 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end)
 	end
 
-	-- First recipe in the graph that makes this output (one representative
-	-- route — the rotating refinery deliberately has several, e.g. 4 recipes
-	-- all producing Refined Essence; showing all of them would turn a linear
-	-- ladder into a wide, confusing fan for no benefit to reading the chain).
+	-- The recipe in the graph that makes this output. Exactly one may exist:
+	-- validateRecipeGraph rejects two recipes sharing an output sku.
 	local function findRecipeForOutput(outItemId: string): (any?, number)
 		if recipeGraph == nil then
 			return nil, 0

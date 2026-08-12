@@ -104,6 +104,38 @@ function CraftingService.validateRecipeGraph(): { string }
 		end
 	end
 
+	-- NO TWO RECIPES MAY SHARE AN OUTPUT. An item is one thing with one way to
+	-- make it; several recipes minting the same sku renders as a column of
+	-- identical rows the player cannot tell apart, and splits one item's supply
+	-- across unrelated routes. (The refinery used to do this deliberately —
+	-- four commons all producing one "Refined Essence" — and it read as a bug.)
+	do
+		local madeBy: { [string]: string } = {}
+		local function claim(list: { any }, where: string)
+			for _, recipe in list do
+				local outId = recipeOutputId(recipe)
+				local existing = madeBy[outId]
+				if existing then
+					table.insert(
+						violations,
+						("%s/%s outputs %s, but %s already does — an item needs exactly one recipe")
+							:format(where, recipe.rid, outId, existing)
+					)
+				else
+					madeBy[outId] = where .. "/" .. recipe.rid
+				end
+			end
+		end
+		for _, event in EventConfig.Events do
+			if event.enabled then
+				claim(event.recipes, event.id)
+			end
+		end
+		if rot and rot.enabled then
+			claim(rot.Pool, ROTATING_EVENT_ID)
+		end
+	end
+
 	-- A rotating recipe may only ever produce a TERMINAL item. If a rotating
 	-- output fed some other recipe, that recipe would be uncraftable for
 	-- everyone in every window where its input wasn't picked — the dead end

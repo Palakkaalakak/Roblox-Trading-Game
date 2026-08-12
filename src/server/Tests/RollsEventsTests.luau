@@ -149,8 +149,8 @@ return {
 		["rolls: only re-obtainable items may pay for a roll"] = function()
 			-- base-pool items: always fine (rolls/store/draws restock them)
 			eq(EventConfig.isReobtainable("itm_1_1_stone_relic"), true, "base item")
-			-- rotating-pool outputs: the recipe reappears in future windows
-			eq(EventConfig.isReobtainable("evt_refined_essence"), true, "rotating output")
+			-- refinery outputs: each common has its own material, made forever
+			eq(EventConfig.isReobtainable("evt_cut_stone"), true, "refinery output")
 			eq(EventConfig.isReobtainable("evt_storm_artifact"), true, "rotating artifact")
 			-- permanent-station outputs: craftable forever
 			eq(EventConfig.isReobtainable("evt_transmutation_stone"), true, "station output")

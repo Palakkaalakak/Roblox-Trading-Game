@@ -21,7 +21,7 @@
 -- events, rolls, the gem-store NPC, or the starter pool).
 --
 -- THE LADDER (each rung is +10% value and a source of REAL demand for the
--- rung below): commons --> Refined Essence --> Artifact --> Grail.
+-- rung below): commons --> refined material --> Artifact --> Grail.
 -- This is where "pro" players buy in bulk from everyone else: a capstone
 -- recipe's input counts are meant to be steep — often more than one player
 -- could ever farm alone — so satisfying it means buying hundreds of a common
@@ -42,9 +42,10 @@
 -- DEV WORKFLOW — adding an event:
 --   1. Add an entry to Events (or a recipe to RotatingRecipes.Pool).
 --      Output `sku` must be NEW and unique (itemId becomes "evt_<sku>") —
---      never reuse one; old outputs live on in inventories. Several recipes MAY
---      share one output sku (the refinery does this on purpose: many roads to
---      the same material, one shared supply pool).
+--      never reuse one; old outputs live on in inventories. NO TWO RECIPES MAY
+--      SHARE AN OUTPUT SKU -- an item is one thing with one way to make it, and
+--      duplicate rows reading identically is exactly how the refinery went
+--      wrong. validateRecipeGraph enforces this.
 --      Input ids must be REAL itemIds (check Items.luau / the registry).
 --   2. Reboot. Done. Set `enabled = false` (or add `endsAt`) to close it.
 --
@@ -193,7 +194,7 @@ local EventConfig: any = {
 		},
 
 		--------------------------------------------------------------------
-		-- THE REFINERY — commons into Refined Essence. PERMANENT on purpose:
+		-- THE REFINERY — each common into its OWN refined material. PERMANENT:
 		-- Essence feeds most of the ladder, and anything that feeds another
 		-- recipe must be craftable at ANY moment (see the rotation rule at the
 		-- top of this file). Several roads, one shared material pool.
@@ -207,11 +208,11 @@ local EventConfig: any = {
 				{
 					rid = "refine_stone",
 					tier = 1,
-					blurb = "Stone Relics, ground down to something purer.",
+					blurb = "Stone Relics, split and dressed into clean block.",
 					inputs = { ["itm_1_1_stone_relic"] = 15 },
 					output = {
-						sku = "refined_essence",
-						name = "Refined Essence",
+						sku = "cut_stone",
+						name = "Cut Stone",
 						totalSupply = 2500, -- scarce ON PURPOSE: flood it and it's worthless
 						imageId = "rbxassetid://15403265114", -- red potion
 					},
@@ -219,11 +220,11 @@ local EventConfig: any = {
 				{
 					rid = "refine_copper",
 					tier = 1,
-					blurb = "Copper, melted down.",
+					blurb = "Coins melted down and poured into a bar.",
 					inputs = { ["itm_1_2_copper_coin"] = 15 },
 					output = {
-						sku = "refined_essence",
-						name = "Refined Essence",
+						sku = "copper_ingot",
+						name = "Copper Ingot",
 						totalSupply = 2500,
 						imageId = "rbxassetid://15403265114",
 					},
@@ -231,11 +232,11 @@ local EventConfig: any = {
 				{
 					rid = "refine_amber",
 					tier = 1,
-					blurb = "Amber Idols burn hot and clean.",
+					blurb = "Idols rendered down to raw resin.",
 					inputs = { ["itm_1_3_amber_idol"] = 15 },
 					output = {
-						sku = "refined_essence",
-						name = "Refined Essence",
+						sku = "amber_resin",
+						name = "Amber Resin",
 						totalSupply = 2500,
 						imageId = "rbxassetid://15403265114",
 					},
@@ -243,11 +244,11 @@ local EventConfig: any = {
 				{
 					rid = "refine_clay",
 					tier = 1,
-					blurb = "Clay Totems, fired down to essence.",
+					blurb = "Totems kiln-fired until they ring.",
 					inputs = { ["itm_1_4_clay_totem"] = 15 },
 					output = {
-						sku = "refined_essence",
-						name = "Refined Essence",
+						sku = "fired_clay",
+						name = "Fired Clay",
 						totalSupply = 2500,
 						imageId = "rbxassetid://15403265114",
 					},
@@ -271,7 +272,7 @@ local EventConfig: any = {
 					rid = "artifact_storm",
 					tier = 2,
 					blurb = "Bind essence to a serpent and it holds a storm.",
-					inputs = { ["evt_refined_essence"] = 10, ["itm_1_5_jade_serpent"] = 1 },
+					inputs = { ["evt_copper_ingot"] = 10, ["itm_1_5_jade_serpent"] = 1 },
 					output = {
 						sku = "storm_artifact",
 						name = "Storm Artifact",
@@ -283,7 +284,7 @@ local EventConfig: any = {
 					rid = "artifact_ember",
 					tier = 2,
 					blurb = "Sunstone and essence. Warm to the touch, forever.",
-					inputs = { ["evt_refined_essence"] = 10, ["itm_1_6_sunstone_charm"] = 1 },
+					inputs = { ["evt_amber_resin"] = 10, ["itm_1_6_sunstone_charm"] = 1 },
 					output = {
 						sku = "ember_artifact",
 						name = "Ember Artifact",
@@ -295,7 +296,7 @@ local EventConfig: any = {
 					rid = "artifact_frost",
 					tier = 2,
 					blurb = "A lantern that never thaws.",
-					inputs = { ["evt_refined_essence"] = 10, ["itm_1_7_frost_lantern"] = 1 },
+					inputs = { ["evt_cut_stone"] = 10, ["itm_1_7_frost_lantern"] = 1 },
 					output = {
 						sku = "frost_artifact",
 						name = "Frost Artifact",
@@ -307,7 +308,7 @@ local EventConfig: any = {
 					rid = "artifact_gilded",
 					tier = 2,
 					blurb = "Essence poured over a fang. Obscene, and worth it.",
-					inputs = { ["evt_refined_essence"] = 14, ["itm_1_10_obsidian_fang"] = 1 },
+					inputs = { ["evt_fired_clay"] = 14, ["itm_1_10_obsidian_fang"] = 1 },
 					output = {
 						sku = "gilded_artifact",
 						name = "Gilded Artifact",
@@ -319,7 +320,7 @@ local EventConfig: any = {
 					rid = "sun_fragment",
 					tier = 1,
 					blurb = "Sunstone ground fine and bound with essence.",
-					inputs = { ["evt_refined_essence"] = 4, ["itm_1_6_sunstone_charm"] = 2 },
+					inputs = { ["evt_amber_resin"] = 4, ["itm_1_6_sunstone_charm"] = 2 },
 					output = {
 						sku = "sun_fragment",
 						name = "Sun Fragment",
@@ -331,7 +332,7 @@ local EventConfig: any = {
 					rid = "void_fragment",
 					tier = 1,
 					blurb = "A shard of nothing, held together by essence.",
-					inputs = { ["evt_refined_essence"] = 4, ["itm_1_11_void_shard"] = 1 },
+					inputs = { ["evt_copper_ingot"] = 4, ["itm_1_11_void_shard"] = 1 },
 					output = {
 						sku = "void_fragment",
 						name = "Void Fragment",
@@ -478,7 +479,7 @@ local EventConfig: any = {
 				rid = "essence_lantern",
 				tier = 2,
 				blurb = "Cheap to make while it's up. Gone when the window turns.",
-				inputs = { ["evt_refined_essence"] = 6, ["itm_1_2_copper_coin"] = 8 },
+				inputs = { ["evt_copper_ingot"] = 6, ["itm_1_2_copper_coin"] = 8 },
 				output = {
 					sku = "essence_lantern",
 					name = "Essence Lantern",
@@ -539,7 +540,7 @@ local EventConfig: any = {
 				rid = "spare_ashen_sigil",
 				tier = 2,
 				blurb = "Struck from the ashes of a finished run.",
-				inputs = { ["evt_refined_essence"] = 8, ["itm_1_3_amber_idol"] = 4 },
+				inputs = { ["evt_amber_resin"] = 8, ["itm_1_3_amber_idol"] = 4 },
 				output = {
 					sku = "ashen_sigil",
 					name = "Ashen Sigil",
@@ -551,7 +552,7 @@ local EventConfig: any = {
 				rid = "spare_tidebound_relic",
 				tier = 2,
 				blurb = "The sea gave this one back.",
-				inputs = { ["evt_refined_essence"] = 10, ["itm_1_5_jade_serpent"] = 3 },
+				inputs = { ["evt_cut_stone"] = 10, ["itm_1_5_jade_serpent"] = 3 },
 				output = {
 					sku = "tidebound_relic",
 					name = "Tidebound Relic",
