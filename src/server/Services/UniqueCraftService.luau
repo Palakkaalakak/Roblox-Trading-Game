@@ -106,11 +106,15 @@ end
 -- quantity. Event outputs are excluded — a list should be fillable off the
 -- market, not gated behind another recipe the player may not have access to.
 local function inputCandidates(): { any }
+	local allowed: { [string]: boolean } = {}
+	for _, rarity in (cfg().InputRarities or {}) do
+		allowed[rarity] = true
+	end
 	local out = {}
 	for _, itemId in EconomyService.allItemIds() do
 		if itemId:sub(1, 4) ~= "evt_" then
 			local snap = EconomyService.snapshot(itemId)
-			if snap and (snap.value and snap.value.value or 0) > 0 then
+			if snap and allowed[snap.rarity or ""] and (snap.value and snap.value.value or 0) > 0 then
 				table.insert(out, { itemId = itemId, value = snap.value.value })
 			end
 		end

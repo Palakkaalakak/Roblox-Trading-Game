@@ -614,6 +614,11 @@ local EventConfig: any = {
 		-- FUTURE: scale these with the player's level / wealth so veterans
 		-- get proportionally bigger lists. buildOffer already takes the
 		-- player's inventory, so it is the natural place to hang that.
+		-- INPUTS are restricted to starter-grade rarities. Sorting the pool by
+		-- value was not a sufficient guard: a low-supply item can still price
+		-- cheaply early on, and asking a new player for a Godly or a Celestial
+		-- is the exact opposite of an on-ramp.
+		InputRarities = { "Common", "Rare" },
 		InputKinds = { min = 2, max = 3 },
 		CountPerInput = { min = 1, max = 3 },
 

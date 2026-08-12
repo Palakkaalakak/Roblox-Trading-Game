@@ -799,13 +799,7 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local out = {}
 		for _, recipe in event.recipes do
 			local keep
-			if event.id == "evt_unique" then
-				-- The Unique Craft shows on EVERY tab. It is personal, it
-				-- expires, and it is deliberately NOT craftable on arrival —
-				-- filtering it out of "Can Craft" would hide the one thing the
-				-- player is meant to go and act on.
-				keep = true
-			elseif activeTab == "craft" then
+			if activeTab == "craft" then
 				keep = recipe.craftable and recipe.output.remaining > 0
 			elseif activeTab == "recipes" then
 				keep = event.category == "permanent" or event.category == "rotating"
