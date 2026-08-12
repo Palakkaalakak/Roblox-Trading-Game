@@ -3222,8 +3222,6 @@ local function buildRollsPanel(parent: Instance)
 		Visible = false, -- template
 		ZIndex = 31,
 	}, strip)
-	-- lift the art clear of the caption band so they do not overlap
-	new("UIPadding", { PaddingBottom = UDim.new(0, 6) }, reelTile)
 	corner(reelTile, 8)
 	-- Name caption. An icon alone does not tell a player WHAT just went past,
 	-- which is most of the tension while the reel spins. Laid on a dark band
