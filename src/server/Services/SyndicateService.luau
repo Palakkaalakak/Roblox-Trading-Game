@@ -40,6 +40,8 @@ local cache: { [string]: { at: number, record: any } } = {}
 local CACHE_TTL = 15
 local SYNC_TOPIC = "syndicate_changed"
 
+local ensureRoles -- fwd decl: readRecord migrates old records through it
+
 local function now(): number
 	return os.time()
 end
@@ -64,6 +66,10 @@ local function readRecord(syndicateId: string, force: boolean?): any?
 		record = store:GetAsync(syndicateId)
 	end)
 	if record then
+		-- groups made before roles were editable carry no role table and
+		-- store role NAMES on members; bring them forward on read so every
+		-- caller sees one shape. The next mutate persists it.
+		ensureRoles(record)
 		cache[syndicateId] = { at = os.clock(), record = record }
 	end
 	return record
@@ -126,7 +132,7 @@ function SyndicateService.mayActOn(record: any, actorId: number, targetId: numbe
 	if actorRole == nil then
 		return false, "not_a_member"
 	end
-	if not SyndicateConfig.can(actorRole, action, record and record.permissions) then
+	if not SyndicateConfig.can(record, actorRole, action) then
 		return false, "no_permission"
 	end
 	if targetId ~= 0 then
@@ -137,7 +143,7 @@ function SyndicateService.mayActOn(record: any, actorId: number, targetId: numbe
 		if actorId == targetId then
 			return false, "cannot_target_self"
 		end
-		if not SyndicateConfig.outranks(actorRole, targetRole) then
+		if not SyndicateConfig.outranks(record, actorRole, targetRole) then
 			return false, "target_outranks_you"
 		end
 	end
@@ -160,12 +166,13 @@ local function describe(record: any, viewerId: number): any
 			donated = entry.donated or 0,
 		})
 	end
+	local rankOf: { [string]: number } = {}
+	for _, role in SyndicateConfig.rolesOf(record) do
+		rankOf[role.id] = role.rank or 99
+	end
 	table.sort(members, function(a, b)
-		local ra, rb = 99, 99
-		for i, role in SyndicateConfig.Roles do
-			if a.role == role then ra = i end
-			if b.role == role then rb = i end
-		end
+		local ra = rankOf[a.role] or 99
+		local rb = rankOf[b.role] or 99
 		if ra ~= rb then
 			return ra < rb
 		end
@@ -184,7 +191,7 @@ local function describe(record: any, viewerId: number): any
 		perks = SyndicateConfig.perksFor(level),
 		members = members,
 		requests = SyndicateService.liveRequests(record, os.time()),
-		permissions = record.permissions or {},
+		roles = SyndicateConfig.rolesOf(record),
 		goals = SyndicateConfig.goalProgress(record.stats, record.goalsClaimed),
 		yourRole = SyndicateService.roleOf(record, viewerId),
 	}
@@ -444,8 +451,18 @@ function SyndicateService.create(player: Player, name: any, tag: any): any
 		xp = 0,
 		createdAt = now(),
 		updatedAt = now(),
+		roles = (function()
+			local seed = {}
+			for _, role in SyndicateConfig.DefaultRoles do
+				table.insert(seed, {
+					id = role.id, name = role.name, rank = role.rank,
+					permissions = table.clone(role.permissions),
+				})
+			end
+			return seed
+		end)(),
 		members = {
-			[tostring(player.UserId)] = { role = "Owner", joinedAt = now(), xp = 0 },
+			[tostring(player.UserId)] = { role = SyndicateConfig.OwnerRoleId, joinedAt = now(), xp = 0 },
 		},
 	}
 	local ok = pcall(function()
@@ -570,25 +587,21 @@ local function moderate(player: Player, targetUserId: any, action: string): any
 		end
 		if action == "kick" then
 			record.members[targetKey] = nil
-		elseif action == "promote" then
-			-- one rung up, rather than jumping straight to Officer: with four
-			-- roles, "promote" has to mean the next rank, not the top one
-			local roles = SyndicateConfig.Roles
+		elseif action == "promote" or action == "demote" then
+			-- step one rung along the group's OWN ladder, whatever shape it is
+			local ladder = SyndicateConfig.rolesOf(record)
 			local current = record.members[targetKey].role
-			for i = 2, #roles do
-				if roles[i] == current then
-					record.members[targetKey].role = roles[i - 1]
-					break
+			local at = nil
+			for i, role in ladder do
+				if role.id == current then
+					at = i
 				end
 			end
-		elseif action == "demote" then
-			local roles = SyndicateConfig.Roles
-			local current = record.members[targetKey].role
-			for i = 1, #roles - 1 do
-				if roles[i] == current then
-					record.members[targetKey].role = roles[i + 1]
-					break
-				end
+			local step = (action == "promote") and -1 or 1
+			local target = ladder[(at or 1) + step]
+			-- never step INTO the owner role: ownership transfers deliberately
+			if target and target.id ~= SyndicateConfig.OwnerRoleId then
+				record.members[targetKey].role = target.id
 			end
 		end
 		return record
@@ -631,8 +644,8 @@ function SyndicateService.setRole(player: Player, targetUserId: any, role: any):
 		end
 		local actorRole = SyndicateService.roleOf(record, player.UserId)
 		local permitted = false
-		for _, r in SyndicateConfig.assignableRoles(actorRole :: string) do
-			if r == role then
+		for _, r in SyndicateConfig.assignableRoles(record, actorRole :: string) do
+			if r.id == role then
 				permitted = true
 			end
 		end
@@ -651,10 +664,45 @@ function SyndicateService.setRole(player: Player, targetUserId: any, role: any):
 	return { ok = true, syndicate = describe(committed, player.UserId) }
 end
 
--- Owner-only: turn a permission on or off for a whole role. Stored on the
--- record as overrides, read back through SyndicateConfig.can, so a group that
--- has never touched this behaves exactly as the defaults describe.
-function SyndicateService.setPermission(player: Player, role: any, action: any, allowed: any): any
+-- Groups created before roles were editable have neither a role table nor role
+-- IDs on their members. Seed both from the default template, mapping the old
+-- preset NAMES onto the matching ids, so nobody loses their rank.
+function ensureRoles(record: any): any
+	if record.roles == nil or #record.roles == 0 then
+		record.roles = {}
+		for _, role in SyndicateConfig.DefaultRoles do
+			table.insert(record.roles, {
+				id = role.id,
+				name = role.name,
+				rank = role.rank,
+				permissions = table.clone(role.permissions),
+			})
+		end
+	end
+	local known: { [string]: boolean } = {}
+	for _, role in record.roles do
+		known[role.id] = true
+	end
+	local fallback = SyndicateConfig.defaultMemberRoleId(record)
+	for _, entry in (record.members or {}) do
+		if entry.role == nil or not known[entry.role] then
+			-- old records stored the display NAME ("Officer"); map it back
+			local mapped = fallback
+			for _, role in record.roles do
+				if role.name == entry.role then
+					mapped = role.id
+				end
+			end
+			entry.role = mapped
+		end
+	end
+	return record
+end
+
+SyndicateService.ensureRoles = ensureRoles
+
+-- Owner-only, all of them: the rulebook is not something a group votes on.
+local function ownerOnly(player: Player, apply: (any) -> (any?, string?)): any
 	local profile = profileOf(player)
 	if profile == nil then
 		return { ok = false, err = "loading" }
@@ -663,34 +711,152 @@ function SyndicateService.setPermission(player: Player, role: any, action: any, 
 	if id == "" then
 		return { ok = false, err = "not_in_syndicate" }
 	end
-	if not Guard.isString(role, 24) or not Guard.isString(action, 24) or typeof(allowed) ~= "boolean" then
-		return { ok = false, err = "bad_args" }
-	end
-	if not SyndicateConfig.isConfigurableRole(role :: string) then
-		return { ok = false, err = "role_not_configurable" }
-	end
-	if not SyndicateConfig.isEditablePermission(action :: string) then
-		return { ok = false, err = "permission_locked" }
-	end
-
 	local committed, err = mutate(id, function(record)
-		-- only the Owner rewrites the rulebook; an Officer with `promote` must
-		-- not be able to grant themselves `disband` by editing permissions
-		if SyndicateService.roleOf(record, player.UserId) ~= "Owner" then
+		ensureRoles(record)
+		if SyndicateService.roleOf(record, player.UserId) ~= SyndicateConfig.OwnerRoleId then
 			return nil, "no_permission"
 		end
-		record.permissions = record.permissions or {}
-		record.permissions[role] = record.permissions[role] or {}
-		record.permissions[role][action] = allowed
-		return record
+		return apply(record)
 	end)
 	if committed == nil then
 		return { ok = false, err = err }
 	end
-	AnalyticsService.log("syndicate_setperm", {
-		id = id, by = player.UserId, role = role, action = action, allowed = allowed,
-	})
 	return { ok = true, syndicate = describe(committed, player.UserId) }
+end
+
+-- Add a role at the bottom of the ladder. It starts with nothing granted; the
+-- owner turns permissions on afterwards.
+function SyndicateService.createRole(player: Player, name: any): any
+	if not Guard.isString(name, SyndicateConfig.RoleNameMaxLength) then
+		return { ok = false, err = "bad_name" }
+	end
+	local clean = (name :: string):gsub("^%s+", ""):gsub("%s+$", "")
+	if #clean < 2 then
+		return { ok = false, err = "name_too_short" }
+	end
+	return ownerOnly(player, function(record)
+		if #record.roles >= SyndicateConfig.MaxRoles then
+			return nil, "too_many_roles"
+		end
+		local lowest = 1
+		for _, role in record.roles do
+			lowest = math.max(lowest, role.rank or 1)
+		end
+		table.insert(record.roles, {
+			id = ("r_%d_%s"):format(now(), DataService.newId():sub(1, 6)),
+			name = clean,
+			rank = lowest + 1,
+			permissions = {},
+		})
+		return record
+	end)
+end
+
+function SyndicateService.renameRole(player: Player, roleId: any, name: any): any
+	if not Guard.isString(roleId, 64) or not Guard.isString(name, SyndicateConfig.RoleNameMaxLength) then
+		return { ok = false, err = "bad_args" }
+	end
+	local clean = (name :: string):gsub("^%s+", ""):gsub("%s+$", "")
+	if #clean < 2 then
+		return { ok = false, err = "name_too_short" }
+	end
+	return ownerOnly(player, function(record)
+		for _, role in record.roles do
+			if role.id == roleId then
+				role.name = clean
+				return record
+			end
+		end
+		return nil, "unknown_role"
+	end)
+end
+
+-- Delete a role; anyone holding it drops to the most junior role. The owner
+-- role can never go, or the group loses the only rank that can administer it.
+function SyndicateService.deleteRole(player: Player, roleId: any): any
+	if not Guard.isString(roleId, 64) then
+		return { ok = false, err = "bad_args" }
+	end
+	if roleId == SyndicateConfig.OwnerRoleId then
+		return { ok = false, err = "role_locked" }
+	end
+	return ownerOnly(player, function(record)
+		if #record.roles <= 2 then
+			return nil, "need_two_roles" -- owner + something to be
+		end
+		local kept = {}
+		local found = false
+		for _, role in record.roles do
+			if role.id == roleId then
+				found = true
+			else
+				table.insert(kept, role)
+			end
+		end
+		if not found then
+			return nil, "unknown_role"
+		end
+		record.roles = kept
+		local fallback = SyndicateConfig.defaultMemberRoleId(record)
+		for _, entry in (record.members or {}) do
+			if entry.role == roleId then
+				entry.role = fallback
+			end
+		end
+		return record
+	end)
+end
+
+-- Move a role one step up or down the ladder. Owner stays pinned at the top.
+function SyndicateService.moveRole(player: Player, roleId: any, direction: any): any
+	if not Guard.isString(roleId, 64) or typeof(direction) ~= "number" then
+		return { ok = false, err = "bad_args" }
+	end
+	if roleId == SyndicateConfig.OwnerRoleId then
+		return { ok = false, err = "role_locked" }
+	end
+	return ownerOnly(player, function(record)
+		local ladder = SyndicateConfig.rolesOf(record)
+		local at = nil
+		for i, role in ladder do
+			if role.id == roleId then
+				at = i
+			end
+		end
+		local step = direction < 0 and -1 or 1
+		local swapWith = ladder[(at or 0) + step]
+		-- index 1 is always the owner, so never swap into it
+		if at == nil or swapWith == nil or swapWith.id == SyndicateConfig.OwnerRoleId then
+			return nil, "cannot_move"
+		end
+		local a, b = ladder[at], swapWith
+		a.rank, b.rank = b.rank, a.rank
+		record.roles = ladder
+		return record
+	end)
+end
+
+-- Grant or revoke one permission on one role.
+function SyndicateService.setRolePermission(player: Player, roleId: any, action: any, allowed: any): any
+	if not Guard.isString(roleId, 64) or not Guard.isString(action, 32) or typeof(allowed) ~= "boolean" then
+		return { ok = false, err = "bad_args" }
+	end
+	if roleId == SyndicateConfig.OwnerRoleId then
+		return { ok = false, err = "role_locked" }
+	end
+	if not SyndicateConfig.isGrantablePermission(action :: string) then
+		return { ok = false, err = "permission_locked" }
+	end
+	return ownerOnly(player, function(record)
+		for _, role in record.roles do
+			if role.id == roleId then
+				role.permissions = role.permissions or {}
+				role.permissions[action] = allowed or nil
+				return record
+			end
+		end
+		return nil, "unknown_role"
+	end)
 end
 
 function SyndicateService.invite(player: Player, targetUserId: any): any
@@ -1093,8 +1259,20 @@ function SyndicateService.Start()
 	Net.bindFunction("SyndicateSetRole", function(player, targetUserId, role)
 		return SyndicateService.setRole(player, targetUserId, role)
 	end)
-	Net.bindFunction("SyndicateSetPermission", function(player, role, action, allowed)
-		return SyndicateService.setPermission(player, role, action, allowed)
+	Net.bindFunction("SyndicateSetPermission", function(player, roleId, action, allowed)
+		return SyndicateService.setRolePermission(player, roleId, action, allowed)
+	end)
+	Net.bindFunction("SyndicateCreateRole", function(player, name)
+		return SyndicateService.createRole(player, name)
+	end)
+	Net.bindFunction("SyndicateRenameRole", function(player, roleId, name)
+		return SyndicateService.renameRole(player, roleId, name)
+	end)
+	Net.bindFunction("SyndicateDeleteRole", function(player, roleId)
+		return SyndicateService.deleteRole(player, roleId)
+	end)
+	Net.bindFunction("SyndicateMoveRole", function(player, roleId, direction)
+		return SyndicateService.moveRole(player, roleId, direction)
 	end)
 	Net.bindFunction("SyndicateModerate", function(player, targetUserId, action)
 		if action ~= "kick" and action ~= "promote" and action ~= "demote" then

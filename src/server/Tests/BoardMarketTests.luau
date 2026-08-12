@@ -377,6 +377,9 @@ return {
 			local SC = require(ReplicatedStorage.Shared.Config.SyndicateConfig)
 			local SS = require(script.Parent.Parent.Services.SyndicateService)
 
+			-- built the OLD way: no role table, role stored as a display name.
+			-- ensureRoles migrates it, so this covers the upgrade path as well
+			-- as the rank rules themselves.
 			local record = {
 				id = "s_1",
 				members = {
@@ -386,7 +389,10 @@ return {
 					["4"] = { role = "Member" },
 				},
 			}
-			eq(SS.roleOf(record, 1), "Owner")
+			SS.ensureRoles(record)
+			assert(#record.roles > 0, "migration seeded a role table")
+			eq(SS.roleOf(record, 1), SC.OwnerRoleId, "owner name mapped to the owner id")
+			eq(SS.roleOf(record, 3), "member", "member name mapped to the member id")
 			eq(SS.roleOf(record, 99), nil, "non-member has no role")
 			eq(SS.memberCount(record), 4)
 
@@ -411,9 +417,11 @@ return {
 
 			-- the Owner outranks everyone
 			eq(SS.mayActOn(record, 1, 2, "demote"), true, "owner demotes officer")
-			eq(SC.outranks("Owner", "Officer"), true)
-			eq(SC.outranks("Member", "Owner"), false)
-			eq(SC.outranks("Officer", "Officer"), false, "peers do not outrank")
+			-- rank now comes from the group's OWN role table, so outranks takes
+			-- the record: two groups can order their roles differently
+			eq(SC.outranks(record, "owner", "officer"), true)
+			eq(SC.outranks(record, "member", "owner"), false)
+			eq(SC.outranks(record, "officer", "officer"), false, "peers do not outrank")
 		end,
 
 		["perks: listing order honors boost then recency"] = function()

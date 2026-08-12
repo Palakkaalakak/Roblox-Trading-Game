@@ -20,41 +20,52 @@ local SyndicateConfig = {
 	TagMaxLength = 5, -- shows next to a player's name, so it must stay short
 	CreateCostGems = 500,
 
-	-- Roles, most privileged first. Index is the rank: lower index outranks.
-	-- Four tiers rather than three, so there is a rung between "just joined"
-	-- and "can kick people" — the same shape Clash of Clans uses, and the
-	-- reason promotion feels like progress rather than a single on/off switch.
-	Roles = { "Owner", "Officer", "Veteran", "Member" },
-	RoleLabels = {
-		Owner = "Owner",
-		Officer = "Officer",
-		Veteran = "Veteran",
-		Member = "Member",
+	-- ── ROLES ────────────────────────────────────────────────────────────
+	-- Roles are DATA ON THE GROUP, not presets here. A group's owner can
+	-- create, rename, reorder and delete them, and set each one's
+	-- permissions. What lives in this file is only the starting template and
+	-- the catalogue of permissions that can be granted.
+	--
+	-- RANK is the ordering: 1 outranks 2 outranks 3. You may only act on
+	-- somebody of a HIGHER rank number than your own, which is the single
+	-- rule that stops an officer removing the owner.
+	OwnerRoleId = "owner", -- always rank 1, never deletable, never editable
+	MaxRoles = 8,
+	RoleNameMaxLength = 18,
+
+	-- The roles a brand-new group starts with. Copied onto the record at
+	-- creation, then it is the group's own to reshape.
+	DefaultRoles = {
+		{ id = "owner", name = "Owner", rank = 1, permissions = {
+			invite = true, kick = true, promote = true, demote = true,
+			disband = true, setPolicy = true, request = true, recruit = true,
+			manageRoles = true,
+		} },
+		{ id = "officer", name = "Officer", rank = 2, permissions = {
+			invite = true, kick = true, request = true, recruit = true,
+		} },
+		{ id = "veteran", name = "Veteran", rank = 3, permissions = {
+			invite = true, request = true, recruit = true,
+		} },
+		{ id = "member", name = "Member", rank = 4, permissions = {
+			request = true,
+		} },
 	},
 
-	-- DEFAULT permissions per role. The owner can override these per group
-	-- (see SyndicateService.setPermission), which is why they are read through
-	-- SyndicateConfig.can(role, action, overrides) rather than looked up direct.
-	Permissions = {
-		Owner = { invite = true, kick = true, promote = true, demote = true, disband = true, setPolicy = true, request = true, recruit = true },
-		Officer = { invite = true, kick = true, promote = false, demote = false, disband = false, setPolicy = false, request = true, recruit = true },
-		Veteran = { invite = true, kick = false, promote = false, demote = false, disband = false, setPolicy = false, request = true, recruit = true },
-		Member = { invite = false, kick = false, promote = false, demote = false, disband = false, setPolicy = false, request = true, recruit = false },
-	},
-
-	-- Which permissions the owner may hand out, and how each reads to a player.
-	-- Only these are editable: disband/promote/demote stay owner-only, because a
-	-- group that can vote its owner out is a griefing tool, not a feature.
-	EditablePermissions = {
+	-- Every permission that exists, and how each reads to a player. `ownerOnly`
+	-- ones can never be granted to another role: a group that can vote its
+	-- owner out, or rewrite its own rulebook, is a griefing tool.
+	PermissionCatalogue = {
 		{ key = "invite", label = "Invite players to the group" },
 		{ key = "recruit", label = "Recruit friends from outside the game" },
 		{ key = "kick", label = "Remove members" },
 		{ key = "request", label = "Ask the group for items" },
-		{ key = "setPolicy", label = "Change who can join" },
+		{ key = "setPolicy", label = "Change group settings" },
+		{ key = "promote", label = "Change member roles" },
+		{ key = "demote", label = "Demote members", ownerOnly = true },
+		{ key = "manageRoles", label = "Create and edit roles", ownerOnly = true },
+		{ key = "disband", label = "Disband the group", ownerOnly = true },
 	},
-
-	-- Roles the owner can configure. The Owner row is never editable.
-	ConfigurableRoles = { "Officer", "Veteran", "Member" },
 
 	-- How a syndicate accepts new members. The ids are internal; JoinPolicyLabel
 	-- is what a player actually reads — "Policy: Request" means nothing to a
@@ -187,77 +198,78 @@ function SyndicateConfig.perksFor(level: number): { [string]: number }
 	return out
 end
 
--- Can `actorRole` perform `action`? Unknown roles and actions are denied.
---
--- `overrides` is the group's own permission table (role -> action -> bool),
--- set by its owner. Anything it doesn't mention falls through to the defaults,
--- so a group created before a new permission existed still behaves sensibly.
-function SyndicateConfig.can(actorRole: string, action: string, overrides: any?): boolean
-	if overrides and overrides[actorRole] ~= nil then
-		local value = overrides[actorRole][action]
-		if value ~= nil then
-			return value == true
-		end
+-- Every role on a record, lowest rank number (most senior) first. Falls back to
+-- the default template so a group created before roles were editable still
+-- behaves, and so a corrupted record can never leave a group with no roles.
+function SyndicateConfig.rolesOf(record: any): { any }
+	local roles = record and record.roles
+	if roles == nil or #roles == 0 then
+		roles = SyndicateConfig.DefaultRoles
 	end
-	local perms = SyndicateConfig.Permissions[actorRole]
-	return perms ~= nil and perms[action] == true
+	local out = table.clone(roles)
+	table.sort(out, function(a, b)
+		return (a.rank or 99) < (b.rank or 99)
+	end)
+	return out
 end
 
--- Is this permission one the owner is allowed to hand out at all?
-function SyndicateConfig.isEditablePermission(action: string): boolean
-	for _, entry in SyndicateConfig.EditablePermissions do
-		if entry.key == action then
-			return true
+function SyndicateConfig.roleById(record: any, roleId: string): any?
+	for _, role in SyndicateConfig.rolesOf(record) do
+		if role.id == roleId then
+			return role
 		end
 	end
-	return false
+	return nil
 end
 
-function SyndicateConfig.isConfigurableRole(role: string): boolean
-	for _, r in SyndicateConfig.ConfigurableRoles do
-		if r == role then
-			return true
-		end
+-- Can this role do this action? Unknown roles and actions are denied.
+function SyndicateConfig.roleCan(role: any, action: string): boolean
+	return role ~= nil and role.permissions ~= nil and role.permissions[action] == true
+end
+
+function SyndicateConfig.can(record: any, roleId: string, action: string): boolean
+	return SyndicateConfig.roleCan(SyndicateConfig.roleById(record, roleId), action)
+end
+
+-- Does `actorRoleId` outrank `targetRoleId`? Lower rank number wins. Used for
+-- kick/promote: you may only act on somebody below you.
+function SyndicateConfig.outranks(record: any, actorRoleId: string, targetRoleId: string): boolean
+	local a = SyndicateConfig.roleById(record, actorRoleId)
+	local b = SyndicateConfig.roleById(record, targetRoleId)
+	return a ~= nil and b ~= nil and (a.rank or 99) < (b.rank or 99)
+end
+
+-- Roles `actorRoleId` may assign: strictly below their own, and never the
+-- owner role (handing over ownership is its own deliberate action).
+function SyndicateConfig.assignableRoles(record: any, actorRoleId: string): { any }
+	local actor = SyndicateConfig.roleById(record, actorRoleId)
+	if actor == nil then
+		return {}
 	end
-	return false
-end
-
--- Every role `actorRole` may move someone to: strictly below the actor, and
--- never Owner (transferring ownership is its own deliberate action).
-function SyndicateConfig.assignableRoles(actorRole: string): { string }
 	local out = {}
-	local actorRank = nil
-	for i, role in SyndicateConfig.Roles do
-		if role == actorRole then
-			actorRank = i
-		end
-	end
-	if actorRank == nil then
-		return out
-	end
-	for i, role in SyndicateConfig.Roles do
-		if i > actorRank then
+	for _, role in SyndicateConfig.rolesOf(record) do
+		if role.id ~= SyndicateConfig.OwnerRoleId and (role.rank or 99) > (actor.rank or 99) then
 			table.insert(out, role)
 		end
 	end
 	return out
 end
 
--- Does `actorRole` outrank `targetRole`? Used for kick/promote: you may only
--- act on someone below you, which is what stops an Officer kicking the Owner.
-function SyndicateConfig.outranks(actorRole: string, targetRole: string): boolean
-	local a, b = nil, nil
-	for i, role in SyndicateConfig.Roles do
-		if role == actorRole then
-			a = i
-		end
-		if role == targetRole then
-			b = i
+-- May this permission be granted to a non-owner role at all?
+function SyndicateConfig.isGrantablePermission(action: string): boolean
+	for _, entry in SyndicateConfig.PermissionCatalogue do
+		if entry.key == action then
+			return entry.ownerOnly ~= true
 		end
 	end
-	return a ~= nil and b ~= nil and a < b
+	return false
 end
 
+-- The role a new member joins as: the most junior one that exists.
+function SyndicateConfig.defaultMemberRoleId(record: any): string
+	local roles = SyndicateConfig.rolesOf(record)
+	return roles[#roles] and roles[#roles].id or "member"
+end
 
 -- Goal progress for a record's stats: how far along each goal is, whether it
 -- is done, and what it pays. Pure, so the client renders exactly what the

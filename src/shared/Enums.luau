@@ -86,7 +86,11 @@ local Enums = {
 		"PostSyndicateRequest", -- (itemId, count) -> {ok, err?} — ask your clan for items
 		"FillSyndicateRequest", -- (reqId, count) -> {ok, count?, err?} — donate from your inventory
 		"SyndicateSetRole", -- (targetUserId, role) -> {ok, syndicate?, err?}
-		"SyndicateSetPermission", -- (role, action, allowed) -> {ok, syndicate?, err?} — owner only
+		"SyndicateSetPermission", -- (roleId, action, allowed) -> owner only
+		"SyndicateCreateRole", -- (name) -> {ok, syndicate?, err?}
+		"SyndicateRenameRole", -- (roleId, name) -> {ok, syndicate?, err?}
+		"SyndicateDeleteRole", -- (roleId) -> {ok, syndicate?, err?}
+		"SyndicateMoveRole", -- (roleId, direction) -> {ok, syndicate?, err?} -- (role, action, allowed) -> {ok, syndicate?, err?} — owner only
 		"SetSyndicatePolicy", -- (policy) -> {ok, err?} — Open|Request|Invite
 		"GetUniqueCrafts", -- () -> {ok, slots, maxSlots, nextSlotCost, rows}
 		"BuyUniqueCraftSlot", -- () -> {ok, slots?, err?} — gems for a permanent extra slot

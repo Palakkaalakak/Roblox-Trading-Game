@@ -44,6 +44,13 @@ local ERRORS = {
 	own_request = "You can't fill your own request.",
 	request_gone = "That request is already filled or expired.",
 	insufficient_items = "You don't have that many to give.",
+	role_locked = "The Owner role can't be changed.",
+	too_many_roles = "You already have the maximum number of roles.",
+	need_two_roles = "A group needs at least one role besides Owner.",
+	permission_locked = "That permission is Owner-only.",
+	unknown_role = "That role no longer exists.",
+	cannot_move = "That role can't move any further.",
+	role_not_assignable = "You can't assign that role.",
 }
 
 local function explain(err: string?): string
@@ -127,29 +134,9 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		local inSyn = latest and latest.syndicate ~= nil
 		local specs = {
 			{ id = "mine", text = inSyn and "My Group" or "Create" },
-		}
-		if inSyn then
-			-- the count is the hook: an open request is a job waiting for you
-			local syn = latest.syndicate :: any
-			local open = #(syn.requests or {})
-			table.insert(specs, { id = "requests", text = open > 0 and ("Requests (%d)"):format(open) or "Requests" })
-			local readyGoals = 0
-			for _, g in (syn.goals or {}) do
-				if g.done then
-					readyGoals += 1
-				end
-			end
-			table.insert(specs, { id = "goals", text = ("Goals (%d/%d)"):format(readyGoals, #(syn.goals or {})) })
-			if syn.yourRole == "Owner" then
-				table.insert(specs, { id = "settings", text = "Settings" })
-			end
-		end
-		for _, extra in {
 			{ id = "browse", text = "Browse" },
 			{ id = "invites", text = ("Invites (%d)"):format(latest and #(latest.invites or {}) or 0) },
-		} do
-			table.insert(specs, extra)
-		end
+		}
 		for i, spec in specs do
 			local b = Instance.new("TextButton")
 			b.Name = "Tab_" .. spec.id
@@ -174,6 +161,54 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			end)
 			tabButtons[spec.id] = b
 		end
+	end
+
+	----------------------------------------------------------------------
+	-- My Group sections. Members / Goals / Requests / Settings are all "my
+	-- group", so they are sections of one tab rather than four top-level
+	-- tabs competing with Browse and Invites.
+	----------------------------------------------------------------------
+	local mineSection = "members"
+	local subTabRow = Instance.new("Frame")
+	subTabRow.Name = "SectionRow"
+	subTabRow.BackgroundTransparency = 1
+	subTabRow.Size = UDim2.new(1, 0, 0, 26)
+	subTabRow.Visible = false
+	subTabRow.Parent = body
+	local subLayout = Instance.new("UIListLayout")
+	subLayout.FillDirection = Enum.FillDirection.Horizontal
+	subLayout.Padding = UDim.new(0, 6)
+	subLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	subLayout.Parent = subTabRow
+
+	local SECTIONS = {
+		{ id = "members", text = "Members" },
+		{ id = "goals", text = "Goals" },
+		{ id = "requests", text = "Requests" },
+		{ id = "settings", text = "Settings" },
+	}
+	local sectionButtons: { [string]: TextButton } = {}
+	for i, spec in SECTIONS do
+		local b = Instance.new("TextButton")
+		b.Name = "Section_" .. spec.id
+		b.LayoutOrder = i
+		b.Size = UDim2.new(1 / #SECTIONS, -(6 * (#SECTIONS - 1)) / #SECTIONS, 0, 26)
+		b.BackgroundColor3 = Theme.BgLight
+		b.Font = Theme.Font
+		b.TextSize = 12
+		b.TextColor3 = Theme.TextDim
+		b.Text = spec.text
+		b.Parent = subTabRow
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = b
+		b.Activated:Connect(function()
+			mineSection = spec.id
+			if latest then
+				SyndicateScreen._render(latest)
+			end
+		end)
+		sectionButtons[spec.id] = b
 	end
 
 	----------------------------------------------------------------------
@@ -273,8 +308,8 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		-- Sitting between "Recruit Friends" and "Leave & Delete", a bare
 		-- "Ask to join" reads like an action you press to join something. It's a
 		-- setting, so it has to say which setting it is.
-		policyBtn.Text = SyndicateConfig.JoinPolicyLabels[s.policy] or tostring(s.policy)
-		policyBtn.Visible = SyndicateConfig.can(s.yourRole or "Member", "setPolicy")
+		-- "Who can join" lives in Settings now, with the other settings
+		policyBtn.Visible = false
 
 		local myId = Players.LocalPlayer.UserId
 		for i, member in s.members do
@@ -284,7 +319,13 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			row.Visible = true
 			;(row:WaitForChild("MemberName") :: TextLabel).Text = member.name
 				.. (member.userId == myId and "  (you)" or "")
-			;(row:WaitForChild("MemberRole") :: TextLabel).Text = member.role
+			local roleName = member.role
+			for _, r in (s.roles or {}) do
+				if r.id == member.role then
+					roleName = r.name
+				end
+			end
+			;(row:WaitForChild("MemberRole") :: TextLabel).Text = roleName
 			-- donations sit next to XP because generosity IS the standing here:
 			-- a member who gives is worth more to the clan than one who idles
 			;(row:WaitForChild("MemberXp") :: TextLabel).Text = member.donated > 0
@@ -295,10 +336,10 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			-- action anyway, so the UI never offers something that will fail
 			local mods = row:WaitForChild("ModButtons") :: Frame
 			local canModerate = member.userId ~= myId
-				and SyndicateConfig.outranks(s.yourRole or "Member", member.role)
+				and SyndicateConfig.outranks(s, s.yourRole or "", member.role)
 			local function wireMod(btnName: string, action: string, permission: string, label: string)
 				local btn = mods:WaitForChild(btnName) :: TextButton
-				btn.Visible = canModerate and SyndicateConfig.can(s.yourRole or "Member", permission)
+				btn.Visible = canModerate and SyndicateConfig.can(s, s.yourRole or "", permission)
 				if btn.Visible then
 					btn.Activated:Connect(function()
 						act(function()
@@ -310,9 +351,9 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			-- "Promote to" opens the ladder rather than nudging one rank at a
 			-- time: with four roles, a single button hides where someone can go.
 			local promoteBtn = mods:WaitForChild("PromoteButton") :: TextButton
-			local assignable = SyndicateConfig.assignableRoles(s.yourRole or "Member")
+			local assignable = SyndicateConfig.assignableRoles(s, s.yourRole or "")
 			local canPromote = canModerate
-				and SyndicateConfig.can(s.yourRole or "Member", "promote", s.permissions)
+				and SyndicateConfig.can(s, s.yourRole or "", "promote")
 				and #assignable > 0
 			promoteBtn.Visible = canPromote
 			if canPromote then
@@ -345,14 +386,14 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 					pad.PaddingLeft = UDim.new(0, 4)
 					pad.PaddingRight = UDim.new(0, 4)
 					pad.Parent = menu
-					for ri, roleName in assignable do
+					for ri, roleDef in assignable do
 						local opt = Instance.new("TextButton")
 						opt.LayoutOrder = ri
 						opt.Size = UDim2.new(1, 0, 0, 24)
 						opt.Font = Theme.Font
 						opt.TextSize = 12
-						opt.Text = SyndicateConfig.RoleLabels[roleName] or roleName
-						opt.BackgroundColor3 = (roleName == member.role) and Theme.Accent or Theme.Bg
+						opt.Text = roleDef.name
+						opt.BackgroundColor3 = (roleDef.id == member.role) and Theme.Accent or Theme.Bg
 						opt.TextColor3 = Theme.TextPrimary
 						opt.ZIndex = 31
 						opt.Parent = menu
@@ -361,12 +402,12 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 						oc.Parent = opt
 						opt.Activated:Connect(function()
 							menu:Destroy()
-							if roleName == member.role then
+							if roleDef.id == member.role then
 								return
 							end
 							act(function()
-								return Net.invoke("SyndicateSetRole", member.userId, roleName)
-							end, ("%s is now %s."):format(member.name, SyndicateConfig.RoleLabels[roleName] or roleName))
+								return Net.invoke("SyndicateSetRole", member.userId, roleDef.id)
+							end, ("%s is now %s."):format(member.name, roleDef.name))
 						end)
 					end
 				end)
@@ -374,10 +415,10 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			wireMod("DemoteButton", "demote", "demote", member.name .. " demoted.")
 			wireMod("KickButton", "kick", "kick", member.name .. " removed.")
 			-- demote only makes sense for someone who isn't already the bottom rank
-			local roles = SyndicateConfig.Roles
+			local ladder = s.roles or {}
 			;(mods:WaitForChild("DemoteButton") :: TextButton).Visible =
 				(mods:WaitForChild("DemoteButton") :: TextButton).Visible
-				and member.role ~= roles[#roles]
+				and ladder[#ladder] ~= nil and member.role ~= ladder[#ladder].id
 
 			row.Parent = memberList
 			table.insert(spawned, row)
@@ -715,37 +756,178 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 
 	local function renderSettings(s: any)
 		local order = 0
-		for _, role in SyndicateConfig.ConfigurableRoles do
+		local isOwner = s.yourRole == SyndicateConfig.OwnerRoleId
+
+		local function addRow(height: number): Frame
 			order += 1
-			local header = makeRow(settingsView, order, 30)
-			header.BackgroundTransparency = 1
-			makeLabel(header, (SyndicateConfig.RoleLabels[role] or role):upper() .. " CAN:",
-				UDim2.fromOffset(4, 0), UDim2.new(1, -8, 1, 0), 12, Theme.Gold, true)
+			return makeRow(settingsView, order, height)
+		end
 
-			for _, perm in SyndicateConfig.EditablePermissions do
-				order += 1
-				local row = makeRow(settingsView, order, 34)
-				makeLabel(row, perm.label, UDim2.fromOffset(12, 0), UDim2.new(1, -140, 1, 0), 13, Theme.TextPrimary)
+		-- Who can join. A setting, so it lives here rather than on the members
+		-- screen next to Leave, where it read as an action.
+		local joinRow = addRow(38)
+		makeLabel(joinRow, "Who can join", UDim2.fromOffset(12, 0), UDim2.new(1, -230, 1, 0), 13, Theme.TextPrimary)
+		local joinBtn = Instance.new("TextButton")
+		joinBtn.AnchorPoint = Vector2.new(1, 0.5)
+		joinBtn.Position = UDim2.new(1, -10, 0.5, 0)
+		joinBtn.Size = UDim2.fromOffset(200, 26)
+		joinBtn.Font = Theme.Font
+		joinBtn.TextSize = 12
+		joinBtn.Text = SyndicateConfig.JoinPolicyLabels[s.policy] or tostring(s.policy)
+		joinBtn.BackgroundColor3 = Theme.Info
+		joinBtn.TextColor3 = Theme.Bg
+		joinBtn.AutoButtonColor = isOwner
+		joinBtn.Parent = joinRow
+		local jc = Instance.new("UICorner")
+		jc.CornerRadius = Theme.CornerSmall
+		jc.Parent = joinBtn
+		if isOwner then
+			joinBtn.Activated:Connect(function()
+				local policies = SyndicateConfig.JoinPolicies
+				local index = 1
+				for i, p in policies do
+					if p == s.policy then
+						index = i
+					end
+				end
+				local nextPolicy = policies[(index % #policies) + 1]
+				act(function()
+					return Net.invoke("SetSyndicatePolicy", nextPolicy)
+				end, nil)
+			end)
+		end
 
-				local allowed = SyndicateConfig.can(role, perm.key, s.permissions)
-				local toggle = Instance.new("TextButton")
-				toggle.AnchorPoint = Vector2.new(1, 0.5)
-				toggle.Position = UDim2.new(1, -10, 0.5, 0)
-				toggle.Size = UDim2.fromOffset(96, 24)
-				toggle.Font = Theme.Font
-				toggle.TextSize = 12
-				toggle.Text = allowed and "ALLOWED" or "BLOCKED"
-				toggle.BackgroundColor3 = allowed and Theme.Good or Theme.BgLight
-				toggle.TextColor3 = allowed and Theme.Bg or Theme.TextDim
-				toggle.Parent = row
-				local tc = Instance.new("UICorner")
-				tc.CornerRadius = Theme.CornerSmall
-				tc.Parent = toggle
-				toggle.Activated:Connect(function()
+		if not isOwner then
+			local note = addRow(34)
+			makeLabel(note, "Only the Owner can change roles and settings.",
+				UDim2.fromOffset(12, 0), UDim2.new(1, -24, 1, 0), 12, Theme.TextDim)
+			return
+		end
+
+		-- ROLES. The group's own ladder, editable: rename, reorder, delete, and
+		-- set each one's permissions. The owner role is pinned and locked.
+		local header = addRow(30)
+		header.BackgroundTransparency = 1
+		makeLabel(header, "ROLES", UDim2.fromOffset(4, 0), UDim2.new(0.5, 0, 1, 0), 12, Theme.Gold, true)
+
+		local addBtn = Instance.new("TextButton")
+		addBtn.AnchorPoint = Vector2.new(1, 0.5)
+		addBtn.Position = UDim2.new(1, -10, 0.5, 0)
+		addBtn.Size = UDim2.fromOffset(130, 24)
+		addBtn.Font = Theme.Font
+		addBtn.TextSize = 12
+		addBtn.Text = "+ NEW ROLE"
+		addBtn.BackgroundColor3 = Theme.Good
+		addBtn.TextColor3 = Theme.Bg
+		addBtn.Parent = header
+		local ac = Instance.new("UICorner")
+		ac.CornerRadius = Theme.CornerSmall
+		ac.Parent = addBtn
+		addBtn.Activated:Connect(function()
+			act(function()
+				return Net.invoke("SyndicateCreateRole", "New Role")
+			end, "Role created — rename it below.")
+		end)
+
+		for _, role in (s.roles or {}) do
+			local locked = role.id == SyndicateConfig.OwnerRoleId
+			local roleRow = addRow(36)
+
+			-- rename in place; locked for the owner role
+			local nameBox = Instance.new("TextBox")
+			nameBox.Position = UDim2.fromOffset(12, 5)
+			nameBox.Size = UDim2.fromOffset(170, 26)
+			nameBox.BackgroundColor3 = locked and Theme.Bg or Theme.BgLight
+			nameBox.BorderSizePixel = 0
+			nameBox.Font = Theme.Font
+			nameBox.TextSize = 13
+			nameBox.TextColor3 = locked and Theme.TextDim or Theme.TextPrimary
+			nameBox.Text = role.name
+			nameBox.TextEditable = not locked
+			nameBox.ClearTextOnFocus = false
+			nameBox.Parent = roleRow
+			local nc = Instance.new("UICorner")
+			nc.CornerRadius = Theme.CornerSmall
+			nc.Parent = nameBox
+			if not locked then
+				nameBox.FocusLost:Connect(function(enter)
+					if enter and nameBox.Text ~= role.name then
+						act(function()
+							return Net.invoke("SyndicateRenameRole", role.id, nameBox.Text)
+						end, nil)
+					end
+				end)
+			end
+
+			local function smallBtn(text: string, x: number, colour: Color3, onClick: () -> ())
+				local b = Instance.new("TextButton")
+				b.AnchorPoint = Vector2.new(1, 0.5)
+				b.Position = UDim2.new(1, x, 0.5, 0)
+				b.Size = UDim2.fromOffset(30, 24)
+				b.Font = Theme.Font
+				b.TextSize = 12
+				b.Text = text
+				b.BackgroundColor3 = colour
+				b.TextColor3 = Theme.TextPrimary
+				b.Parent = roleRow
+				local c = Instance.new("UICorner")
+				c.CornerRadius = Theme.CornerSmall
+				c.Parent = b
+				b.Activated:Connect(onClick)
+				return b
+			end
+			if not locked then
+				smallBtn("^", -78, Theme.BgLight, function()
 					act(function()
-						return Net.invoke("SyndicateSetPermission", role, perm.key, not allowed)
+						return Net.invoke("SyndicateMoveRole", role.id, -1)
 					end, nil)
 				end)
+				smallBtn("v", -44, Theme.BgLight, function()
+					act(function()
+						return Net.invoke("SyndicateMoveRole", role.id, 1)
+					end, nil)
+				end)
+				smallBtn("X", -10, Theme.Bad, function()
+					act(function()
+						return Net.invoke("SyndicateDeleteRole", role.id)
+					end, ("%s deleted."):format(role.name))
+				end)
+			else
+				makeLabel(roleRow, "always top rank", UDim2.new(1, -200, 0, 0),
+					UDim2.fromOffset(190, 36), 11, Theme.TextDim).TextXAlignment =
+					Enum.TextXAlignment.Right
+			end
+
+			-- permissions for this role
+			for _, perm in SyndicateConfig.PermissionCatalogue do
+				local grantable = perm.ownerOnly ~= true
+				if grantable or locked then
+					local permRow = addRow(30)
+					makeLabel(permRow, "    " .. perm.label, UDim2.fromOffset(12, 0),
+						UDim2.new(1, -140, 1, 0), 12, Theme.TextDim)
+					local on = SyndicateConfig.roleCan(role, perm.key)
+					local toggle = Instance.new("TextButton")
+					toggle.AnchorPoint = Vector2.new(1, 0.5)
+					toggle.Position = UDim2.new(1, -10, 0.5, 0)
+					toggle.Size = UDim2.fromOffset(90, 22)
+					toggle.Font = Theme.Font
+					toggle.TextSize = 11
+					toggle.Text = on and "ALLOWED" or "BLOCKED"
+					toggle.BackgroundColor3 = on and Theme.Good or Theme.BgLight
+					toggle.TextColor3 = on and Theme.Bg or Theme.TextDim
+					toggle.AutoButtonColor = not locked
+					toggle.Parent = permRow
+					local tc = Instance.new("UICorner")
+					tc.CornerRadius = Theme.CornerSmall
+					tc.Parent = toggle
+					if not locked then
+						toggle.Activated:Connect(function()
+							act(function()
+								return Net.invoke("SyndicateSetPermission", role.id, perm.key, not on)
+							end, nil)
+						end)
+					end
+				end
 			end
 		end
 	end
@@ -780,13 +962,28 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 
 		local s = payload.syndicate
 		local inSyndicate = s ~= nil
+		local inMine = activeTab == "mine" and inSyndicate
+		subTabRow.Visible = inMine
+		for id, b in sectionButtons do
+			b.BackgroundColor3 = (mineSection == id) and Theme.Accent or Theme.BgLight
+			b.TextColor3 = (mineSection == id) and Theme.TextPrimary or Theme.TextDim
+		end
+
 		createView.Visible = activeTab == "mine" and not inSyndicate
-		mineView.Visible = activeTab == "mine" and inSyndicate
+		mineView.Visible = inMine and mineSection == "members"
+		requestsView.Visible = inMine and mineSection == "requests"
+		goalsView.Visible = inMine and mineSection == "goals"
+		settingsView.Visible = inMine and mineSection == "settings"
 		browseView.Visible = activeTab == "browse"
 		invitesView.Visible = activeTab == "invites"
-		requestsView.Visible = activeTab == "requests" and inSyndicate
-		goalsView.Visible = activeTab == "goals" and inSyndicate
-		settingsView.Visible = activeTab == "settings" and inSyndicate
+
+		-- the section row sits above whichever section is showing
+		for _, view in { mineView, requestsView, goalsView, settingsView } do
+			if view.Visible then
+				view.Position = UDim2.fromOffset(0, 32)
+				view.Size = UDim2.new(1, 0, 1, -32)
+			end
+		end
 
 		if mineView.Visible then
 			renderMine(s)
