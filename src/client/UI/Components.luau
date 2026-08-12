@@ -279,4 +279,45 @@ function Components.wireTooltip(gui: ScreenGui)
 	}
 end
 
+
+-- A ScrollingFrame clips its descendants, and a UIStroke straddles the edge it
+-- is drawn on. Rows sized (1, -8) sit flush at x=0 and y=0, so the OUTER half
+-- of their left and top borders gets cut off while the other sides keep their
+-- gutter -- a visibly lopsided box.
+--
+-- Giving every list a gutter at BUILD time was not enough: any ScrollingFrame
+-- created at runtime (the group screen builds its Goals and Settings lists that
+-- way) missed the pass entirely and the clipping came straight back. So this
+-- watches instead of sweeping once -- every list gets a gutter whenever and
+-- wherever it is created.
+local GUTTER = 6
+
+local function applyGutter(scroll: ScrollingFrame)
+	local pad = scroll:FindFirstChildWhichIsA("UIPadding")
+	if pad == nil then
+		pad = Instance.new("UIPadding")
+		pad.Parent = scroll
+	end
+	-- only widen; never shrink a gutter a caller set deliberately
+	if pad.PaddingLeft.Offset < GUTTER then
+		pad.PaddingLeft = UDim.new(0, GUTTER)
+	end
+	if pad.PaddingTop.Offset < GUTTER then
+		pad.PaddingTop = UDim.new(0, GUTTER)
+	end
+end
+
+function Components.autoGutter(gui: ScreenGui)
+	for _, d in gui:GetDescendants() do
+		if d:IsA("ScrollingFrame") then
+			applyGutter(d)
+		end
+	end
+	gui.DescendantAdded:Connect(function(d)
+		if d:IsA("ScrollingFrame") then
+			applyGutter(d)
+		end
+	end)
+end
+
 return Components

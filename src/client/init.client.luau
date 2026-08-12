@@ -47,6 +47,10 @@ local modalGui = playerGui:WaitForChild("TradingModals") :: ScreenGui
 
 local tooltip = Components.wireTooltip(modalGui)
 Components.wireFitScales(modalGui) -- shrink every panel to fit this device's viewport
+-- every scrolling list gets a left/top gutter, including ones built at
+-- runtime -- without it a row's border is clipped against the scroll edge
+Components.autoGutter(modalGui)
+Components.autoGutter(hudGui)
 local function toast(text: string, color: Color3)
 	if HUD.toast then
 		HUD.toast(text, color)

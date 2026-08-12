@@ -186,6 +186,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		{ id = "goals", text = "Goals" },
 		{ id = "requests", text = "Requests" },
 		{ id = "settings", text = "Settings" },
+		{ id = "roles", text = "Roles" },
 	}
 	local sectionButtons: { [string]: TextButton } = {}
 	for i, spec in SECTIONS do
@@ -677,6 +678,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	end
 	local goalsView = makeListView("GoalsView")
 	local settingsView = makeListView("SettingsView")
+	local rolesView = makeListView("RolesView")
 
 	local function makeRow(parent: Instance, order: number, height: number): Frame
 		local row = Instance.new("Frame")
@@ -754,17 +756,17 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		end
 	end
 
+	-- SETTINGS: the knobs the owner controls about the group itself.
 	local function renderSettings(s: any)
 		local order = 0
 		local isOwner = s.yourRole == SyndicateConfig.OwnerRoleId
-
 		local function addRow(height: number): Frame
 			order += 1
 			return makeRow(settingsView, order, height)
 		end
 
-		-- Who can join. A setting, so it lives here rather than on the members
-		-- screen next to Leave, where it read as an action.
+		-- Who can join is a SETTING, so it belongs here rather than on the
+		-- members screen beside Leave, where it read as an action.
 		local joinRow = addRow(38)
 		makeLabel(joinRow, "Who can join", UDim2.fromOffset(12, 0), UDim2.new(1, -230, 1, 0), 13, Theme.TextPrimary)
 		local joinBtn = Instance.new("TextButton")
@@ -785,8 +787,8 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			joinBtn.Activated:Connect(function()
 				local policies = SyndicateConfig.JoinPolicies
 				local index = 1
-				for i, p in policies do
-					if p == s.policy then
+				for i, pol in policies do
+					if pol == s.policy then
 						index = i
 					end
 				end
@@ -797,19 +799,39 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			end)
 		end
 
+		local infoRow = addRow(34)
+		makeLabel(infoRow, ("Members: %d of %d  |  Level %d  |  %s XP"):format(
+			#s.members, s.memberCap, s.level, Format.abbrev(s.xp)),
+			UDim2.fromOffset(12, 0), UDim2.new(1, -24, 1, 0), 12, Theme.TextDim)
+
 		if not isOwner then
 			local note = addRow(34)
-			makeLabel(note, "Only the Owner can change roles and settings.",
+			makeLabel(note, "Only the Owner can change these.",
+				UDim2.fromOffset(12, 0), UDim2.new(1, -24, 1, 0), 12, Theme.TextDim)
+		end
+	end
+
+	-- ROLES: the ladder itself. Its own section because editing ranks is a
+	-- different job from setting the group options, and a much longer list.
+	local function renderRoles(s: any)
+		local order = 0
+		local isOwner = s.yourRole == SyndicateConfig.OwnerRoleId
+		local function addRow(height: number): Frame
+			order += 1
+			return makeRow(rolesView, order, height)
+		end
+
+		if not isOwner then
+			local note = addRow(34)
+			makeLabel(note, "Only the Owner can edit roles.",
 				UDim2.fromOffset(12, 0), UDim2.new(1, -24, 1, 0), 12, Theme.TextDim)
 			return
 		end
 
-		-- ROLES. The group's own ladder, editable: rename, reorder, delete, and
-		-- set each one's permissions. The owner role is pinned and locked.
 		local header = addRow(30)
 		header.BackgroundTransparency = 1
-		makeLabel(header, "ROLES", UDim2.fromOffset(4, 0), UDim2.new(0.5, 0, 1, 0), 12, Theme.Gold, true)
-
+		makeLabel(header, "Owner always has every permission, so it is not listed.",
+			UDim2.fromOffset(4, 0), UDim2.new(1, -150, 1, 0), 11, Theme.TextDim)
 		local addBtn = Instance.new("TextButton")
 		addBtn.AnchorPoint = Vector2.new(1, 0.5)
 		addBtn.Position = UDim2.new(1, -10, 0.5, 0)
@@ -826,30 +848,28 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		addBtn.Activated:Connect(function()
 			act(function()
 				return Net.invoke("SyndicateCreateRole", "New Role")
-			end, "Role created — rename it below.")
+			end, "Role created - rename it below.")
 		end)
 
 		for _, role in (s.roles or {}) do
-			local locked = role.id == SyndicateConfig.OwnerRoleId
-			local roleRow = addRow(36)
-
-			-- rename in place; locked for the owner role
-			local nameBox = Instance.new("TextBox")
-			nameBox.Position = UDim2.fromOffset(12, 5)
-			nameBox.Size = UDim2.fromOffset(170, 26)
-			nameBox.BackgroundColor3 = locked and Theme.Bg or Theme.BgLight
-			nameBox.BorderSizePixel = 0
-			nameBox.Font = Theme.Font
-			nameBox.TextSize = 13
-			nameBox.TextColor3 = locked and Theme.TextDim or Theme.TextPrimary
-			nameBox.Text = role.name
-			nameBox.TextEditable = not locked
-			nameBox.ClearTextOnFocus = false
-			nameBox.Parent = roleRow
-			local nc = Instance.new("UICorner")
-			nc.CornerRadius = Theme.CornerSmall
-			nc.Parent = nameBox
-			if not locked then
+			-- Owner is skipped: it always has everything and none of it is
+			-- editable, so listing it is a screen of locked rows saying nothing.
+			if role.id ~= SyndicateConfig.OwnerRoleId then
+				local roleRow = addRow(36)
+				local nameBox = Instance.new("TextBox")
+				nameBox.Position = UDim2.fromOffset(12, 5)
+				nameBox.Size = UDim2.fromOffset(170, 26)
+				nameBox.BackgroundColor3 = Theme.BgLight
+				nameBox.BorderSizePixel = 0
+				nameBox.Font = Theme.Font
+				nameBox.TextSize = 13
+				nameBox.TextColor3 = Theme.TextPrimary
+				nameBox.Text = role.name
+				nameBox.ClearTextOnFocus = false
+				nameBox.Parent = roleRow
+				local nc = Instance.new("UICorner")
+				nc.CornerRadius = Theme.CornerSmall
+				nc.Parent = nameBox
 				nameBox.FocusLost:Connect(function(enter)
 					if enter and nameBox.Text ~= role.name then
 						act(function()
@@ -857,26 +877,23 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 						end, nil)
 					end
 				end)
-			end
 
-			local function smallBtn(text: string, x: number, colour: Color3, onClick: () -> ())
-				local b = Instance.new("TextButton")
-				b.AnchorPoint = Vector2.new(1, 0.5)
-				b.Position = UDim2.new(1, x, 0.5, 0)
-				b.Size = UDim2.fromOffset(30, 24)
-				b.Font = Theme.Font
-				b.TextSize = 12
-				b.Text = text
-				b.BackgroundColor3 = colour
-				b.TextColor3 = Theme.TextPrimary
-				b.Parent = roleRow
-				local c = Instance.new("UICorner")
-				c.CornerRadius = Theme.CornerSmall
-				c.Parent = b
-				b.Activated:Connect(onClick)
-				return b
-			end
-			if not locked then
+				local function smallBtn(text: string, x: number, colour: Color3, onClick: () -> ())
+					local b = Instance.new("TextButton")
+					b.AnchorPoint = Vector2.new(1, 0.5)
+					b.Position = UDim2.new(1, x, 0.5, 0)
+					b.Size = UDim2.fromOffset(30, 24)
+					b.Font = Theme.Font
+					b.TextSize = 12
+					b.Text = text
+					b.BackgroundColor3 = colour
+					b.TextColor3 = Theme.TextPrimary
+					b.Parent = roleRow
+					local c = Instance.new("UICorner")
+					c.CornerRadius = Theme.CornerSmall
+					c.Parent = b
+					b.Activated:Connect(onClick)
+				end
 				smallBtn("^", -78, Theme.BgLight, function()
 					act(function()
 						return Net.invoke("SyndicateMoveRole", role.id, -1)
@@ -892,35 +909,26 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 						return Net.invoke("SyndicateDeleteRole", role.id)
 					end, ("%s deleted."):format(role.name))
 				end)
-			else
-				makeLabel(roleRow, "always top rank", UDim2.new(1, -200, 0, 0),
-					UDim2.fromOffset(190, 36), 11, Theme.TextDim).TextXAlignment =
-					Enum.TextXAlignment.Right
-			end
 
-			-- permissions for this role
-			for _, perm in SyndicateConfig.PermissionCatalogue do
-				local grantable = perm.ownerOnly ~= true
-				if grantable or locked then
-					local permRow = addRow(30)
-					makeLabel(permRow, "    " .. perm.label, UDim2.fromOffset(12, 0),
-						UDim2.new(1, -140, 1, 0), 12, Theme.TextDim)
-					local on = SyndicateConfig.roleCan(role, perm.key)
-					local toggle = Instance.new("TextButton")
-					toggle.AnchorPoint = Vector2.new(1, 0.5)
-					toggle.Position = UDim2.new(1, -10, 0.5, 0)
-					toggle.Size = UDim2.fromOffset(90, 22)
-					toggle.Font = Theme.Font
-					toggle.TextSize = 11
-					toggle.Text = on and "ALLOWED" or "BLOCKED"
-					toggle.BackgroundColor3 = on and Theme.Good or Theme.BgLight
-					toggle.TextColor3 = on and Theme.Bg or Theme.TextDim
-					toggle.AutoButtonColor = not locked
-					toggle.Parent = permRow
-					local tc = Instance.new("UICorner")
-					tc.CornerRadius = Theme.CornerSmall
-					tc.Parent = toggle
-					if not locked then
+				for _, perm in SyndicateConfig.PermissionCatalogue do
+					if perm.ownerOnly ~= true then
+						local permRow = addRow(30)
+						makeLabel(permRow, "    " .. perm.label, UDim2.fromOffset(12, 0),
+							UDim2.new(1, -140, 1, 0), 12, Theme.TextDim)
+						local on = SyndicateConfig.roleCan(role, perm.key)
+						local toggle = Instance.new("TextButton")
+						toggle.AnchorPoint = Vector2.new(1, 0.5)
+						toggle.Position = UDim2.new(1, -10, 0.5, 0)
+						toggle.Size = UDim2.fromOffset(90, 22)
+						toggle.Font = Theme.Font
+						toggle.TextSize = 11
+						toggle.Text = on and "ALLOWED" or "BLOCKED"
+						toggle.BackgroundColor3 = on and Theme.Good or Theme.BgLight
+						toggle.TextColor3 = on and Theme.Bg or Theme.TextDim
+						toggle.Parent = permRow
+						local tc = Instance.new("UICorner")
+						tc.CornerRadius = Theme.CornerSmall
+						tc.Parent = toggle
 						toggle.Activated:Connect(function()
 							act(function()
 								return Net.invoke("SyndicateSetPermission", role.id, perm.key, not on)
@@ -974,11 +982,12 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		requestsView.Visible = inMine and mineSection == "requests"
 		goalsView.Visible = inMine and mineSection == "goals"
 		settingsView.Visible = inMine and mineSection == "settings"
+		rolesView.Visible = inMine and mineSection == "roles"
 		browseView.Visible = activeTab == "browse"
 		invitesView.Visible = activeTab == "invites"
 
 		-- the section row sits above whichever section is showing
-		for _, view in { mineView, requestsView, goalsView, settingsView } do
+		for _, view in { mineView, requestsView, goalsView, settingsView, rolesView } do
 			if view.Visible then
 				view.Position = UDim2.fromOffset(0, 32)
 				view.Size = UDim2.new(1, 0, 1, -32)
@@ -993,6 +1002,8 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			renderGoals(s)
 		elseif settingsView.Visible then
 			renderSettings(s)
+		elseif rolesView.Visible then
+			renderRoles(s)
 		elseif browseView.Visible then
 			task.spawn(function()
 				local dir = Net.invoke("BrowseSyndicates")
