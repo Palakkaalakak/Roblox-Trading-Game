@@ -64,7 +64,8 @@ local EconomyConfig = {
 	-- settlements, bulk payouts). The cut is burned — a real gem sink.
 	GemTaxPercent = 0, -- temp 0: was bleeding pop faster than craft faucet minted
 
-	-- Trade-board listings expire after this long (escrow auto-refunded).
+	-- Trade-board listings expire after this long. Nothing is held, so expiry
+	-- just drops the row.
 	BoardListingTTLSeconds = 7 * 24 * 3600,
 
 	-- Cross-server sync cadence.

@@ -234,7 +234,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	-- from init.client) drives the FitScale on every modal panel.
 
 	-- Board-compose mode: the same trade window, but BOTH sides are yours to
-	-- edit (give = escrowed on post, want = what you're asking). Local state
+	-- edit (give = what you're putting up, want = what you're asking). Local state
 	-- only — nothing touches the server until POST.
 	local compose: any = nil -- { give = offer, want = offer, autoTrade, onPost }
 	local renderCompose -- fwd decl
@@ -756,7 +756,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		-- the board ad composer reuses this panel and has nobody to talk to
 		chatPanel.Visible = compose == nil
 		title.Text = "📌 Post a board trade"
-		yourSide.header.Text = "You give (escrowed on post)"
+		yourSide.header.Text = "You give (stays yours until someone takes it)"
 		theirSide.header.Text = "You want — click slots to add"
 		renderSide(yourSide, compose.give, false, stats)
 		renderSide(theirSide, compose.want, false, stats)

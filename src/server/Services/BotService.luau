@@ -969,13 +969,17 @@ function BotService.debugSnapshot(): any
 	local totalGems, totalWorth = 0, 0
 	local archCounts: { [string]: number } = {}
 
-	-- ESCROW: gems/items locked in a bot's open listings have LEFT its
-	-- inventory but are still its wealth. Sum per-poster escrow from the board
-	-- so net worth is accurate — without this a bot with a 500-gem mythical
-	-- sitting in an unsold sell listing looks 500 poorer than it is (that was
-	-- the "net worth stuck at ~361" artifact).
-	local escrowByBot: { [number]: number } = {}
-	local escrowTotal = 0
+	-- COMMITTED VALUE: what a bot has riding on its open listings. Summed from
+	-- the board so net worth reads right — without it a bot with a 500-gem
+	-- mythical sitting in an unsold sell listing looked 500 poorer than it was
+	-- (the "net worth stuck at ~361" artifact).
+	-- NOTE: nothing is ever held anywhere in this game (TradeBoardService: a
+	-- listing is a promise, not a deposit), so if a bot's listed goods are still
+	-- counted in its inventory too, this line double-counts them. Left as-is
+	-- because it only affects a debug net-worth readout — worth confirming
+	-- before anyone trusts that number.
+	local committedByBot: { [number]: number } = {}
+	local committedTotal = 0
 	local listingsSeen = 0
 	local okBoard, listings = pcall(function()
 		return (require(script.Parent.TradeBoardService) :: any).rawOpenListings(20000)
@@ -984,7 +988,7 @@ function BotService.debugSnapshot(): any
 		listingsSeen = #listings
 		for _, l in listings do
 			if l.posterId < 0 then
-				local e = escrowByBot[l.posterId] or 0
+				local e = committedByBot[l.posterId] or 0
 				if l.kind == "sell" then
 					e += EconomyService.valueOf(l.itemId) * (l.remainingCount or 0)
 				elseif l.kind == "bulk" then
@@ -995,11 +999,11 @@ function BotService.debugSnapshot(): any
 						e += EconomyService.valueOf(itemId) * count
 					end
 				end
-				escrowByBot[l.posterId] = e
+				committedByBot[l.posterId] = e
 			end
 		end
-		for _, e in escrowByBot do
-			escrowTotal += e
+		for _, e in committedByBot do
+			committedTotal += e
 		end
 	end
 
@@ -1016,7 +1020,7 @@ function BotService.debugSnapshot(): any
 				mythHold += count
 			end
 		end
-		invValue += escrowByBot[bot.userId] or 0
+		invValue += committedByBot[bot.userId] or 0
 		local worth = s.gems + invValue
 		totalGems += s.gems
 		totalWorth += worth
@@ -1051,9 +1055,9 @@ function BotService.debugSnapshot(): any
 		archCounts = archCounts,
 		bots = rows,
 		_diag = {
-			escrowOk = okBoard,
+			committedOk = okBoard,
 			listingsSeen = listingsSeen,
-			escrowTotal = math.floor(escrowTotal + 0.5),
+			committedTotal = math.floor(committedTotal + 0.5),
 			mythicalHeldInInventory = mythHold,
 		},
 	}

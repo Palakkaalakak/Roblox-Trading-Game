@@ -173,11 +173,11 @@ return {
 			eq(c0, 0)
 		end,
 
-		["bulk quote: per-copy floor + exact escrow"] = function()
+		["bulk quote: per-copy floor + exact gem total"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
-			local perCopy, escrow = TradeBoardService.bulkQuote(30, 100)
+			local perCopy, gemTotal = TradeBoardService.bulkQuote(30, 100)
 			eq(perCopy, 3, "floor(100/30)")
-			eq(escrow, 90, "escrow = perCopy * count")
+			eq(gemTotal, 90, "gemTotal = perCopy * count")
 			local p2, e2 = TradeBoardService.bulkQuote(10, 100)
 			eq(p2, 10)
 			eq(e2, 100)

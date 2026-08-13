@@ -267,7 +267,7 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 					return Net.invoke("CancelListing", current.id)
 				end)
 				if result and result.ok then
-					toast("Order cancelled — escrow returned.", Theme.Warn)
+					toast("Order cancelled.", Theme.Warn)
 				end
 				refreshBook()
 			end)
@@ -467,7 +467,7 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			countBox.Text = tostring(math.max(owned, 1))
 		else
 			postTitle.Text = "Buy order: " .. name
-			header.Text = "OFFER GEMS FOR COPIES (gems escrowed until filled)"
+			header.Text = "OFFER GEMS FOR COPIES (gems stay yours until it fills)"
 			countHeader.Text = "how many"
 			gemsHeader.Text = "total gems"
 			countBox.Text = "1"
@@ -521,7 +521,7 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		elseif result.err == "insufficient_items" then
 			toast("You don't own that many!", Theme.Bad)
 		elseif result.err == "insufficient_gems" then
-			toast("Not enough gems to escrow that order!", Theme.Bad)
+			toast("Not enough gems to back that order!", Theme.Bad)
 		elseif result.err == "gems_too_low" then
 			toast("Offer at least 1 gem per copy.", Theme.Bad)
 		else

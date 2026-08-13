@@ -317,7 +317,8 @@ local function offerLabel(offer: any): string
 	return table.concat(parts, " + ")
 end
 
--- bulk quote: what one copy pays and what the poster must escrow.
+-- bulk quote: what one copy pays, and the gem total the poster must be able to
+-- cover. Nothing is ever held — the total is only checked, never taken.
 function TradeBoardService.bulkQuote(count: number, totalGems: number): (number, number)
 	local perCopy = math.floor(totalGems / count)
 	return perCopy, perCopy * count
@@ -489,7 +490,7 @@ local function scanListings(cap: number, fn: (l: any) -> boolean?)
 	lastKnownCount = seen
 end
 
--- cancel + refund escrow (poster action or expiry). Any server may run this.
+-- cancel a listing (poster action or expiry). Any server may run this.
 cancelListing = function(listing: any, reason: string): boolean
 	local committed = mutate(listing.id, function(l)
 		if l.status ~= "open" then
@@ -759,13 +760,13 @@ local function postCore(userId: number, userName: string, payload: any)
 		if not Guard.isPositiveInt(payload.gems) then
 			return { ok = false, err = "bad_gems" }
 		end
-		local perCopy, escrow = TradeBoardService.bulkQuote(payload.count, payload.gems)
+		local perCopy, gemTotal = TradeBoardService.bulkQuote(payload.count, payload.gems)
 		if perCopy < 1 then
 			return { ok = false, err = "gems_too_low" } -- must pay >= 1 gem per copy
 		end
 
-		-- no escrow: the gems stay spendable until copies actually arrive
-		local holdsIt, holdErr = posterHolds(userId, {}, escrow)
+		-- checked, never held: the gems stay spendable until copies actually arrive
+		local holdsIt, holdErr = posterHolds(userId, {}, gemTotal)
 		if not holdsIt then
 			return { ok = false, err = holdErr }
 		end
@@ -1031,7 +1032,7 @@ end
 
 -- Execute ONE cross between a resting ask (sell) and bid (bulk) at execPrice.
 -- Reserves min-available on both (revert on shortfall), delivers copies to the
--- buyer, taxed gems to the seller, refunds the buyer's over-escrow, records the
+-- buyer, taxed gems to the seller, records the
 -- clean price into RAP, and drops any listing that filled. Returns copies traded.
 local function crossFillOnce(askId: string, bidId: string, execPrice: number): number
 	local a = getListing(askId)
@@ -1075,7 +1076,7 @@ local function crossFillOnce(askId: string, bidId: string, execPrice: number): n
 
 	-- No escrow: take the copies off the seller and the gems off the buyer
 	-- BEFORE anything is delivered. The buyer is only ever charged the execution
-	-- price, so there is no over-escrow to refund any more.
+	-- price, so there is no overpayment to refund any more.
 	local gross = q * execPrice
 	local tookCopies, copiesErr = takeFromPoster(
 		askCommit.posterId, { [itemId] = q }, 0, Enums.GrantSource.Board,

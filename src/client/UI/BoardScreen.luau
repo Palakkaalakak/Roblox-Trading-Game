@@ -149,7 +149,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 						return Net.invoke("CancelListing", listing.id)
 					end)
 					if result and result.ok then
-						toast("Listing cancelled — escrow returned.", Theme.Warn)
+						toast("Listing cancelled.", Theme.Warn)
 					end
 					refresh()
 				end)
