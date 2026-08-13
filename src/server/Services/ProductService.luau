@@ -150,6 +150,21 @@ local function grantOffer(player: Player, offer: any, claimId: string): boolean
 	return ok == true
 end
 
+-- Public: the live Robux price of an offer, by offer id. Any surface that sells
+-- something outside the shop panel (the booth's skin picker) needs the real
+-- number rather than the word "Robux" — a price nobody can see is a price
+-- nobody decides on. Shares the same cache the shop uses, so asking costs one
+-- GetProductInfo per product for the life of the server.
+-- Returns nil when the offer has no real id yet, so callers can fall back.
+function ProductService.priceOf(offerId: string): number?
+	for _, offer in MonetizationConfig.Offers do
+		if offer.id == offerId then
+			return priceInRobux(offer)
+		end
+	end
+	return nil
+end
+
 -- Public: let other services (rewarded ads) register a dev product handler.
 -- Keeps ProcessReceipt owned in exactly one place.
 function ProductService.registerDevProduct(productId: number, label: string, grant: (Player, string) -> boolean)

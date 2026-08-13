@@ -400,11 +400,36 @@ function BoothService.Start()
 		table.sort(out, function(a, b)
 			return a.boothId < b.boothId
 		end)
+		-- Skins go out with their live Robux price attached. Built as a copy:
+		-- BoothConfig.Skins is a shared config table and writing a price into it
+		-- would mutate config for everything else in the server.
+		-- Lazy require: ProductService is a peer, and a top-level require here
+		-- would order-couple two services that otherwise don't know each other.
+		local pricer = require(script.Parent.ProductService)
+		local skins = {}
+		for _, skin in BoothConfig.Skins do
+			local price: number? = nil
+			if skin.offerId then
+				pcall(function()
+					price = pricer.priceOf(skin.offerId)
+				end)
+			end
+			table.insert(skins, {
+				id = skin.id,
+				name = skin.name,
+				blurb = skin.blurb,
+				canopy = skin.canopy,
+				trim = skin.trim,
+				offerId = skin.offerId,
+				robux = price, -- nil until the offer has a real product id
+			})
+		end
+
 		return {
 			ok = true,
 			booths = out,
 			yours = boothOfUser[player.UserId],
-			skins = BoothConfig.Skins,
+			skins = skins,
 			owned = (profileBooth(player) or {}).owned or {},
 		}
 	end)

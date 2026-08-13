@@ -598,13 +598,15 @@ local function makeSwatch(skin: any, owned: boolean): TextButton
 	state.BackgroundTransparency = 1
 	state.Position = UDim2.fromOffset(6, 90)
 	state.Size = UDim2.fromOffset(SWATCH_W - 12, 16)
-	state.Font = Theme.FontLight
-	state.TextSize = 11
+	state.Font = Theme.Font
+	state.TextSize = 12
 	state.TextColor3 = owned and Theme.Good or Theme.Gem
-	state.Text = owned and "Owned" or "Buy with Robux"
+	-- the actual number, not the word "Robux": a price nobody can see is a price
+	-- nobody decides on. Falls back only while an offer has no real product id.
+	state.Text = if owned then "Owned" elseif skin.robux then ("R$ %d"):format(skin.robux) else "Coming soon"
 	state.ZIndex = Z_CONTENT + 1
 	state.Parent = tile
-	Instance.new("UITextSizeConstraint", state).MaxTextSize = 11
+	Instance.new("UITextSizeConstraint", state).MaxTextSize = 12
 
 	return tile
 end
@@ -621,8 +623,10 @@ local function buildSwatches(skins: { any }, owned: { [string]: boolean })
 			task.spawn(function()
 				if not isOwned then
 					-- locked: go to the purchase, not a dead end
-					if skin.offerId then
+					if skin.offerId and skin.robux then
 						Net.invoke("PromptPurchase", skin.offerId)
+					elseif skin.offerId then
+						toast(skin.name .. " isn't on sale yet.", Theme.Warn)
 					else
 						toast(skin.name .. " is earned, not sold.", Theme.Warn)
 					end
