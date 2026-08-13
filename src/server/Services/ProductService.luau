@@ -110,6 +110,28 @@ local function grantOffer(player: Player, offer: any, claimId: string): boolean
 		end
 		delta.items = items
 	end
+	-- Booth grants don't touch the inventory: shelf space and a skin live on the
+	-- profile, not as items. Idempotent by construction — granting an owned skin
+	-- or clamping at MaxSlots is a no-op — so a replayed receipt is safe.
+	if offer.boothSlot or offer.boothSkin then
+		local booth = require(script.Parent.BoothService)
+		local granted = if offer.boothSkin
+			then booth.grantSkin(player, offer.boothSkin)
+			else booth.grantSlot(player)
+		if granted then
+			task.spawn(function()
+				DataService.saveNow(player)
+			end)
+			AnalyticsService.log("offer_granted", {
+				userId = player.UserId,
+				offerId = offer.id,
+				booth = offer.boothSkin or "slot",
+				claimId = claimId,
+			})
+		end
+		return granted
+	end
+
 	if delta.gems == nil and delta.items == nil then
 		return false
 	end

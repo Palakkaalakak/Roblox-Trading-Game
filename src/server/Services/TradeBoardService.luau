@@ -55,6 +55,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
+local BoothConfig = require(ReplicatedStorage.Shared.Config.BoothConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 
@@ -229,6 +230,19 @@ end
 
 -- Does this user hold all of it right now? Used at POST time only — a listing
 -- is a promise, and this stops you promising something you never had. It is
+-- Purchased booth slots for a live player. Reads the profile directly rather
+-- than going through BoothService, which requires this module — a top-level
+-- require would cycle. Offline or unloaded posters get the base allowance.
+local function boothExtraSlots(userId: number): number
+	local player = Players:GetPlayerByUserId(userId)
+	if player == nil then
+		return 0
+	end
+	local profile = DataService.getProfile(player)
+	local booth = profile and profile.Booth
+	return (booth and booth.extraSlots) or 0
+end
+
 -- deliberately not a reservation: the goods stay yours until settlement, and
 -- the take at settlement is the real check.
 local function posterHolds(userId: number, items: { [string]: number }, gems: number): (boolean, string?)
@@ -795,7 +809,17 @@ local function postCore(userId: number, userName: string, payload: any)
 			return { ok = false, err = "bad_price" }
 		end
 
-		-- no escrow: the copies stay usable/tradeable while they sit for sale
+		-- Booth slots cap how many things you can have for sale at once. Players
+		-- only: bots have no booth. Applies to `sell` alone — swaps and buy
+		-- orders are not what a booth displays, so they stay uncapped.
+		if userId > 0 and BoothConfig.Enabled then
+			local slots = BoothConfig.slotsFor(boothExtraSlots(userId))
+			if #TradeBoardService.sellListingsOf(userId) >= slots then
+				return { ok = false, err = "slot_cap" }
+			end
+		end
+
+		-- nothing held: the copies stay usable/tradeable while they sit for sale
 		local holdsIt, holdErr = posterHolds(userId, { [payload.itemId] = payload.count }, 0)
 		if not holdsIt then
 			return { ok = false, err = holdErr }
@@ -1396,12 +1420,20 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 
 	-- reserve part of the listing (CAS; clamps to what's left)
 	local taken = 0
+	local now = os.time()
 	local committed, err = mutate(id, function(l)
 		if l.kind ~= "sell" or l.status ~= "open" then
 			return nil, "gone"
 		end
 		if l.posterId == userId then
 			return nil, "own_listing"
+		end
+		-- Anti-scam: a listing this fresh can't be bought yet. Stops the seller
+		-- swapping what's on the shelf in the instant between a buyer reading it
+		-- and clicking. Keyed on the listing's own timestamp, so it holds no
+		-- matter which server the buyer is on.
+		if BoothConfig.Enabled and (now - (l.createdAt or 0)) < BoothConfig.ListCooldownSeconds then
+			return nil, "just_listed"
 		end
 		taken = math.min(count, l.remainingCount)
 		if taken <= 0 then
@@ -1534,6 +1566,21 @@ end
 --------------------------------------------------------------------------------
 
 -- Raw open listing records, newest-first, paged (lazy-expiring).
+-- Every open SELL listing this user has, newest-first. Two callers: the booth
+-- face renders these as its stocked slots, and PostListing counts them against
+-- the booth slot cap. Bot listings live in the same scan, so this is correct
+-- for them too.
+function TradeBoardService.sellListingsOf(userId: number): { any }
+	local out = {}
+	scanListings(SCAN_CAP, function(l)
+		if l.kind == "sell" and l.posterId == userId and l.status == "open" then
+			table.insert(out, l)
+		end
+		return nil
+	end)
+	return out
+end
+
 function TradeBoardService.rawOpenListings(cap: number?): { any }
 	local out = {}
 	scanListings(cap or SCAN_CAP, function(l)

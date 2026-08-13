@@ -103,6 +103,11 @@ local Enums = {
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"AdminResetEconomy", -- () -> {ok, reset} — admin only: every item back to full reserve
 		"DebugBatchRoll", -- (rarity, count) -> {ok, granted, tally, err?} — admin only: N rolls at one rarity
+		"GetBooths", -- () -> {ok, booths, yours?, skins, owned} — plaza storefronts
+		"ClaimBooth", -- (boothId) -> {ok, err?} — first-come, released on leave
+		"ReleaseBooth", -- () -> {ok}
+		"SetBoothSkin", -- (skinId) -> {ok, err?} — cosmetic only, must be owned
+		"SetBoothTagline", -- (text) -> {ok, tagline?, err?} — filtered
 		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view
 	},
 	RemoteEvents = {
@@ -115,6 +120,7 @@ local Enums = {
 		"Notify", -- (text) — generic notification toast
 		"TradeChat", -- ({tradeId, fromUserId, fromName, text, at})
 		"GroupChat", -- ({groupId, userId, name, text, at}) — already filtered for this reader
+		"BoothsChanged", -- ({booth}) — plaza storefront state for every booth
 		"BoardActivity", -- ({text, t}) — live trade-feed line (fills/swaps)
 	},
 }

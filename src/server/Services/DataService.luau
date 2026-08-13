@@ -17,7 +17,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local SessionStore = require(script.Parent.Parent.Stores.SessionStore)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
-local SCHEMA_VERSION = 4
+local SCHEMA_VERSION = 5
 
 local DataService = {}
 
@@ -62,6 +62,14 @@ local function template()
 		-- change never needs a write to every member's profile.
 		SyndicateId = "",
 		SyndicateInvites = {}, -- syndicateId -> { name, tag, at }
+		-- v5: trade booth. The CLAIM is server-local and in-memory (a booth is a
+		-- spot in one server), so nothing about which booth you hold is durable —
+		-- only what you bought and what you wrote on it.
+		Booth = {
+			skinId = "default",
+			extraSlots = 0, -- purchased; slots = BoothConfig.BaseSlots + this
+			tagline = "",
+		},
 	}
 end
 
@@ -89,6 +97,11 @@ local migrations: { [number]: (any) -> any } = {
 		data.SyndicateId = data.SyndicateId or ""
 		data.SyndicateInvites = data.SyndicateInvites or {}
 		data.SchemaVersion = 4
+		return data
+	end,
+	[4] = function(data)
+		data.Booth = data.Booth or { skinId = "default", extraSlots = 0, tagline = "" }
+		data.SchemaVersion = 5
 		return data
 	end,
 }

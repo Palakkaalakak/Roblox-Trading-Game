@@ -52,6 +52,8 @@ export type Offer = {
 	sortOrder: number,
 	nameColor: { number }?, -- optional RGB tint for the card's name label
 	featured: boolean?, -- render as a big wide feature card (like a Blox-Fruits combo)
+	boothSlot: boolean?, -- grants +1 booth slot instead of gems/items
+	boothSkin: string?, -- grants this BoothConfig skin id
 	accent: { number }?, -- optional RGB tint for the card's stroke/gradient/ribbon
 }
 
@@ -71,7 +73,7 @@ local MonetizationConfig = {
 
 	-- Section order in the shop, top to bottom. Sections with no live offers
 	-- are skipped, so unreleased categories simply don't render yet.
-	SectionOrder = { "💎 GEM PACKS", "🎟 PASSES", "⭐ SUBSCRIPTIONS", "🎁 BUNDLES" },
+	SectionOrder = { "💎 GEM PACKS", "🎟 PASSES", "⭐ SUBSCRIPTIONS", "🎁 BUNDLES", "🏪 BOOTH" },
 
 	-- Per-section card size, in pixels. Real shops don't use one card size for
 	-- everything — small packs sit 5-across, chunkier items get wide 3-across
@@ -81,6 +83,7 @@ local MonetizationConfig = {
 	--   height — cell height
 	SectionLayout = {
 		["💎 GEM PACKS"] = { width = 150, height = 196 },
+		["🏪 BOOTH"] = { width = 150, height = 196 },
 		["🎟 PASSES"] = { width = 236, height = 250 },
 		["⭐ SUBSCRIPTIONS"] = { width = 236, height = 250 },
 		["🎁 BUNDLES"] = { width = 236, height = 250 },
@@ -188,6 +191,73 @@ local MonetizationConfig = {
 		-- 	availableUntil = 1790000000,
 		-- 	sortOrder = 1,
 		-- },
+
+		-- ── Booth ────────────────────────────────────────────────────────
+		-- Storefront cosmetics and shelf space. Skins are COSMETIC ONLY: never
+		-- price, tax, slot count, or which listings show. Slots add shelf space
+		-- and nothing else. Both grant through BoothService, so a replayed
+		-- receipt is a no-op.
+		{
+			id = "booth_slot",
+			kind = "bundle",
+			section = "🏪 BOOTH",
+			name = "+1 Booth Slot",
+			description = "One more thing for sale at your booth, forever.",
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = {}, -- granted by BoothService; see ProductService
+			boothSlot = true,
+			sortOrder = 1,
+		},
+		{
+			id = "booth_skin_sunset",
+			kind = "bundle",
+			section = "🏪 BOOTH",
+			name = "Sunset Awning",
+			description = "Warm stripes for a warm sales pitch.",
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = {},
+			boothSkin = "sunset",
+			sortOrder = 2,
+		},
+		{
+			id = "booth_skin_midnight",
+			kind = "bundle",
+			section = "🏪 BOOTH",
+			name = "Midnight Counter",
+			description = "For traders who work the late server.",
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = {},
+			boothSkin = "midnight",
+			sortOrder = 3,
+		},
+		{
+			id = "booth_skin_emerald",
+			kind = "bundle",
+			section = "🏪 BOOTH",
+			name = "Emerald Bazaar",
+			description = "Green, and not subtle about it.",
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = {},
+			boothSkin = "emerald",
+			sortOrder = 4,
+		},
+		{
+			id = "booth_skin_gilded",
+			kind = "bundle",
+			section = "🏪 BOOTH",
+			name = "Gilded Pavilion",
+			description = "Announces your net worth before you do.",
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = {},
+			boothSkin = "gilded",
+			badge = "NEW",
+			sortOrder = 5,
+		},
 	} :: { Offer },
 }
 

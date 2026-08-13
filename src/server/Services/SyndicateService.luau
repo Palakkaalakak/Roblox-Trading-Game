@@ -363,6 +363,24 @@ end
 -- Perks currently active for a player, for the systems that consume them
 -- (board slots, market fee, roll luck). Zeroed when they're in no syndicate,
 -- so callers never branch on membership.
+-- This player's group tag, for surfaces that just want to print it (booth
+-- storefronts). Cache-only on purpose: a render path must never trigger a
+-- DataStore read, so an uncached group simply shows no tag until something
+-- else warms it.
+function SyndicateService.tagFor(userId: number): string
+	local player = Players:GetPlayerByUserId(userId)
+	if player == nil or not DataService.isLoaded(player) then
+		return ""
+	end
+	local profile = DataService.getProfile(player)
+	local syndicateId = profile and profile.SyndicateId or ""
+	if syndicateId == "" then
+		return ""
+	end
+	local hit = cache[syndicateId]
+	return (hit and hit.record and hit.record.tag) or ""
+end
+
 function SyndicateService.perksFor(userId: number): { [string]: number }
 	local player = Players:GetPlayerByUserId(userId)
 	if player == nil or not DataService.isLoaded(player) then

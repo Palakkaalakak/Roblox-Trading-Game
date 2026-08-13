@@ -36,6 +36,8 @@ local ordered = {
 	-- after Trade: relays quick chat between its participants
 	{ "Chat", require(Services.ChatService) },
 	{ "Profile", require(Services.ProfileService) },
+	-- after TradeBoard: a booth's slots ARE its owner's open sell listings
+	{ "Booth", require(Services.BoothService) },
 	{ "Bots", require(Services.BotService) },
 }
 
