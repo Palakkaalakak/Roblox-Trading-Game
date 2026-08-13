@@ -91,13 +91,20 @@ function FreeGemsScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3
 	-- ReferralService). SocialService is client-only, and CanSendGameInviteAsync
 	-- can be false (age/platform), in which case we say so instead of opening a
 	-- prompt that would fail.
+	-- CanSendGameInviteAsync is a blocking web call. Asking it on click made the
+	-- button hang for seconds before anything happened, so it is resolved once
+	-- in the background and the click just reads the answer.
+	local canInvite: boolean? = nil
+	task.spawn(function()
+		local ok, result = pcall(function()
+			return SocialService:CanSendGameInviteAsync(Players.LocalPlayer)
+		end)
+		canInvite = ok and result or false
+	end)
+
 	inviteBtn.Activated:Connect(function()
 		local player = Players.LocalPlayer
-		local canInvite = false
-		pcall(function()
-			canInvite = SocialService:CanSendGameInviteAsync(player)
-		end)
-		if not canInvite then
+		if canInvite == false then
 			toast("You can't send invites on this account.", Theme.Warn)
 			return
 		end

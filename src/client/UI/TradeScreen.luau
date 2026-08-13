@@ -359,14 +359,39 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			local wantBox = gemsRow:FindFirstChild("WantBox") :: TextBox?
 			api.wantBox = wantBox
 			if wantBox then
-				wantBox.FocusLost:Connect(function()
-					if compose then
-						local n = tonumber(wantBox.Text)
-						if n then
-							compose.want.gems = math.max(0, math.floor(n))
-						end
-						renderCompose()
+				local box = wantBox :: TextBox
+				local function submitWant()
+					if compose == nil then
+						return
 					end
+					local n = tonumber(box.Text)
+					if n then
+						compose.want.gems = math.max(0, math.floor(n))
+					end
+					renderCompose()
+				end
+				-- Auto-confirm on a debounce, same as the give side. Committing
+				-- only on FocusLost left the running total reading "0 gems after
+				-- tax" for as long as you were still typing the number.
+				local pending: thread? = nil
+				box:GetPropertyChangedSignal("Text"):Connect(function()
+					if not box:IsFocused() then
+						return -- programmatic set from a render, not the user typing
+					end
+					if pending then
+						task.cancel(pending)
+					end
+					pending = task.delay(0.4, function()
+						pending = nil
+						submitWant()
+					end)
+				end)
+				box.FocusLost:Connect(function()
+					if pending then
+						task.cancel(pending)
+						pending = nil
+					end
+					submitWant()
 				end)
 			end
 		end
@@ -727,7 +752,9 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
-		chatPanel.Visible = true
+		-- quick chat is for talking to the PERSON you are trading with;
+		-- the board ad composer reuses this panel and has nobody to talk to
+		chatPanel.Visible = compose == nil
 		title.Text = "📌 Post a board trade"
 		yourSide.header.Text = "You give (escrowed on post)"
 		theirSide.header.Text = "You want — click slots to add"
@@ -801,7 +828,9 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
-		chatPanel.Visible = true
+		-- quick chat is for talking to the PERSON you are trading with;
+		-- the board ad composer reuses this panel and has nobody to talk to
+		chatPanel.Visible = compose == nil
 		if theirSide.wantBox then
 			theirSide.wantBox.Visible = false
 			theirSide.gemsLabel.Visible = true

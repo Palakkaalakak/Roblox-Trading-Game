@@ -631,12 +631,38 @@ end
 
 -- Directory: one row per registered item — live stats + best prices. The
 -- whole payload is a few dozen small rows; no MemoryStore touched.
+-- Sold-out replacement variants ("... Mk3") are internal machinery: the crafting
+-- service mints them so a spent station always has something to offer. GetCatalog
+-- already keeps the unused ones out of item pickers; the market directory holds to
+-- the same rule, or the front page fills with near-identical rows for items nobody
+-- owns. The set is fixed for the life of the server, so resolve it once. Lazy
+-- require: CraftingService pulls in this service, and a top-level require cycles.
+local generatedIds: { [string]: boolean }? = nil
+local function generatedVariants(): { [string]: boolean }
+	if generatedIds == nil then
+		local resolved = {}
+		pcall(function()
+			resolved = require(script.Parent.CraftingService).generatedOutputIds()
+		end)
+		generatedIds = resolved
+	end
+	return generatedIds :: any
+end
+
 local function handleGetMarketSummary(player: Player)
 	local now = os.time()
 	local books = BookIndex.summary(bookIndex, now)
+	local generated = generatedVariants()
 	local items = {}
+	-- snapshotCached, NOT snapshot: a cold record costs a DataStore round trip,
+	-- and sweeping the registry through the blocking read stalls this call for
+	-- seconds on a fresh server. EconomyService warms the cache at boot; until
+	-- it finishes we serve what's ready and tell the client to keep asking.
 	for itemId in EconomyService.allItems() do
-		local snap = EconomyService.snapshot(itemId)
+		local snap = EconomyService.snapshotCached(itemId)
+		if snap and generated[itemId] and (snap.supply and snap.supply.value or 0) <= 0 then
+			snap = nil -- a replacement nobody has minted yet
+		end
 		if snap then
 			local book = books[itemId]
 			snap.bestAsk = book and book.bestAsk or nil
@@ -646,7 +672,7 @@ local function handleGetMarketSummary(player: Player)
 			table.insert(items, snap)
 		end
 	end
-	return { ok = true, items = items, now = now }
+	return { ok = true, items = items, now = now, warming = not EconomyService.isWarm() }
 end
 
 -- One item's live book: asks cheapest-first, bids highest-first.

@@ -44,6 +44,9 @@ local dirty: { [string]: boolean } = {} -- itemIds needing durable flush
 -- never invalidated either: the durable record doesn't have these edits, so
 -- dropping the cache would silently revert them.
 local localOnly: { [string]: boolean } = {}
+-- Set once warmCache() has pulled a record for every registered item. Until
+-- then registry-wide readers serve only what's cached (see snapshotCached).
+local warmed = false
 
 -- Cross-server broadcast coalescing: a burst of broadcastStats calls (bot
 -- seeding, a busy sweep, several trades in one tick) collapses into ONE
@@ -658,6 +661,23 @@ local function stat(known: boolean, value: number?): any
 	return { state = Enums.StatState.NA }
 end
 
+-- Snapshot WITHOUT the read-through: nil when the record isn't cached yet.
+-- getRecord blocks on a DataStore GetAsync per cold item, so a caller that
+-- sweeps the whole registry (the market directory) would serialise one round
+-- trip per item and stall for many seconds on a freshly booted server. Those
+-- callers use this and let warmCache() fill in the rest.
+function EconomyService.snapshotCached(itemId: string): any?
+	if hotCache[itemId] == nil then
+		return nil
+	end
+	return EconomyService.snapshot(itemId)
+end
+
+-- True once every registered item has a cached record (see warmCache).
+function EconomyService.isWarm(): boolean
+	return warmed
+end
+
 function EconomyService.snapshot(itemId: string): any?
 	local item = EconomyService.getItem(itemId)
 	local rec = getRecord(itemId)
@@ -867,6 +887,40 @@ function EconomyService.Start()
 			end
 		end
 		EconomyService.pushStats(payload.items)
+	end)
+
+	-- Pull every item's record into hotCache off the request path. getRecord
+	-- costs one DataStore round trip per cold item, so without this the first
+	-- caller to sweep the registry (the market directory) pays all of them in
+	-- series inside its own remote call and the panel sits blank for ~15s.
+	task.spawn(function()
+		local queue = {}
+		for itemId in registry do
+			if hotCache[itemId] == nil then
+				table.insert(queue, itemId)
+			end
+		end
+		-- A few readers in parallel: one round trip at a time takes ~45s over a
+		-- couple hundred items. Kept small on purpose — the DataStore request
+		-- budget is shared with profile loads, which must not be starved.
+		local next_ = 1
+		local running = 0
+		local WORKERS = 4
+		for _ = 1, WORKERS do
+			running += 1
+			task.spawn(function()
+				while next_ <= #queue do
+					local itemId = queue[next_]
+					next_ += 1
+					getRecord(itemId)
+				end
+				running -= 1
+			end)
+		end
+		while running > 0 do
+			task.wait(0.1)
+		end
+		warmed = true
 	end)
 
 	-- periodic durable flush

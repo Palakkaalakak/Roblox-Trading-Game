@@ -124,6 +124,9 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 
 	local function renderHome()
 		if summary == nil then
+			-- never leave the directory as a blank void; say what's happening
+			homeEmpty.Text = "Loading the market…"
+			homeEmpty.Visible = true
 			return
 		end
 		local query = homeSearch.Text:lower()
@@ -156,6 +159,7 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				cached.row.Visible = false
 			end
 		end
+		homeEmpty.Text = "No items match that search."
 		homeEmpty.Visible = #rows == 0
 	end
 
@@ -169,19 +173,33 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 		fetchingHome = true
 		task.spawn(function()
-			repeat
-				homeQueued = false
-				local result = Net.invoke("GetMarketSummary")
-				if result.ok then
-					summary = result.items
-					if active and currentItemId == nil then
-						renderHome()
+			-- pcall'd so a dropped payload can't kill the thread mid-loop: that
+			-- would leave fetchingHome stuck true and the market would never
+			-- refresh again for the rest of the session.
+			pcall(function()
+				repeat
+					homeQueued = false
+					local result = Net.invoke("GetMarketSummary")
+					if result and result.ok then
+						summary = result.items
+						if active and currentItemId == nil then
+							renderHome()
+						end
+						-- server is still warming its item cache: the list it just
+						-- sent is partial, so keep asking until it's complete
+						if result.warming and active then
+							homeQueued = true
+						end
+					elseif summary == nil and active then
+						-- nothing to show AND the read failed: keep trying rather
+						-- than stranding the directory on "Loading the market…"
+						homeQueued = true
 					end
-				end
-				if homeQueued then
-					task.wait(0.5)
-				end
-			until not homeQueued
+					if homeQueued then
+						task.wait(0.5)
+					end
+				until not homeQueued
+			end)
 			fetchingHome = false
 		end)
 	end
@@ -398,17 +416,19 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 		fetchingBook = true
 		task.spawn(function()
-			repeat
-				bookQueued = false
-				local result = Net.invoke("GetItemBook", itemId)
-				if result.ok and active and currentItemId == itemId then
-					renderBookHeader()
-					renderBook(result.asks, result.bids)
-				end
-				if bookQueued then
-					task.wait(0.5)
-				end
-			until not bookQueued
+			pcall(function()
+				repeat
+					bookQueued = false
+					local result = Net.invoke("GetItemBook", itemId)
+					if result and result.ok and active and currentItemId == itemId then
+						renderBookHeader()
+						renderBook(result.asks, result.bids)
+					end
+					if bookQueued then
+						task.wait(0.5)
+					end
+				until not bookQueued
+			end)
 			fetchingBook = false
 		end)
 	end
@@ -539,6 +559,9 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	-- BoardScreen calls these on tab switches / panel close.
 	function MarketScreen.show()
 		active = true
+		-- A stale filter survives a panel close, so reopening the board would
+		-- land on an empty directory that reads as a broken market.
+		homeSearch.Text = ""
 		showHome()
 	end
 

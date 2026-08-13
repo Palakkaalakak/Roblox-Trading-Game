@@ -3231,9 +3231,9 @@ local function buildRollsPanel(parent: Instance)
 		Name = "NameBar",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.fromScale(0.5, 1),
-		Size = UDim2.fromScale(1, 0.28),
+		Size = UDim2.fromScale(1, 0.19),
 		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
-		BackgroundTransparency = 0.15,
+		BackgroundTransparency = 0.25,
 		BorderSizePixel = 0,
 		ZIndex = 32,
 	}, reelTile)
@@ -3259,7 +3259,7 @@ local function buildRollsPanel(parent: Instance)
 		TextYAlignment = Enum.TextYAlignment.Center,
 		ZIndex = 33,
 	}, nameBar)
-	capText(reelName, 14)
+	capText(reelName, 11)
 	new("UIPadding", {
 		PaddingLeft = UDim.new(0, 4),
 		PaddingRight = UDim.new(0, 4),
