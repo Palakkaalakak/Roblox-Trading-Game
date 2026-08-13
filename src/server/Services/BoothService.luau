@@ -69,15 +69,38 @@ local function register(model: Instance): boolean
 			BoothConfig.IdAttribute, id, model:GetFullName(), booths[id].model:GetFullName()))
 		return false
 	end
+	-- The display board. A part literally named Anchor wins; failing that, any
+	-- part already carrying a SurfaceGui (which is how most toolbox stalls ship
+	-- their sign) is used instead, so a bought model usually needs no renaming.
 	local anchor = model:FindFirstChild(BoothConfig.AnchorName, true)
 	if anchor == nil or not anchor:IsA("BasePart") then
-		warn(("[BoothService] booth %q has no %s BasePart; skipped"):format(id, BoothConfig.AnchorName))
+		for _, d in model:GetDescendants() do
+			if d:IsA("SurfaceGui") and d.Parent and d.Parent:IsA("BasePart") then
+				anchor = d.Parent
+				break
+			end
+		end
+	end
+	if anchor == nil or not anchor:IsA("BasePart") then
+		warn(("[BoothService] booth %q has no %s part and no SurfaceGui to borrow; skipped"):format(id, BoothConfig.AnchorName))
 		return false
 	end
+
+	-- The prompt is the one thing worth creating for them: it is pure wiring
+	-- with no art to it, and a stall model has no reason to ship one.
 	local prompt = model:FindFirstChild(BoothConfig.PromptName, true)
 	if prompt == nil or not prompt:IsA("ProximityPrompt") then
-		warn(("[BoothService] booth %q has no %s ProximityPrompt; skipped"):format(id, BoothConfig.PromptName))
-		return false
+		local host = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+		if host == nil then
+			warn(("[BoothService] booth %q has no BasePart to host a prompt; skipped"):format(id))
+			return false
+		end
+		local made = Instance.new("ProximityPrompt")
+		made.Name = BoothConfig.PromptName
+		made.ObjectText = "Trade Booth"
+		made.ActionText = "Set up shop"
+		made.Parent = host
+		prompt = made
 	end
 	prompt.HoldDuration = BoothConfig.ClaimHoldSeconds
 	prompt.MaxActivationDistance = BoothConfig.MaxPromptDistance

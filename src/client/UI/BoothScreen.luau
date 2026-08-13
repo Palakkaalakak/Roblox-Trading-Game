@@ -113,10 +113,24 @@ local function buildFace(boothId: string, anchor: BasePart): any
 	grid.ScrollingDirection = Enum.ScrollingDirection.Y
 	grid.Parent = root
 
+	-- SQUARE cells, in pixels. Scale cells inherit the board's aspect ratio and
+	-- come out as rectangles on any board that isn't square, so the size comes
+	-- from the board's real pixel dimensions instead.
+	--
+	-- Sized to fit BOTH axes: a cell derived from width alone overflows the grid
+	-- band on a wide, short board and the ScrollingFrame clips the bottom row
+	-- off. Whichever axis is tighter wins, so the requested columns AND rows
+	-- always fit whatever shape board the model brings.
+	local boardW = anchor.Size.X * SURFACE_PIXELS_PER_STUD * 0.93 -- minus L/R padding
+	local boardH = anchor.Size.Y * SURFACE_PIXELS_PER_STUD * 0.77 * 0.92 -- grid band, minus T/B padding
+	local gap = math.max(2, math.floor(boardW * 0.014))
+	local byWidth = (boardW - gap * (BoothConfig.GridColumns - 1)) / BoothConfig.GridColumns
+	local byHeight = (boardH - gap * (BoothConfig.GridRows - 1)) / BoothConfig.GridRows
+	local cell = math.max(24, math.floor(math.min(byWidth, byHeight)))
+
 	local layout = Instance.new("UIGridLayout")
-	-- Exactly GridColumns across and GridRows tall in view; the rest scrolls.
-	layout.CellSize = UDim2.fromScale(1 / BoothConfig.GridColumns - 0.014, 1 / BoothConfig.GridRows - 0.03)
-	layout.CellPadding = UDim2.fromScale(0.014, 0.03)
+	layout.CellSize = UDim2.fromOffset(cell, cell)
+	layout.CellPadding = UDim2.fromOffset(gap, gap)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = grid
 
@@ -240,12 +254,18 @@ local function paint(face: any, data: any)
 	face.tagline.Text = data.tagline ~= "" and data.tagline or "Open for trades."
 
 	local stocked = #data.listings
-	face.flex.Text = ("%d/%d"):format(stocked, data.slots)
+	face.flex.Text = stocked > 0 and ("%d for sale"):format(stocked) or ""
+	if stocked == 0 then
+		-- claimed but nothing out yet: say so rather than showing a bare board
+		face.empty.Visible = true
+		face.empty.Text = "Nothing for sale yet"
+	end
 
-	-- One cell per owned slot, plus a single "buy the next one" cell. Nothing
-	-- beyond that is drawn, so the grid never advertises slots that don't exist.
-	local buyable = data.slots < BoothConfig.MaxSlots
-	local total = data.slots + (buyable and 1 or 0)
+	-- ONLY what's actually for sale. A booth face is a shop window, not an
+	-- inventory screen: empty shelves and a buy-a-slot button are the owner's
+	-- business and live in the booth panel, not on the front of the stall where
+	-- every passer-by reads them.
+	local total = #data.listings
 
 	for i = 1, total do
 		local cell = cellAt(face, i)
@@ -257,39 +277,15 @@ local function paint(face: any, data: any)
 		cell.Visible = true
 
 		local row = data.listings[i]
-		if row then
-			icon.Visible = true
-			plus.Visible = false
-			Components.setIcon(icon, row)
-			name.Text = row.name
-			price.Text = ("%d gems  x%d"):format(row.gemsPerCopy, row.remaining)
-			cell.BackgroundColor3 = Theme.BgLight
-			cell.BackgroundTransparency = 0
-			edge.Color = Components.rarityColor(row.rarity)
-			edge.Transparency = 0
-		elseif i <= data.slots then
-			-- owned but empty
-			icon.Visible = false
-			plus.Visible = true
-			plus.TextColor3 = Theme.TextDim
-			name.Text = ""
-			price.Text = ""
-			cell.BackgroundColor3 = Theme.Bg
-			cell.BackgroundTransparency = 0.35
-			edge.Color = Theme.Stroke
-			edge.Transparency = 0.4
-		else
-			-- the purchasable one: a white square with a +
-			icon.Visible = false
-			plus.Visible = true
-			plus.TextColor3 = Theme.Bg
-			name.Text = ""
-			price.Text = ""
-			cell.BackgroundColor3 = Color3.new(1, 1, 1)
-			cell.BackgroundTransparency = 0
-			edge.Color = Color3.new(1, 1, 1)
-			edge.Transparency = 0
-		end
+		icon.Visible = true
+		plus.Visible = false
+		Components.setIcon(icon, row)
+		name.Text = row.name
+		price.Text = ("%d gems  x%d"):format(row.gemsPerCopy, row.remaining)
+		cell.BackgroundColor3 = Theme.BgLight
+		cell.BackgroundTransparency = 0
+		edge.Color = Components.rarityColor(row.rarity)
+		edge.Transparency = 0
 	end
 	for i = total + 1, #face.cells do
 		face.cells[i].Visible = false
@@ -416,7 +412,6 @@ function BoothScreen.interact(prompt: ProximityPrompt)
 		return
 	end
 	local data = latest[boothId]
-	local me = Players.LocalPlayer.UserId
 
 	if data == nil or not data.claimed then
 		task.spawn(function()
@@ -435,10 +430,10 @@ function BoothScreen.interact(prompt: ProximityPrompt)
 		return
 	end
 
+	-- claimed: open the booth's OWN panel. Yours = manage it, theirs = shop it.
+	-- Never the Trade Board: that is a different surface for a different job.
 	if browseHandler then
 		browseHandler(data)
-	elseif data.ownerUserId == me then
-		BoothScreen.toast("Your booth. Stock it from the Market tab.", Theme.Accent)
 	end
 end
 

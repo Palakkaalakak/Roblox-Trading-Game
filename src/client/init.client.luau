@@ -38,6 +38,7 @@ local RollsScreen = require(UI.RollsScreen)
 local ShopScreen = require(UI.ShopScreen)
 local ActivityFeed = require(UI.ActivityFeed)
 local BoothScreen = require(UI.BoothScreen)
+local BoothPanel = require(UI.BoothPanel)
 local FreeGemsScreen = require(UI.FreeGemsScreen)
 local WorldLeaderboards = require(UI.WorldLeaderboards)
 local SyndicateScreen = require(UI.SyndicateScreen)
@@ -112,20 +113,9 @@ end)
 -- always-on market ticker (live bot + player trades)
 ActivityFeed.start()
 -- plaza storefronts: paints a face on every placed booth
+BoothPanel.build(modalGui, toast, tooltip)
 BoothScreen.toast = toast
-BoothScreen.setBrowseHandler(function(data)
-	-- Someone's booth (or your own): the Market already renders exactly this
-	-- stock, so send them there rather than building a second shopping list.
-	BoardScreen.openTab("market")
-	if data and data.ownerUserId then
-		toast(
-			data.ownerUserId == game:GetService("Players").LocalPlayer.UserId
-					and "Your booth — post a sell listing to stock a slot."
-				or ("%s's stock is on the Market."):format(data.ownerName),
-			Theme.Accent
-		)
-	end
-end)
+BoothScreen.setBrowseHandler(BoothPanel.open)
 BoothScreen.start()
 
 -- generic notifications (board pings, event news) as toasts
