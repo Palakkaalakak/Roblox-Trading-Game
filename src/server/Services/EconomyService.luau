@@ -534,22 +534,6 @@ function EconomyService.retireCopies(itemId: string, count: number)
 	EconomyService.broadcastStats({ itemId })
 end
 
--- Return copies to the reserve the LAZY way (in-memory + dirty flush). Bot
--- equivalent of restockCopies — same rationale as reserveOneLazy.
-function EconomyService.restockCopiesLazy(itemId: string, count: number)
-	if count <= 0 then
-		return
-	end
-	mutateRecordLocal(itemId, function(old)
-		local back = math.min(count, old.circulating or 0)
-		old.circulating = math.max(0, (old.circulating or 0) - back)
-		old.reserveRemaining = (old.reserveRemaining or 0) + back
-		old.updatedAt = os.time()
-		return old
-	end)
-	EconomyService.broadcastStats({ itemId })
-end
-
 -- MAINTENANCE ONLY: put an item back to its untouched state — full reserve,
 -- nothing circulating, nothing burned. Written through the same strong CAS as
 -- every other reserve mutation, so it cannot race a live buy/craft, and it

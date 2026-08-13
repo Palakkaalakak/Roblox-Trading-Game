@@ -13,12 +13,14 @@
 --     with the reason.
 -- The result lands as a full-panel reveal, not a toast.
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local State = require(ReplicatedStorage.Shared.Util.State)
 local EventConfig = require(ReplicatedStorage.Shared.Config.EventConfig)
+local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
 local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
@@ -26,6 +28,222 @@ local EconomyController = require(script.Parent.Parent.Controllers.EconomyContro
 local RollsScreen = {}
 
 local RARITY_ORDER = { "Common", "Rare", "Legendary", "Mythical", "Godly", "Celestial" }
+
+--------------------------------------------------------------------------------
+-- DEV ONLY: batch roll strip. Rolls N times at one rarity straight into your
+-- inventory, free, so a test account can be stocked without clicking the gacha
+-- a hundred times. Only built for DebugConfig.AdminUserNames; the remote behind
+-- it is gated server-side on AdminUserIds, so hiding the strip is presentation,
+-- not security. Delete this function and its one call site for release.
+--------------------------------------------------------------------------------
+-- How long one replayed reveal is left on screen before the next starts. Long
+-- enough for the reel to land and read, short enough that 10 in a row isn't a
+-- punishment.
+local REVEAL_REPLAY_SECONDS = 3.2
+
+local function buildDevBatchRoll(panel: Frame, showReveal: (any) -> ())
+	if not DebugConfig.BatchRollEnabled then
+		return
+	end
+	if not (DebugConfig.AdminUserNames and DebugConfig.AdminUserNames[Players.LocalPlayer.Name]) then
+		return
+	end
+
+	-- Sits in the free strip right of the title, above the tier cards. Two rows:
+	-- controls, then the result line. Nothing else lives here at any panel size.
+	local strip = Instance.new("Frame")
+	strip.Name = "DevBatchRoll"
+	strip.BackgroundTransparency = 1
+	strip.Position = UDim2.fromScale(0.53, 0.012)
+	strip.Size = UDim2.fromScale(0.4, 0.088)
+	strip.ZIndex = 5
+	strip.Parent = panel
+
+	local row = Instance.new("Frame")
+	row.BackgroundTransparency = 1
+	row.Size = UDim2.fromScale(1, 0.55)
+	row.ZIndex = 5
+	row.Parent = strip
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.VerticalAlignment = Enum.VerticalAlignment.Center
+	layout.Padding = UDim.new(0.02, 0)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = row
+
+	local function chip(name: string, widthScale: number, order: number): TextButton
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.LayoutOrder = order
+		b.Size = UDim2.fromScale(widthScale, 1)
+		b.BackgroundColor3 = Theme.BgLight
+		b.Font = Theme.Font
+		b.TextSize = 12
+		b.TextColor3 = Theme.TextPrimary
+		b.AutoButtonColor = true
+		b.ZIndex = 5
+		b.Text = ""
+		b.Parent = row
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = b
+		Instance.new("UITextSizeConstraint", b).MaxTextSize = 12
+		return b
+	end
+
+	local rarityIndex = 1
+	local rarityBtn = chip("Rarity", 0.34, 1)
+	rarityBtn.Text = RARITY_ORDER[rarityIndex]
+	rarityBtn.TextColor3 = Components.rarityColor(RARITY_ORDER[rarityIndex])
+
+	local countBox = Instance.new("TextBox")
+	countBox.Name = "Count"
+	countBox.LayoutOrder = 2
+	countBox.Size = UDim2.fromScale(0.2, 1)
+	countBox.BackgroundColor3 = Theme.BgLight
+	countBox.Font = Theme.Font
+	countBox.TextSize = 12
+	countBox.TextColor3 = Theme.TextPrimary
+	countBox.PlaceholderText = "n"
+	countBox.ClearTextOnFocus = false
+	countBox.Text = "10"
+	countBox.ZIndex = 5
+	countBox.Parent = row
+	local cbCorner = Instance.new("UICorner")
+	cbCorner.CornerRadius = Theme.CornerSmall
+	cbCorner.Parent = countBox
+	Instance.new("UITextSizeConstraint", countBox).MaxTextSize = 12
+
+	local goBtn = chip("Go", 0.4, 3)
+	goBtn.Text = "DEV batch roll"
+	goBtn.BackgroundColor3 = Theme.Accent
+
+	-- Row two: the two switches on the left, the result line on the right.
+	local function toggle(name: string, labelText: string, xScale: number, on: boolean): (TextButton, () -> boolean)
+		local state = on
+		local b = Instance.new("TextButton")
+		b.Name = name
+		b.Position = UDim2.fromScale(xScale, 0.6)
+		b.Size = UDim2.fromScale(0.19, 0.4)
+		b.Font = Theme.Font
+		b.TextSize = 10
+		b.AutoButtonColor = true
+		b.ZIndex = 5
+		b.Parent = strip
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = b
+		Instance.new("UITextSizeConstraint", b).MaxTextSize = 10
+		-- state reads from the word and the colour, never a checkbox glyph:
+		-- Gotham has no ☐/☑ (nor ✕), and missing glyphs render as tofu boxes
+		local function paint()
+			b.Text = labelText .. (state and " ON" or " OFF")
+			b.BackgroundColor3 = state and Theme.Good or Theme.BgLight
+			b.TextColor3 = state and Theme.TextPrimary or Theme.TextDim
+		end
+		paint()
+		b.Activated:Connect(function()
+			state = not state
+			paint()
+		end)
+		return b, function()
+			return state
+		end
+	end
+
+	-- Animation off by default: the point of a batch is not watching 50 reveals.
+	local _, animOn = toggle("Anim", "anim", 0, false)
+	-- Gems off by default: dev loot shouldn't drain the test wallet unless asked.
+	local _, gemsOn = toggle("Gems", "gems", 0.205, false)
+
+	local result = Instance.new("TextLabel")
+	result.Name = "Result"
+	result.BackgroundTransparency = 1
+	result.Position = UDim2.fromScale(0.42, 0.6)
+	result.Size = UDim2.fromScale(0.58, 0.4)
+	result.Font = Theme.FontLight
+	result.TextSize = 11
+	result.TextColor3 = Theme.TextDim
+	result.TextXAlignment = Enum.TextXAlignment.Right
+	result.TextTruncate = Enum.TextTruncate.AtEnd
+	result.ZIndex = 5
+	result.Text = ("dev only · max %d"):format(DebugConfig.BatchRollMaxCount)
+	result.Parent = strip
+	Instance.new("UITextSizeConstraint", result).MaxTextSize = 11
+
+	rarityBtn.Activated:Connect(function()
+		rarityIndex = (rarityIndex % #RARITY_ORDER) + 1
+		rarityBtn.Text = RARITY_ORDER[rarityIndex]
+		rarityBtn.TextColor3 = Components.rarityColor(RARITY_ORDER[rarityIndex])
+	end)
+
+	local busy = false
+	goBtn.Activated:Connect(function()
+		if busy then
+			return
+		end
+		local n = math.floor(tonumber(countBox.Text) or 0)
+		if n < 1 then
+			result.Text = "Enter a count of 1 or more."
+			result.TextColor3 = Theme.Bad
+			return
+		end
+		if n > DebugConfig.BatchRollMaxCount then
+			n = DebugConfig.BatchRollMaxCount
+			countBox.Text = tostring(n)
+		end
+		local rarity = RARITY_ORDER[rarityIndex]
+		busy = true
+		goBtn.Text = "…"
+		result.Text = ("Rolling %d %s…"):format(n, rarity)
+		result.TextColor3 = Theme.TextDim
+		task.spawn(function()
+			local res = Net.invoke("DebugBatchRoll", rarity, n, gemsOn())
+			busy = false
+			goBtn.Text = "DEV batch roll"
+			if res and res.ok then
+				local parts = {}
+				for i, r in res.rows do
+					if i > 3 then
+						table.insert(parts, ("+%d more"):format(#res.rows - 3))
+						break
+					end
+					table.insert(parts, ("%s x%d"):format(r.name, r.count))
+				end
+				result.Text = ("%d/%d%s · %s"):format(
+					res.granted,
+					res.asked,
+					res.spent and res.spent > 0 and (" · -" .. res.spent .. "g") or "",
+					table.concat(parts, ", ")
+				)
+				result.TextColor3 = Theme.Good
+				-- Replay the real reveal once per granted copy, in sequence. The
+				-- items are already in the inventory; this is presentation only.
+				if animOn() then
+					task.spawn(function()
+						for _, r in res.rows do
+							for _ = 1, r.count do
+								showReveal(r)
+								task.wait(REVEAL_REPLAY_SECONDS)
+							end
+						end
+					end)
+				end
+			else
+				result.Text = ({
+					nothing_left = ("No %s left in reserve."):format(rarity),
+					not_authorized = "Admin only.",
+					bad_count = "Bad count.",
+					bad_rarity = "Bad rarity.",
+					disabled = "Switched off in DebugConfig.",
+					loading = "Profile still loading.",
+					grant_failed = "Grant failed — nothing taken.",
+				})[res and res.err] or ("Failed: " .. tostring(res and res.err))
+				result.TextColor3 = Theme.Bad
+			end
+		end)
+	end)
+end
 
 function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, color: Color3) -> ())
 	local panel = gui:WaitForChild("RollsPanel") :: Frame
@@ -328,6 +546,10 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		spinToken += 1 -- supersede any in-flight scroll
 		reveal.Visible = false
 	end)
+
+	-- built here, not earlier: the strip can replay the reveal, so it needs
+	-- showReveal to already exist
+	buildDevBatchRoll(panel, showReveal)
 
 	----------------------------------------------------------------------
 	-- Rolling

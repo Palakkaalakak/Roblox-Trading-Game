@@ -36,7 +36,6 @@ local ProfileScreen = require(UI.ProfileScreen)
 local RollsScreen = require(UI.RollsScreen)
 local ShopScreen = require(UI.ShopScreen)
 local ActivityFeed = require(UI.ActivityFeed)
-local AdminScreen = require(UI.AdminScreen)
 local FreeGemsScreen = require(UI.FreeGemsScreen)
 local WorldLeaderboards = require(UI.WorldLeaderboards)
 local SyndicateScreen = require(UI.SyndicateScreen)
@@ -105,9 +104,8 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt)
 	end
 end)
 
--- always-on market ticker (live bot + player trades) and admin bot inspector
+-- always-on market ticker (live bot + player trades)
 ActivityFeed.start()
-AdminScreen.start(toast)
 
 -- generic notifications (board pings, event news) as toasts
 local Net = require(script.Net)

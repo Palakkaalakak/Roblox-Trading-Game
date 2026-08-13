@@ -23,6 +23,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local RollConfig = require(ReplicatedStorage.Shared.Config.RollConfig)
 local EventConfig = require(ReplicatedStorage.Shared.Config.EventConfig)
+local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
+local Items = require(ReplicatedStorage.Shared.Config.Items)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 
 local Net = require(script.Parent.Parent.Net)
@@ -345,6 +347,150 @@ function RollService.botRoll(botId: number, tierId: string, ticket: number)
 	return rollCore(botId, tierId, ticket)
 end
 
+--------------------------------------------------------------------------------
+-- DEBUG: batch roll (admin only) — remove with the rest of the dev tooling
+--------------------------------------------------------------------------------
+
+-- Every item of one rarity that a roll could currently produce: registered,
+-- rollable (assignmentWeight > 0), and with reserve left. Same eligibility a
+-- real roll uses, minus the tier value floor — a batch roll is rarity-picked,
+-- not tier-picked, so there is no floor to apply.
+local function rollablesOfRarity(rarity: string): { { itemId: string, weight: number } }
+	local out = {}
+	for itemId, item in EconomyService.allItems() do
+		if item.rarity == rarity and (item.assignmentWeight or 0) > 0 then
+			local snap = EconomyService.snapshotCached(itemId)
+			if snap and (snap.reserveRemaining or 0) > 0 then
+				table.insert(out, { itemId = itemId, weight = math.max(item.assignmentWeight, 1) })
+			end
+		end
+	end
+	return out
+end
+
+-- Roll `count` times at one rarity, free, straight into the caller's inventory.
+-- Weighted by assignmentWeight exactly like a real roll, so the spread looks
+-- like what players actually see.
+--
+-- Uses reserveOneLazy (in-memory + dirty flush), NOT the strong CAS: the strong
+-- path is one DataStore UpdateAsync per copy, so a 100-roll batch would fire 100
+-- synchronous writes and stall every player on the server behind the request
+-- budget. Lazy is the same call the bot simulation makes for the same reason.
+--
+-- Grants land as ONE inventory delta rather than `count` of them, and are tagged
+-- Starter (not Roll) so debug loot never counts as earned in profile stats.
+--
+-- `useGems` charges the rarity's store cost per copy, in the SAME delta as the
+-- grant, so it either all happens or none of it does. Off by default: dev loot
+-- should not quietly drain the test wallet.
+function RollService.debugBatchRoll(player: Player, rarity: any, count: any, useGems: any): any
+	if not DebugConfig.BatchRollEnabled then
+		return { ok = false, err = "disabled" }
+	end
+	if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
+		return { ok = false, err = "not_authorized" }
+	end
+	if not DataService.isLoaded(player) then
+		return { ok = false, err = "loading" }
+	end
+	if not Guard.isString(rarity, 32) or Enums.RarityTier[rarity] == nil then
+		return { ok = false, err = "bad_rarity" }
+	end
+	if not Guard.isPositiveInt(count) or count > DebugConfig.BatchRollMaxCount then
+		return { ok = false, err = "bad_count" }
+	end
+
+	local pool = rollablesOfRarity(rarity :: string)
+	if #pool == 0 then
+		return { ok = false, err = "nothing_left" }
+	end
+	local totalWeight = 0
+	for _, e in pool do
+		totalWeight += e.weight
+	end
+
+	-- Reserve first, tally as we go. A copy whose reserve ran out mid-batch is
+	-- skipped, not retried, so a nearly-exhausted rarity returns fewer than asked
+	-- rather than spinning.
+	local tally: { [string]: number } = {}
+	local granted = 0
+	for _ = 1, count :: number do
+		local point = math.random() * totalWeight
+		local running = 0
+		local chosen = pool[#pool].itemId
+		for _, e in pool do
+			running += e.weight
+			if point < running then
+				chosen = e.itemId
+				break
+			end
+		end
+		if EconomyService.reserveOneLazy(chosen) then
+			tally[chosen] = (tally[chosen] or 0) + 1
+			granted += 1
+		end
+	end
+
+	if granted == 0 then
+		return { ok = false, err = "nothing_left" }
+	end
+
+	-- Charged in the same delta as the grant: applyDelta rejects the whole thing
+	-- if the gems aren't there, so a batch can never half-apply.
+	local spent = 0
+	local delta: any = { items = tally }
+	if useGems == true then
+		spent = (Items.StoreCostByRarity[rarity] or 0) * granted
+		delta.gems = -spent
+	end
+
+	local ok = InventoryService.applyDelta(player, delta, Enums.GrantSource.Starter)
+	if not ok then
+		-- put every reserved copy back; nothing was handed over
+		for itemId, n in tally do
+			EconomyService.restockCopiesLazy(itemId, n)
+		end
+		return { ok = false, err = useGems == true and "insufficient_gems" or "grant_failed" }
+	end
+
+	task.spawn(function()
+		DataService.saveNow(player)
+	end)
+
+	-- rows carry everything the reveal animation needs, so the client can replay
+	-- it without a second round trip
+	local touched = {}
+	local rows = {}
+	for itemId, n in tally do
+		table.insert(touched, itemId)
+		local item = EconomyService.getItem(itemId)
+		table.insert(rows, {
+			itemId = itemId,
+			name = item and item.name or itemId,
+			rarity = item and item.rarity or rarity,
+			imageId = item and item.imageId or nil,
+			value = EconomyService.valueOf(itemId),
+			count = n,
+		})
+	end
+	table.sort(rows, function(a, b)
+		if a.count ~= b.count then
+			return a.count > b.count
+		end
+		return a.name < b.name
+	end)
+	EconomyService.broadcastStats(touched)
+	AnalyticsService.log("debug_batch_roll", {
+		userId = player.UserId,
+		rarity = rarity,
+		asked = count,
+		granted = granted,
+		spent = spent,
+		distinct = #rows,
+	})
+	return { ok = true, rarity = rarity, asked = count, granted = granted, spent = spent, rows = rows }
+end
+
 function RollService.Init() end
 
 function RollService.Start()
@@ -370,6 +516,11 @@ function RollService.Start()
 			return { ok = false, err = "loading" }
 		end
 		return rollCore(player.UserId, tierId, nil, payment)
+	end)
+
+	-- DEBUG ONLY (admin-gated). Remove with the dev tooling for release.
+	Net.bindFunction("DebugBatchRoll", function(player, rarity, count, useGems)
+		return RollService.debugBatchRoll(player, rarity, count, useGems)
 	end)
 end
 

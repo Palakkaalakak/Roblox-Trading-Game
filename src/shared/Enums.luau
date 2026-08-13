@@ -70,7 +70,6 @@ local Enums = {
 		"SetStatus", -- (text) -> {ok, err} — filtered "looking for" text
 		"SetStatChips", -- (keys) -> {ok, err} — owner pins <=4 stats
 		"SetPrivacy", -- ({hideValue, hideShowcase}) -> {ok, err}
-		"GetBotData", -- () -> {ok, data} — admin-only bot inspector (temporary)
 		"GetShop", -- () -> {ok, offers, sectionOrder} — Robux shop catalogue
 		"PromptPurchase", -- (offerId) -> {ok, err?} — server-side purchase prompt
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
@@ -103,6 +102,7 @@ local Enums = {
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"AdminResetEconomy", -- () -> {ok, reset} — admin only: every item back to full reserve
+		"DebugBatchRoll", -- (rarity, count) -> {ok, granted, tally, err?} — admin only: N rolls at one rarity
 		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view
 	},
 	RemoteEvents = {

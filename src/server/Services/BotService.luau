@@ -1106,16 +1106,6 @@ function BotService.Init()
 end
 
 function BotService.Start()
-	-- admin-only inspector remote (temporary). Gated to DebugConfig.AdminUserIds.
-	local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
-	local Net = require(script.Parent.Parent.Net)
-	Net.bindFunction("GetBotData", function(player)
-		if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
-			return { ok = false, err = "not_admin" }
-		end
-		return { ok = true, data = BotService.debugSnapshot() }
-	end)
-
 	if not BotConfig.Enabled then
 		task.spawn(function()
 			task.wait(5)
