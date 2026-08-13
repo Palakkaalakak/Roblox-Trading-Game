@@ -1420,20 +1420,12 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 
 	-- reserve part of the listing (CAS; clamps to what's left)
 	local taken = 0
-	local now = os.time()
 	local committed, err = mutate(id, function(l)
 		if l.kind ~= "sell" or l.status ~= "open" then
 			return nil, "gone"
 		end
 		if l.posterId == userId then
 			return nil, "own_listing"
-		end
-		-- Anti-scam: a listing this fresh can't be bought yet. Stops the seller
-		-- swapping what's on the shelf in the instant between a buyer reading it
-		-- and clicking. Keyed on the listing's own timestamp, so it holds no
-		-- matter which server the buyer is on.
-		if BoothConfig.Enabled and (now - (l.createdAt or 0)) < BoothConfig.ListCooldownSeconds then
-			return nil, "just_listed"
 		end
 		taken = math.min(count, l.remainingCount)
 		if taken <= 0 then

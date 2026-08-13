@@ -115,11 +115,11 @@ return {
 			end
 		end,
 
-		["anti-scam: the list cooldown is real and bounded"] = function()
-			-- Zero would mean no protection at all; anything long enough to
-			-- notice makes normal buying feel broken.
-			truthy(BoothConfig.ListCooldownSeconds > 0, "cooldown must actually block something")
-			truthy(BoothConfig.ListCooldownSeconds <= 10, "cooldown must not feel like a bug")
+		["anti-scam: no purchase delay exists"] = function()
+			-- A posted listing is immutable — price and item can't be swapped,
+			-- only cancelled — so there is nothing a delay would defend against,
+			-- and a delay would just block honest buyers.
+			truthy((BoothConfig :: any).ListCooldownSeconds == nil, "no purchase cooldown should exist")
 		end,
 
 		["world contract: names the discovery code depends on are set"] = function()

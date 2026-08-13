@@ -112,16 +112,23 @@ end
 -- Placeholder skins tint the placed geometry rather than swapping in a model,
 -- so booths look distinct with no art dependency. At publish, give a skin a
 -- `model` and mount that here instead; the rest of the system is unchanged.
+-- Colours by PART NAME, so any model — a primitive placeholder or something
+-- dragged out of the toolbox — becomes skinnable just by naming a few parts
+-- `Canopy` and `Trim`. SkinMount counts as canopy so the simplest possible
+-- booth still recolours with nothing else named.
 local function applySkin(entry: any, skinId: string?)
 	local skin = BoothConfig.resolveSkin(skinId)
-	local mount = entry.skinMount
-	if mount == nil then
-		return
+	local canopy, trim = rgb(skin.canopy), rgb(skin.trim)
+	if entry.skinMount then
+		entry.skinMount.Color = canopy
 	end
-	mount.Color = rgb(skin.canopy)
 	for _, d in entry.model:GetDescendants() do
-		if d:IsA("BasePart") and d.Name == "Trim" then
-			d.Color = rgb(skin.trim)
+		if d:IsA("BasePart") then
+			if d.Name == "Canopy" then
+				d.Color = canopy
+			elseif d.Name == "Trim" then
+				d.Color = trim
+			end
 		end
 	end
 end

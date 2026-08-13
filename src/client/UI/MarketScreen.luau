@@ -301,8 +301,6 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 						toast("Not enough gems!", Theme.Bad)
 					elseif result.err == "insufficient_items" then
 						toast("You don't own that many!", Theme.Bad)
-					elseif result.err == "just_listed" then
-						toast("Just listed — give it a couple of seconds.", Theme.Warn)
 					elseif result.err == "gone" or result.err == "sold_out" or result.err == "filled" then
 						toast("Too late — that order just closed.", Theme.Warn)
 					else

@@ -41,13 +41,13 @@ local BoothConfig = {
 	MaxTaglineLength = 60,
 
 	-- Anti-scam -----------------------------------------------------------
-	-- PS99 shipped booths without either of these and had to patch them in 13
-	-- months later, after the scams were established. They cost nothing now.
+	-- NO purchase cooldown here, deliberately. PS99 needed one because a booth
+	-- slot there is a mutable display the seller can swap between you reading it
+	-- and clicking. In this game the LISTING ID is the offer: price and item are
+	-- immutable once posted, and a seller who changes their mind can only cancel
+	-- — which makes the buy fail with "gone" and charges nothing. A delay would
+	-- protect against nothing and punish honest buyers.
 	--
-	-- A slot stocked within this many seconds cannot be bought. Kills the
-	-- swap-the-item-as-they-click bait: the buyer always has time to see what
-	-- they are actually clicking. Enforced on the listing's creation time.
-	ListCooldownSeconds = 3,
 	-- Players within this many studs of a booth render semi-transparent, so
 	-- nobody can stand in front of a display and body-block it.
 	TransparencyRadius = 12,

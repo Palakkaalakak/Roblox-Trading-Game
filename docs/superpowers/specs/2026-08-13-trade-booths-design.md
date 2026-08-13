@@ -177,15 +177,15 @@ the existing fields use.
 
 ## Anti-scam
 
-Both are cheap now and expensive to retrofit, which is the lesson from PS99
-patching this 13 months after launch.
-
-- **List cooldown** — a slot stocked within the last 3 seconds cannot be bought.
-  Kills the swap-the-item-as-they-click scam. Enforced server-side on the listing's
-  creation timestamp, not on client state.
 - **Transparency near booths** — players within a few studs of a booth render
   semi-transparent to everyone, so nobody can body-block a display. Client-side
   presentation only.
+- **No purchase cooldown**, deliberately. PS99 added one because a booth slot
+  there is a mutable display: the seller can swap what's on the shelf between a
+  buyer reading it and clicking. Here the listing id IS the offer — price and
+  item are immutable once posted, and a seller who changes their mind can only
+  cancel, which makes the buy fail with `gone` and charges nothing. A delay would
+  defend against nothing and would punish honest buyers.
 
 ## Failure handling
 
