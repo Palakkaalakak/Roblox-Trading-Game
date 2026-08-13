@@ -14,6 +14,7 @@
 -- Built at runtime rather than in GuiBuilder because it is entirely dynamic —
 -- the grid size depends on purchased slots and the skin row on what's owned.
 
+local CollectionService = game:GetService("CollectionService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -56,6 +57,10 @@ local function zi(inst: Instance, n: number)
 end
 
 local panel: Frame
+local stallHeading: TextLabel
+local lookHeading: TextLabel
+local signHeading: TextLabel
+local divider: Frame
 local titleLabel: TextLabel
 local subLabel: TextLabel
 local taglineBox: TextBox
@@ -347,12 +352,26 @@ local function render(data: any)
 
 	taglineBox.Visible = mine
 	skinRow.Visible = mine
+	lookHeading.Visible = mine
+	signHeading.Visible = mine
+	divider.Visible = mine
+	stallHeading.Text = mine and "ON YOUR STALL" or "FOR SALE"
+	-- a visitor has no skin picker or sign box, so the stock grid takes the room
+	grid.Size = mine and UDim2.new(1, -32, 0, 236) or UDim2.new(1, -32, 1, -140)
 	if mine and not taglineBox:IsFocused() then
 		taglineBox.Text = data.tagline or ""
 	end
 
 	for id, chip in skinChips do
-		chip.BackgroundColor3 = (id == data.skinId) and Theme.Good or Theme.BgLight
+		local equipped = id == data.skinId
+		local edge = chip:FindFirstChild("Edge") :: UIStroke
+		edge.Color = equipped and Theme.Good or Theme.Stroke
+		edge.Thickness = equipped and 3 or 1.5
+		local state = chip:FindFirstChild("State") :: TextLabel
+		if equipped then
+			state.Text = "Equipped"
+			state.TextColor3 = Theme.Good
+		end
 	end
 
 	-- Owner sees every slot (so there is somewhere to add). A visitor sees only
@@ -470,7 +489,7 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 	panel.Name = "BoothPanel"
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
-	panel.Size = UDim2.fromOffset(620, 520)
+	panel.Size = UDim2.fromOffset(620, 596)
 	panel.BackgroundColor3 = Theme.Panel
 	panel.BorderSizePixel = 0
 	panel.Visible = false
@@ -514,8 +533,8 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 
 	taglineBox = Instance.new("TextBox")
 	taglineBox.Name = "Tagline"
-	taglineBox.Position = UDim2.fromOffset(16, 62)
-	taglineBox.Size = UDim2.fromOffset(360, 28)
+	taglineBox.Position = UDim2.fromOffset(16, 522)
+	taglineBox.Size = UDim2.new(1, -32, 0, 30)
 	taglineBox.BackgroundColor3 = Theme.BgLight
 	taglineBox.Font = Theme.FontLight
 	taglineBox.TextSize = 13
@@ -548,19 +567,19 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 	skinRow.ScrollingDirection = Enum.ScrollingDirection.X
 	skinRow.BorderSizePixel = 0
 	skinRow.BackgroundTransparency = 1
-	skinRow.Position = UDim2.fromOffset(384, 62)
-	skinRow.Size = UDim2.fromOffset(220, 30)
+	skinRow.Position = UDim2.fromOffset(16, 396)
+	skinRow.Size = UDim2.new(1, -32, 0, 102)
 	skinRow.ZIndex = Z_PANEL_CONTENT
 	skinRow.Parent = panel
 	local skinLayout = Instance.new("UIListLayout")
 	skinLayout.FillDirection = Enum.FillDirection.Horizontal
-	skinLayout.Padding = UDim.new(0, 5)
+	skinLayout.Padding = UDim.new(0, 8)
 	skinLayout.Parent = skinRow
 
 	grid = Instance.new("ScrollingFrame")
 	grid.Name = "Grid"
-	grid.Position = UDim2.fromOffset(16, 100)
-	grid.Size = UDim2.new(1, -32, 1, -140)
+	grid.Position = UDim2.fromOffset(16, 84)
+	grid.Size = UDim2.new(1, -32, 0, 236) -- exactly two rows of cells
 	grid.BackgroundTransparency = 1
 	grid.BorderSizePixel = 0
 	grid.ScrollBarThickness = 5
@@ -574,6 +593,35 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 	gl.CellPadding = UDim2.fromOffset(GAP, GAP)
 	gl.SortOrder = Enum.SortOrder.LayoutOrder
 	gl.Parent = grid
+
+	-- Section headings. Without them the panel is three floating widgets and a
+	-- player has to guess what the swatch strip even is.
+	local function heading(text: string, y: number): TextLabel
+		local h = Instance.new("TextLabel")
+		h.BackgroundTransparency = 1
+		h.Position = UDim2.fromOffset(16, y)
+		h.Size = UDim2.new(1, -32, 0, 14)
+		h.Font = Theme.Font
+		h.TextSize = 11
+		h.TextColor3 = Theme.TextDim
+		h.TextXAlignment = Enum.TextXAlignment.Left
+		h.Text = text
+		h.ZIndex = Z_PANEL_CONTENT
+		h.Parent = panel
+		return h
+	end
+	stallHeading = heading("ON YOUR STALL", 66)
+	lookHeading = heading("HOW YOUR STALL LOOKS", 378)
+	signHeading = heading("YOUR SIGN", 504)
+
+	divider = Instance.new("Frame")
+	divider.BackgroundColor3 = Theme.Stroke
+	divider.BackgroundTransparency = 0.5
+	divider.BorderSizePixel = 0
+	divider.Position = UDim2.fromOffset(16, 362)
+	divider.Size = UDim2.new(1, -32, 0, 1)
+	divider.ZIndex = Z_PANEL_CONTENT
+	divider.Parent = panel
 
 	hintLabel = Instance.new("TextLabel")
 	hintLabel.BackgroundTransparency = 1
@@ -732,29 +780,184 @@ end
 -- Open / refresh
 --------------------------------------------------------------------------------
 
+-- A booth skin is PURE APPEARANCE, so the chooser has to show the appearance.
+-- Each swatch draws a tiny stall in that skin's own colours — striped awning
+-- over a counter — so you can see what you'd be putting in the plaza without
+-- equipping it and walking outside to look.
+--
+-- Locked ones are shown, not hidden: a swatch you can see is a reason to buy,
+-- a swatch you can't see is nothing. They carry a price tag and clicking one
+-- opens the purchase instead of refusing with an error.
+-- The preview shows the REAL THING, not a drawing of it.
+--
+-- This is the standard Roblox cosmetic-preview pattern: a ViewportFrame holding
+-- a WorldModel, a clone of the actual object, and a Camera framed on its
+-- bounding box. Avatar editors, inventories and item shops all do this rather
+-- than maintaining 2D art per cosmetic. It is also the only version that stays
+-- honest here: the booth model is hand-placed and swappable, so hand-drawn art
+-- would start lying the moment the model is replaced. This re-renders whatever
+-- is actually standing in the plaza.
+local function boothTemplate(): Model?
+	for _, m in CollectionService:GetTagged(BoothConfig.Tag) do
+		if m:IsA("Model") then
+			return m
+		end
+	end
+	return nil
+end
+
+-- Same naming rule the server paints with, so preview and world agree.
+local function tintClone(model: Model, skin: any)
+	local canopy = Color3.fromRGB(skin.canopy[1], skin.canopy[2], skin.canopy[3])
+	local trim = Color3.fromRGB(skin.trim[1], skin.trim[2], skin.trim[3])
+	for _, d in model:GetDescendants() do
+		if d:IsA("BasePart") then
+			if d.Name == "Canopy" or d.Name == BoothConfig.SkinMountName then
+				d.Color = canopy
+			elseif d.Name == "Trim" then
+				d.Color = trim
+			end
+		end
+	end
+end
+
+-- Strip what costs performance or renders wrong in a viewport: prompts have no
+-- camera to face, and the storefront SurfaceGui would draw a second copy of this
+-- very panel inside the swatch.
+local function stripForPreview(model: Model)
+	for _, d in model:GetDescendants() do
+		if d:IsA("ProximityPrompt") or d:IsA("SurfaceGui") or d:IsA("BillboardGui") or d:IsA("Script") or d:IsA("LocalScript") then
+			d:Destroy()
+		elseif d:IsA("BasePart") and d.Name == BoothConfig.AnchorName then
+			-- The display board is whoever's stock, not part of the look. Left in,
+			-- it is a big dark slab facing the camera that swallows the frame and
+			-- hides the very parts the skin colours.
+			d:Destroy()
+		end
+	end
+end
+
+local function makePreview(skin: any, parent: Instance): ViewportFrame
+	local vp = Instance.new("ViewportFrame")
+	vp.Name = "Preview"
+	vp.BackgroundColor3 = Color3.fromRGB(24, 27, 34)
+	vp.BorderSizePixel = 0
+	vp.Position = UDim2.fromOffset(8, 8)
+	vp.Size = UDim2.fromOffset(76, 52)
+	vp.Ambient = Color3.fromRGB(225, 225, 225)
+	vp.LightColor = Color3.fromRGB(255, 255, 255)
+	vp.LightDirection = Vector3.new(-0.4, -1, -0.6)
+	vp.ZIndex = Z_PANEL_CONTENT + 1
+	vp.Parent = parent
+	corner(vp, 5)
+
+	local template = boothTemplate()
+	if template == nil then
+		return vp -- nothing placed yet; the swatch stays an empty tile
+	end
+
+	local world = Instance.new("WorldModel")
+	world.Parent = vp
+
+	local clone = template:Clone()
+	stripForPreview(clone)
+	tintClone(clone, skin)
+	clone.Parent = world
+
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 40
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+
+	-- Frame the WIDTH, not the whole bounding box. A stall is much wider than it
+	-- is deep, so fitting the largest extent pushes the camera far enough back
+	-- that the awning — the only part the skin actually colours — ends up a few
+	-- pixels tall. Aim slightly above centre for the same reason.
+	local cf, size = clone:GetBoundingBox()
+	local dist = (size.X / 2) / math.tan(math.rad(cam.FieldOfView / 2)) * 0.82
+	local target = cf.Position + Vector3.new(0, size.Y * 0.12, 0)
+	-- shallow three-quarter: reads as an object without hiding the stripes
+	local dir = Vector3.new(0.42, 0.2, -1).Unit
+	cam.CFrame = CFrame.lookAt(target + dir * dist, target)
+	return vp
+end
+
+local function makeSwatch(skin: any, owned: boolean): TextButton
+	local tile = Instance.new("TextButton")
+	tile.Name = "Skin_" .. skin.id
+	tile.Text = ""
+	tile.AutoButtonColor = true
+	tile.Size = UDim2.fromOffset(92, 96)
+	tile.BackgroundColor3 = Theme.BgLight
+	tile.BorderSizePixel = 0
+	tile.ZIndex = Z_PANEL_CONTENT
+	corner(tile, 8)
+	local edge = stroke(tile, Theme.Stroke, 1.5)
+	edge.Name = "Edge"
+
+	local vp = makePreview(skin, tile)
+	if not owned then
+		vp.ImageTransparency = 0.55 -- locked: visibly there, visibly not yours
+	end
+
+
+	local name = Instance.new("TextLabel")
+	name.Name = "SkinName"
+	name.BackgroundTransparency = 1
+	name.Position = UDim2.fromOffset(4, 62)
+	name.Size = UDim2.fromOffset(84, 14)
+	name.Font = Theme.Font
+	name.TextSize = 10
+	name.TextScaled = true
+	name.TextColor3 = Theme.TextPrimary
+	name.Text = skin.name
+	name.ZIndex = Z_PANEL_CONTENT + 1
+	name.Parent = tile
+	Instance.new("UITextSizeConstraint", name).MaxTextSize = 10
+
+	local state = Instance.new("TextLabel")
+	state.Name = "State"
+	state.BackgroundTransparency = 1
+	state.Position = UDim2.fromOffset(4, 78)
+	state.Size = UDim2.fromOffset(84, 14)
+	state.Font = Theme.FontLight
+	state.TextSize = 10
+	state.TextColor3 = owned and Theme.Good or Theme.Gem
+	state.Text = owned and "Owned" or "Robux"
+	state.ZIndex = Z_PANEL_CONTENT + 1
+	state.Parent = tile
+	Instance.new("UITextSizeConstraint", state).MaxTextSize = 10
+
+	return tile
+end
+
 local function buildSkinChips(skins: { any }, owned: { [string]: boolean })
 	if next(skinChips) ~= nil then
 		return
 	end
 	for _, skin in skins do
-		local chip = button("Skin_" .. skin.id, skin.name, Theme.BgLight, skinRow)
-		chip.Size = UDim2.fromOffset(96, 26)
-		chip.TextSize = 11
-		chip.TextTruncate = Enum.TextTruncate.AtEnd
-		if not (owned[skin.id] or skin.id == BoothConfig.DefaultSkinId) then
-			chip.TextColor3 = Theme.TextDim -- locked: still visible, so it reads as something to get
-		end
-		zi(chip, Z_PANEL_CONTENT)
-		chip.Activated:Connect(function()
+		local isOwned = owned[skin.id] == true or skin.id == BoothConfig.DefaultSkinId
+		local tile = makeSwatch(skin, isOwned)
+		tile.Parent = skinRow
+		tile.Activated:Connect(function()
 			task.spawn(function()
+				if not isOwned then
+					-- locked: take them to the purchase rather than a dead end
+					if skin.offerId then
+						Net.invoke("PromptPurchase", skin.offerId)
+					else
+						toast(skin.name .. " isn't for sale — it's earned.", Theme.Warn)
+					end
+					return
+				end
 				local res = Net.invoke("SetBoothSkin", skin.id)
 				if res and not res.ok then
-					toast(res.err == "not_owned" and (skin.name .. " isn't unlocked yet.") or "Couldn't equip that.", Theme.Warn)
+					toast("Couldn't equip that.", Theme.Warn)
 				end
 				BoothPanel.refresh()
 			end)
 		end)
-		skinChips[skin.id] = chip
+		skinChips[skin.id] = tile
 	end
 end
 
