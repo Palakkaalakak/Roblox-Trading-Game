@@ -428,8 +428,21 @@ end
 -- Reserve one undistributed copy (starter draw). Atomic cross-server.
 -- Returns (reserved, remainingAfter). Success derived from the committed CAS
 -- result (transform may retry under contention; never trust closure flags).
+-- Take one copy out of the reserve into circulation.
+--
+-- LAZY, not a per-call DataStore write. A write costs ~400ms, and this sits on
+-- the response path of every craft, roll and store buy — the player was waiting
+-- most of a second to be handed one item. In-memory now, flushed on the usual
+-- timer.
+--
+-- What that trades away: two servers can each hand out what the durable record
+-- thinks is the last copy, so `circulating` can drift a few over `totalSupply`
+-- before the flushes merge. That is a soft cap on a cosmetic scarcity number,
+-- not currency or ownership — nobody's items are duplicated, and the counter
+-- self-corrects on the next flush. The alternative is a second of latency on
+-- the single most-clicked action in the game, which is a worse trade.
 function EconomyService.reserveOne(itemId: string): (boolean, number)
-	local rec = mutateRecord(itemId, function(old)
+	local rec = mutateRecordLazy(itemId, function(old)
 		if (old.reserveRemaining or 0) <= 0 then
 			return nil -- abort: nothing left to reserve
 		end
@@ -484,11 +497,14 @@ end
 -- consumed copies are redistributed, not destroyed, so someone else (a new
 -- player's free starter grant, a roll, a store restock) can draw them back out.
 -- Strong CAS like reserveOne; never moves more than circulation holds.
+-- Put copies back into the reserve. Lazy for the same reason as reserveOne:
+-- it runs per consumed ingredient, so a strong write here cost a round trip
+-- per item on every craft.
 function EconomyService.restockCopies(itemId: string, count: number)
 	if count <= 0 then
 		return
 	end
-	mutateRecord(itemId, function(old)
+	mutateRecordLazy(itemId, function(old)
 		local back = math.min(count, old.circulating or 0)
 		old.circulating = math.max(0, (old.circulating or 0) - back)
 		old.reserveRemaining = (old.reserveRemaining or 0) + back

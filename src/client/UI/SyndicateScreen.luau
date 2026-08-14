@@ -15,6 +15,7 @@ local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
 local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
+local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local SyndicateConfig = require(game:GetService("ReplicatedStorage").Shared.Config.SyndicateConfig)
 
 local SyndicateScreen = {}
@@ -57,7 +58,7 @@ local function explain(err: string?): string
 	return (err and ERRORS[err]) or ("Something went wrong" .. (err and (" (" .. err .. ")") or "") .. ".")
 end
 
-function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3) -> ())
+function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3) -> (), tooltip: any)
 	local panel = gui:WaitForChild("SyndicatePanel") :: Frame
 	local body = panel:WaitForChild("Body") :: Frame
 	local createView = body:WaitForChild("CreateView") :: Frame
@@ -475,6 +476,158 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	end)
 
 	----------------------------------------------------------------------
+	-- Invite someone already here
+	--
+	-- Recruit above opens Roblox's prompt, which only reaches people OUTSIDE
+	-- the game. There was no way at all to invite the player standing next to
+	-- you — the InviteToSyndicate remote existed but nothing ever called it.
+	----------------------------------------------------------------------
+	local invitePanel = Instance.new("Frame")
+	invitePanel.Name = "InviteHerePanel"
+	invitePanel.AnchorPoint = Vector2.new(0.5, 0.5)
+	invitePanel.Position = UDim2.fromScale(0.5, 0.5)
+	invitePanel.Size = UDim2.fromOffset(340, 380)
+	invitePanel.BackgroundColor3 = Theme.Panel
+	invitePanel.BorderSizePixel = 0
+	invitePanel.Visible = false
+	invitePanel.ZIndex = 40
+	invitePanel.Parent = gui
+	do
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.Corner
+		c.Parent = invitePanel
+		local st = Instance.new("UIStroke")
+		st.Color = Theme.Stroke
+		st.Parent = invitePanel
+	end
+
+	local inviteTitle = Instance.new("TextLabel")
+	inviteTitle.BackgroundTransparency = 1
+	inviteTitle.Position = UDim2.fromOffset(14, 10)
+	inviteTitle.Size = UDim2.fromOffset(240, 22)
+	inviteTitle.Font = Theme.Font
+	inviteTitle.TextSize = 15
+	inviteTitle.TextColor3 = Theme.TextPrimary
+	inviteTitle.TextXAlignment = Enum.TextXAlignment.Left
+	inviteTitle.Text = "Invite someone in this server"
+	inviteTitle.ZIndex = 41
+	inviteTitle.Parent = invitePanel
+
+	local inviteClose = Instance.new("TextButton")
+	inviteClose.AnchorPoint = Vector2.new(1, 0)
+	inviteClose.Position = UDim2.new(1, -10, 0, 10)
+	inviteClose.Size = UDim2.fromOffset(26, 26)
+	inviteClose.Font = Theme.Font
+	inviteClose.TextSize = 14
+	inviteClose.Text = "X"
+	inviteClose.TextColor3 = Theme.TextPrimary
+	inviteClose.BackgroundColor3 = Theme.Bad
+	inviteClose.ZIndex = 41
+	inviteClose.Parent = invitePanel
+	do
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = inviteClose
+	end
+	inviteClose.Activated:Connect(function()
+		invitePanel.Visible = false
+	end)
+
+	local inviteList = Instance.new("ScrollingFrame")
+	inviteList.Position = UDim2.fromOffset(12, 44)
+	inviteList.Size = UDim2.new(1, -24, 1, -56)
+	inviteList.BackgroundTransparency = 1
+	inviteList.BorderSizePixel = 0
+	inviteList.ScrollBarThickness = 5
+	inviteList.CanvasSize = UDim2.new()
+	inviteList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	inviteList.ZIndex = 41
+	inviteList.Parent = invitePanel
+	do
+		local l = Instance.new("UIListLayout")
+		l.Padding = UDim.new(0, 6)
+		l.SortOrder = Enum.SortOrder.LayoutOrder
+		l.Parent = inviteList
+	end
+
+	local function fillInviteList()
+		for _, c in inviteList:GetChildren() do
+			if c:IsA("TextButton") or c:IsA("TextLabel") then
+				c:Destroy()
+			end
+		end
+		local others = {}
+		for _, other in Players:GetPlayers() do
+			if other ~= Players.LocalPlayer then
+				table.insert(others, other)
+			end
+		end
+		if #others == 0 then
+			local empty = Instance.new("TextLabel")
+			empty.BackgroundTransparency = 1
+			empty.Size = UDim2.new(1, 0, 0, 40)
+			empty.Font = Theme.FontLight
+			empty.TextSize = 13
+			empty.TextColor3 = Theme.TextDim
+			empty.Text = "Nobody else is in this server yet."
+			empty.ZIndex = 41
+			empty.Parent = inviteList
+			return
+		end
+		for order, other in others do
+			local row = Instance.new("TextButton")
+			row.LayoutOrder = order
+			row.Size = UDim2.new(1, 0, 0, 40)
+			row.BackgroundColor3 = Theme.BgLight
+			row.BorderSizePixel = 0
+			row.Font = Theme.Font
+			row.TextSize = 13
+			row.TextColor3 = Theme.TextPrimary
+			row.Text = "  " .. other.DisplayName .. "        INVITE"
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.ZIndex = 41
+			row.Parent = inviteList
+			local c = Instance.new("UICorner")
+			c.CornerRadius = Theme.CornerSmall
+			c.Parent = row
+			row.Activated:Connect(function()
+				task.spawn(function()
+					local res = Net.invoke("InviteToSyndicate", other.UserId)
+					if res and res.ok then
+						toast(("Invited %s."):format(other.DisplayName), Theme.Good)
+						invitePanel.Visible = false
+					else
+						toast(explain(res and res.err), Theme.Bad)
+					end
+				end)
+			end)
+		end
+	end
+
+	-- sits in ActionRow beside Recruit, which is the row of things you DO to
+	-- your group; ActionRow has a horizontal list layout, so it just flows in
+	local inviteHereBtn = Instance.new("TextButton")
+	inviteHereBtn.Name = "InviteHereButton"
+	inviteHereBtn.LayoutOrder = 5
+	inviteHereBtn.Size = UDim2.fromOffset(150, 26)
+	inviteHereBtn.Font = Theme.Font
+	inviteHereBtn.TextSize = 12
+	inviteHereBtn.Text = "INVITE FROM SERVER"
+	inviteHereBtn.BackgroundColor3 = Theme.Accent
+	inviteHereBtn.TextColor3 = Theme.TextPrimary
+	inviteHereBtn.ZIndex = 3
+	inviteHereBtn.Parent = actionRow
+	do
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = inviteHereBtn
+	end
+	inviteHereBtn.Activated:Connect(function()
+		fillInviteList()
+		invitePanel.Visible = true
+	end)
+
+	----------------------------------------------------------------------
 	-- Requests
 	----------------------------------------------------------------------
 	local composer = requestsView:WaitForChild("Composer") :: Frame
@@ -551,10 +704,27 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		pickerSearch.Text = ""
 		fillPicker("")
 		picker.Visible = true
+
+		-- The catalog is normally fetched when the panel opens, but opening the
+		-- picker before that lands left an empty grid with nothing to retry it.
+		-- Fetch on demand and repaint when it arrives.
+		if catalog == nil then
+			task.spawn(function()
+				local result = Net.invoke("GetCatalog")
+				if result and result.ok then
+					catalog = result.items
+					if picker.Visible then
+						fillPicker(pickerSearch.Text)
+					end
+				end
+			end)
+			return
+		end
+
 		-- pull stats for what is on screen so the hover card has real
 		-- numbers rather than "N/A" the first time you look at an item
 		local ids = {}
-		for _, item in (catalog or {}) do
+		for _, item in catalog do
 			table.insert(ids, item.itemId)
 		end
 		EconomyController.ensure(ids)
@@ -998,10 +1168,19 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 				local nc = Instance.new("UICorner")
 				nc.CornerRadius = Theme.CornerSmall
 				nc.Parent = nameBox
-				nameBox.FocusLost:Connect(function(enter)
-					if enter and nameBox.Text ~= role.name then
+				-- Commit on ANY blur, not just Enter. Clicking away used to throw
+				-- the typed name out, and because the row is rebuilt from group
+				-- state on the next render the box visibly snapped back to
+				-- "New Role" — which reads as the game refusing the rename.
+				nameBox.FocusLost:Connect(function()
+					local typed = nameBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+					if typed == "" then
+						nameBox.Text = role.name -- empty isn't a rename, put it back
+						return
+					end
+					if typed ~= role.name then
 						act(function()
-							return Net.invoke("SyndicateRenameRole", role.id, nameBox.Text)
+							return Net.invoke("SyndicateRenameRole", role.id, typed)
 						end, nil)
 					end
 				end)

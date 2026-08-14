@@ -195,7 +195,10 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				b.Activated:Connect(function()
 					if phrase.slot == "item" then
 						pendingSlotPhrase = phrase.id
-						TradeScreen.openPicker("inventory")
+						-- CATALOG, not inventory: "I want your Storm Sigil" names
+						-- something THEY have. Opening your own items meant you
+						-- could only ask for things you already owned.
+						TradeScreen.openPicker("catalog")
 					else
 						sendPhrase(phrase.id)
 					end

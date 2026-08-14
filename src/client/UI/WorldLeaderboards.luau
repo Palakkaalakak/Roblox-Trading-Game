@@ -21,7 +21,10 @@ local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
 
 local WorldLeaderboards = {}
 
-local REFRESH_SECONDS = 45
+-- Boards are a live scoreboard, so they tick rather than sitting stale for the
+-- best part of a minute. Reads are served from the service's per-board cache,
+-- so a shorter interval costs almost nothing.
+local REFRESH_SECONDS = 8
 local ROW_HEIGHT = 44
 local MAX_ROWS = 25 -- what physically fits on the board face
 -- Column budget. The board face renders at 50 px/stud, so the scroll is ~478 px
@@ -40,6 +43,15 @@ local function formatScore(score: number, unit: string): string
 		return Format.abbrev(score) .. " gems"
 	elseif unit == "trades" then
 		return Format.abbrev(score) .. (score == 1 and " trade" or " trades")
+	elseif unit == "scarcity" then
+		-- The stored score is 1000000/totalSupply, an ordering key for the
+		-- OrderedDataStore — printing it raw showed "20.8k" next to a name and
+		-- read as a gem value nobody could find on any item. Invert it back to
+		-- the number the player actually recognises: how many exist.
+		if score <= 0 then
+			return "—"
+		end
+		return Format.comma(math.floor(1000000 / score + 0.5)) .. " in existence"
 	end
 	return Format.abbrev(score)
 end
