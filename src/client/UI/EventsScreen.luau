@@ -805,7 +805,15 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				zIndex = 2,
 			})
 			stepper.frame.AnchorPoint = Vector2.new(1, 0)
-			stepper.frame.Position = UDim2.new(1, -12, 0, 78)
+			stepper.frame.Position = UDim2.new(1, -12, 0, 62)
+			-- the button gives up its centred position to make room: stacked
+			-- against a 92px row the two were touching, and the stepper hung
+			-- over the row below
+			btn.AnchorPoint = Vector2.new(1, 0)
+			btn.Position = UDim2.new(1, -12, 0, 6)
+		else
+			btn.AnchorPoint = Vector2.new(1, 0.5)
+			btn.Position = UDim2.new(1, -12, 0.5, 0)
 		end
 		-- No busy gate and no "…" placeholder. Every craft is independently
 		-- validated server-side, so a second click is simply a second craft —

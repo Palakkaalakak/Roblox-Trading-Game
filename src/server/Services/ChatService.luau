@@ -46,6 +46,17 @@ local ChatService = {}
 -- groupId -> ring buffer of { userId, name, text, at }
 local history: { [string]: { any } } = {}
 
+-- Every message carries an id that is stable across deliveries, because the
+-- SAME message reaches a client twice by design: once live, once when history
+-- replays on open. Without an id the client cannot tell the replay from a new
+-- line and renders both. The server's JobId is in there so ids minted on two
+-- servers for the same group can never collide.
+local seq = 0
+local function nextChatId(): string
+	seq += 1
+	return ("%s:%d"):format(game.JobId ~= "" and game.JobId or "studio", seq)
+end
+
 local function push(groupId: string, entry: any)
 	local buf = history[groupId]
 	if buf == nil then
@@ -145,6 +156,7 @@ local function deliverToPlayer(reader: Player, groupId: string, entry: any)
 		end
 	end
 	Net.fireClient("GroupChat", reader, {
+		id = entry.id,
 		groupId = groupId,
 		userId = entry.userId,
 		name = entry.name,
@@ -181,6 +193,7 @@ local function sendGroupChat(player: Player, message: any): any
 		return { ok = false, err = "empty" }
 	end
 	local entry = {
+		id = nextChatId(),
 		userId = player.UserId,
 		name = player.Name,
 		rawText = clean,
@@ -193,6 +206,7 @@ local function sendGroupChat(player: Player, message: any): any
 	end
 	-- other servers get the raw text and filter it for their own readers
 	StoreAdapters.publish(GROUP_TOPIC, {
+		id = entry.id,
 		groupId = groupId,
 		userId = player.UserId,
 		name = player.Name,
@@ -244,6 +258,9 @@ function ChatService.Start()
 			return
 		end
 		local entry = {
+			-- keep the publisher's id so the same message is the same message
+			-- on every server; only mint one if an older server omitted it
+			id = payload.id or nextChatId(),
 			userId = payload.userId,
 			name = payload.name,
 			rawText = payload.rawText,

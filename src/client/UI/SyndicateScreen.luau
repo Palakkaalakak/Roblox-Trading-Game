@@ -170,7 +170,8 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	-- tabs competing with Browse and Invites.
 	----------------------------------------------------------------------
 	local mineSection = "members"
-	local chatPrimed = false -- history is pulled once per session, not per open
+	local chatPrimed = false -- flips once history has actually arrived, not on the attempt
+	local chatPriming = false
 	local subTabRow = Instance.new("Frame")
 	subTabRow.Name = "SectionRow"
 	subTabRow.BackgroundTransparency = 1
@@ -928,7 +929,28 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 	sbc.Parent = sendBtn
 
 	local chatOrder = 0
+	local seenChat: { [string]: boolean } = {}
+	local chatEmpty = Instance.new("TextLabel")
+	chatEmpty.Name = "ChatEmpty"
+	chatEmpty.BackgroundTransparency = 1
+	chatEmpty.Size = UDim2.new(1, -12, 0, 40)
+	chatEmpty.Font = Enum.Font.Gotham
+	chatEmpty.TextSize = 13
+	chatEmpty.TextColor3 = Theme.TextDim
+	chatEmpty.Text = "No messages yet — say something to your group."
+	chatEmpty.Parent = chatLog
+
 	local function appendChat(payload: any)
+		-- the same message legitimately arrives twice: once live, once when
+		-- history replays. Drop the second copy rather than render it.
+		local id = payload.id
+		if id ~= nil then
+			if seenChat[id] then
+				return
+			end
+			seenChat[id] = true
+		end
+		chatEmpty.Visible = false
 		chatOrder += 1
 		local row = Instance.new("TextLabel")
 		row.Name = "msg_" .. chatOrder
@@ -1317,10 +1339,18 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 		elseif chatView.Visible then
 			-- history replays through the same filtered path as live
 			-- messages, so it arrives via the GroupChat event too
-			if not chatPrimed then
-				chatPrimed = true
+			-- Ask on every open, not once per session. The first ask can fail
+			-- for a reason that later stops being true -- the profile is still
+			-- loading, or you had not joined a group yet -- and marking it
+			-- primed regardless meant one badly-timed open left the log empty
+			-- for the rest of the session. Replayed lines are deduped by id,
+			-- so re-asking costs nothing but an in-memory read.
+			if not chatPrimed and not chatPriming then
+				chatPriming = true
 				task.spawn(function()
-					Net.invoke("GetGroupChat")
+					local result = Net.invoke("GetGroupChat")
+					chatPrimed = result ~= nil and result.ok == true
+					chatPriming = false
 				end)
 			end
 		elseif browseView.Visible then
