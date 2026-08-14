@@ -112,6 +112,15 @@ local function buildFace(boothId: string, anchor: BasePart): any
 	grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	grid.ScrollingDirection = Enum.ScrollingDirection.Y
 	grid.Parent = root
+	-- This grid lives on a SurfaceGui in the world, so Components.autoGutter
+	-- (which walks the ScreenGuis) never reaches it. Pad it here or the cells'
+	-- rarity strokes clip against the scroll edge.
+	local gutter = Instance.new("UIPadding")
+	gutter.PaddingLeft = UDim.new(0, 3)
+	gutter.PaddingTop = UDim.new(0, 3)
+	gutter.PaddingRight = UDim.new(0, 3)
+	gutter.PaddingBottom = UDim.new(0, 3)
+	gutter.Parent = grid
 
 	-- SQUARE cells, in pixels. Scale cells inherit the board's aspect ratio and
 	-- come out as rectangles on any board that isn't square, so the size comes

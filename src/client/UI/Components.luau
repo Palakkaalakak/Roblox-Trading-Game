@@ -298,12 +298,24 @@ local function applyGutter(scroll: ScrollingFrame)
 		pad = Instance.new("UIPadding")
 		pad.Parent = scroll
 	end
-	-- only widen; never shrink a gutter a caller set deliberately
+	-- All FOUR sides. A UIStroke straddles the edge it draws on and a
+	-- ScrollingFrame clips its descendants, so a row flush against any edge
+	-- loses the outer half of its border. Padding only left/top fixed lists
+	-- (which are full-width, so only those two edges touch) but left grids
+	-- clipped down the right-hand column and along the bottom row — which is
+	-- what the booth's rarity-coloured cell borders were hitting.
+	-- Only widen; never shrink a gutter a caller set deliberately.
 	if pad.PaddingLeft.Offset < GUTTER then
 		pad.PaddingLeft = UDim.new(0, GUTTER)
 	end
 	if pad.PaddingTop.Offset < GUTTER then
 		pad.PaddingTop = UDim.new(0, GUTTER)
+	end
+	if pad.PaddingRight.Offset < GUTTER then
+		pad.PaddingRight = UDim.new(0, GUTTER)
+	end
+	if pad.PaddingBottom.Offset < GUTTER then
+		pad.PaddingBottom = UDim.new(0, GUTTER)
 	end
 end
 
@@ -318,6 +330,130 @@ function Components.autoGutter(gui: ScreenGui)
 			applyGutter(d)
 		end
 	end)
+end
+
+-- A quantity picker: [−] [ N ] [+], where N is also typeable.
+--
+-- Same shape as the recipe-chain zoom stepper (28px square buttons, BgLight,
+-- CornerSmall) so "pick a number" looks the same everywhere it appears —
+-- crafting a batch, buying several copies off a booth.
+--
+-- Clamped to [min, max] on every path: the buttons, typing, and set(). Callers
+-- pass the real ceiling (how many you can afford, how many are left in stock),
+-- so the widget can never offer a quantity the action would reject.
+--
+-- Returns the frame plus get/set/setMax, so a caller can re-clamp when the
+-- underlying limit moves (stock sold while the dialog is open).
+export type Stepper = {
+	frame: Frame,
+	get: () -> number,
+	set: (n: number) -> (),
+	setMax: (n: number) -> (),
+}
+
+function Components.quantityStepper(parent: Instance, opts: {
+	min: number?,
+	max: number,
+	value: number?,
+	width: number?,
+	zIndex: number?,
+	onChanged: ((n: number) -> ())?,
+}): Stepper
+	local minN = opts.min or 1
+	local maxN = math.max(minN, opts.max)
+	local z = opts.zIndex or 1
+	local boxW = opts.width or 56
+
+	local frame = Instance.new("Frame")
+	frame.Name = "QuantityStepper"
+	frame.BackgroundTransparency = 1
+	frame.Size = UDim2.fromOffset(28 + 4 + boxW + 4 + 28, 28)
+	frame.ZIndex = z
+	frame.Parent = parent
+
+	local function squareBtn(text: string, x: number): TextButton
+		local b = Instance.new("TextButton")
+		b.Position = UDim2.fromOffset(x, 0)
+		b.Size = UDim2.fromOffset(28, 28)
+		b.BackgroundColor3 = Theme.BgLight
+		b.Font = Theme.Font
+		b.TextSize = 18
+		b.TextColor3 = Theme.TextPrimary
+		b.AutoButtonColor = true
+		b.Text = text
+		b.ZIndex = z
+		b.Parent = frame
+		local c = Instance.new("UICorner")
+		c.CornerRadius = Theme.CornerSmall
+		c.Parent = b
+		return b
+	end
+
+	local minus = squareBtn("−", 0)
+	minus.Name = "Minus"
+
+	local box = Instance.new("TextBox")
+	box.Name = "Amount"
+	box.Position = UDim2.fromOffset(32, 0)
+	box.Size = UDim2.fromOffset(boxW, 28)
+	box.BackgroundColor3 = Theme.BgLight
+	box.Font = Theme.Font
+	box.TextSize = 14
+	box.TextColor3 = Theme.TextPrimary
+	box.ClearTextOnFocus = false
+	box.Text = tostring(math.clamp(opts.value or minN, minN, maxN))
+	box.ZIndex = z
+	box.Parent = frame
+	local bc = Instance.new("UICorner")
+	bc.CornerRadius = Theme.CornerSmall
+	bc.Parent = box
+
+	local plus = squareBtn("+", 32 + boxW + 4)
+	plus.Name = "Plus"
+
+	local current = math.clamp(opts.value or minN, minN, maxN)
+
+	local function apply(n: number, fromTyping: boolean?)
+		current = math.clamp(math.floor(n), minN, maxN)
+		-- don't fight the caret while they are mid-word; the value is still
+		-- clamped, it just isn't rewritten under them until they finish
+		if not (fromTyping and box:IsFocused()) then
+			box.Text = tostring(current)
+		end
+		minus.AutoButtonColor = current > minN
+		plus.AutoButtonColor = current < maxN
+		minus.TextColor3 = current > minN and Theme.TextPrimary or Theme.TextDim
+		plus.TextColor3 = current < maxN and Theme.TextPrimary or Theme.TextDim
+		if opts.onChanged then
+			opts.onChanged(current)
+		end
+	end
+
+	minus.Activated:Connect(function()
+		apply(current - 1)
+	end)
+	plus.Activated:Connect(function()
+		apply(current + 1)
+	end)
+	box.FocusLost:Connect(function()
+		apply(tonumber(box.Text) or current)
+	end)
+
+	apply(current)
+
+	return {
+		frame = frame,
+		get = function()
+			return current
+		end,
+		set = function(n: number)
+			apply(n)
+		end,
+		setMax = function(n: number)
+			maxN = math.max(minN, math.floor(n))
+			apply(current)
+		end,
+	}
 end
 
 return Components

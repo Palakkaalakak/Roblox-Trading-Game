@@ -57,6 +57,8 @@ local hintLabel: TextLabel
 local skinGrid: ScrollingFrame
 local taglineBox: TextBox
 local composer: Frame
+local confirm: Frame
+local openBuyConfirm: (row: any) -> ()
 local toast: (text: string, color: Color3) -> ()
 local tooltip: any
 
@@ -468,17 +470,10 @@ local function renderSlots(data: any, mine: boolean)
 							res and res.ok and Theme.Warn or Theme.Bad
 						)
 					else
-						local res = Net.invoke("BuyFromListing", row.listingId, 1)
-						if res and res.ok then
-							toast(("Bought %s for %d gems!"):format(row.name, res.spent), Theme.Good)
-						elseif res then
-							toast(({
-								insufficient_gems = "Not enough gems!",
-								gone = "Too late — that one just went.",
-								sold_out = "Too late — that one just went.",
-								own_listing = "That's your own listing.",
-							})[res.err] or ("Failed: " .. tostring(res.err)), Theme.Bad)
-						end
+						-- never spend straight off a click: confirm first, and let
+						-- them pick how many
+						openBuyConfirm(row)
+						return
 					end
 					BoothPanel.refresh()
 				end)
@@ -956,6 +951,169 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 		end)
 	end)
 
+	----------------------------------------------------------------------------
+	-- Buy confirmation
+	--
+	-- Spending gems must never happen on a single click. Shows what you are
+	-- buying, lets you pick how many (capped at what is actually in stock), and
+	-- prices the whole lot before you commit. The item art carries the same
+	-- hover card as everywhere else, so you can check what it is worth without
+	-- leaving the dialog.
+	----------------------------------------------------------------------------
+	confirm = Instance.new("Frame")
+	confirm.Name = "BuyConfirm"
+	confirm.Size = UDim2.fromScale(1, 1)
+	confirm.BackgroundColor3 = Theme.Panel
+	confirm.BorderSizePixel = 0
+	confirm.Visible = false
+	confirm.ZIndex = Z_COMPOSER
+	confirm.Parent = panel
+	corner(confirm, 10)
+
+	local confirmTitle = Instance.new("TextLabel")
+	confirmTitle.BackgroundTransparency = 1
+	confirmTitle.Position = UDim2.fromOffset(16, 14)
+	confirmTitle.Size = UDim2.new(1, -32, 0, 24)
+	confirmTitle.Font = Theme.Font
+	confirmTitle.TextSize = 17
+	confirmTitle.TextColor3 = Theme.TextPrimary
+	confirmTitle.TextXAlignment = Enum.TextXAlignment.Left
+	confirmTitle.Text = "Buy this?"
+	confirmTitle.ZIndex = Z_COMPOSER_TOP
+	confirmTitle.Parent = confirm
+
+	local confirmIcon = Instance.new("ImageLabel")
+	confirmIcon.BackgroundColor3 = Theme.BgLight
+	confirmIcon.BorderSizePixel = 0
+	confirmIcon.Position = UDim2.fromOffset(16, 50)
+	confirmIcon.Size = UDim2.fromOffset(96, 96)
+	confirmIcon.ScaleType = Enum.ScaleType.Fit
+	confirmIcon.ZIndex = Z_COMPOSER_TOP
+	confirmIcon.Parent = confirm
+	corner(confirmIcon, 8)
+	local confirmEdge = stroke(confirmIcon, Theme.Stroke, 2)
+
+	local confirmName = Instance.new("TextLabel")
+	confirmName.BackgroundTransparency = 1
+	confirmName.Position = UDim2.fromOffset(126, 52)
+	confirmName.Size = UDim2.new(1, -142, 0, 24)
+	confirmName.Font = Theme.Font
+	confirmName.TextSize = 18
+	confirmName.TextColor3 = Theme.TextPrimary
+	confirmName.TextXAlignment = Enum.TextXAlignment.Left
+	confirmName.Text = ""
+	confirmName.ZIndex = Z_COMPOSER_TOP
+	confirmName.Parent = confirm
+
+	local confirmMeta = Instance.new("TextLabel")
+	confirmMeta.BackgroundTransparency = 1
+	confirmMeta.Position = UDim2.fromOffset(126, 76)
+	confirmMeta.Size = UDim2.new(1, -142, 0, 18)
+	confirmMeta.Font = Theme.FontLight
+	confirmMeta.TextSize = 13
+	confirmMeta.TextColor3 = Theme.TextDim
+	confirmMeta.TextXAlignment = Enum.TextXAlignment.Left
+	confirmMeta.Text = ""
+	confirmMeta.ZIndex = Z_COMPOSER_TOP
+	confirmMeta.Parent = confirm
+
+	local howManyLabel = Instance.new("TextLabel")
+	howManyLabel.BackgroundTransparency = 1
+	howManyLabel.Position = UDim2.fromOffset(126, 102)
+	howManyLabel.Size = UDim2.fromOffset(120, 14)
+	howManyLabel.Font = Theme.FontLight
+	howManyLabel.TextSize = 11
+	howManyLabel.TextColor3 = Theme.TextDim
+	howManyLabel.TextXAlignment = Enum.TextXAlignment.Left
+	howManyLabel.Text = "How many"
+	howManyLabel.ZIndex = Z_COMPOSER_TOP
+	howManyLabel.Parent = confirm
+
+	local totalLabel = Instance.new("TextLabel")
+	totalLabel.BackgroundTransparency = 1
+	totalLabel.Position = UDim2.fromOffset(16, 166)
+	totalLabel.Size = UDim2.new(1, -32, 0, 26)
+	totalLabel.Font = Theme.Font
+	totalLabel.TextSize = 18
+	totalLabel.TextColor3 = Theme.Gem
+	totalLabel.TextXAlignment = Enum.TextXAlignment.Left
+	totalLabel.Text = ""
+	totalLabel.ZIndex = Z_COMPOSER_TOP
+	totalLabel.Parent = confirm
+
+	local confirmCancel = button("Cancel", "Cancel", Theme.BgLight, confirm, Z_COMPOSER_TOP)
+	confirmCancel.AnchorPoint = Vector2.new(1, 1)
+	confirmCancel.Position = UDim2.new(1, -124, 1, -14)
+	confirmCancel.Size = UDim2.fromOffset(104, 32)
+	confirmCancel.Activated:Connect(function()
+		confirm.Visible = false
+	end)
+
+	local confirmBuy = button("Buy", "Buy", Theme.Good, confirm, Z_COMPOSER_TOP)
+	confirmBuy.AnchorPoint = Vector2.new(1, 1)
+	confirmBuy.Position = UDim2.new(1, -10, 1, -14)
+	confirmBuy.Size = UDim2.fromOffset(108, 32)
+
+	local confirmStepper: any = nil
+	local confirmRow: any = nil
+
+	openBuyConfirm = function(row)
+		confirmRow = row
+		confirmTitle.Text = "Buy this?"
+		confirmName.Text = row.name
+		confirmEdge.Color = Components.rarityColor(row.rarity)
+		Components.setIcon(confirmIcon, row)
+		confirmMeta.Text = ("%s  ·  %d gems each  ·  %d in stock")
+			:format(tostring(row.rarity or "?"), row.gemsPerCopy, row.remaining)
+		if tooltip then
+			tooltip.attach(confirmIcon, function()
+				return EconomyController.get(row.itemId), InventoryController.inventory:get()[row.itemId]
+			end)
+		end
+
+		local function paintTotal(n: number)
+			totalLabel.Text = ("Total: %d gems"):format(n * row.gemsPerCopy)
+			confirmBuy.Text = n > 1 and ("Buy %d"):format(n) or "Buy"
+		end
+
+		if confirmStepper then
+			confirmStepper.frame:Destroy()
+		end
+		confirmStepper = Components.quantityStepper(confirm, {
+			min = 1,
+			max = math.max(1, row.remaining),
+			value = 1,
+			width = 52,
+			zIndex = Z_COMPOSER_TOP,
+			onChanged = paintTotal,
+		})
+		confirmStepper.frame.Position = UDim2.fromOffset(126, 120)
+		paintTotal(1)
+		confirm.Visible = true
+	end
+
+	confirmBuy.Activated:Connect(function()
+		local row = confirmRow
+		if row == nil then
+			return
+		end
+		local n = confirmStepper and confirmStepper.get() or 1
+		confirm.Visible = false
+		task.spawn(function()
+			local res = Net.invoke("BuyFromListing", row.listingId, n)
+			if res and res.ok then
+				toast(("Bought %d x %s for %d gems!"):format(res.count or n, row.name, res.spent), Theme.Good)
+			elseif res then
+				toast(({
+					insufficient_gems = "Not enough gems!",
+					gone = "Too late — that one just went.",
+					sold_out = "Too late — that one just went.",
+					own_listing = "That's your own listing.",
+				})[res.err] or ("Failed: " .. tostring(res.err)), Theme.Bad)
+			end
+			BoothPanel.refresh()
+		end)
+	end)
 	selectTab("stall")
 end
 
@@ -994,6 +1152,7 @@ function BoothPanel.open(data: any)
 	current = data
 	panel.Visible = true
 	composer.Visible = false
+	confirm.Visible = false
 	selectTab("stall")
 	render(data)
 	BoothPanel.refresh()

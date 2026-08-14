@@ -24,6 +24,7 @@ local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
+local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
 local EventConfig = require(game:GetService("ReplicatedStorage").Shared.Config.EventConfig)
 
@@ -773,15 +774,55 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		btn.Visible = not soldOut
 		btn.BackgroundColor3 = recipe.craftable and Theme.Good or Theme.BgLight
 		btn.AutoButtonColor = recipe.craftable
+
+		-- How many of this you could make right now: the tightest ingredient
+		-- (and gems) decides it, capped by remaining stock. Clicking CRAFT five
+		-- times when the inputs are already sitting there is busywork.
+		local maxBatch = math.huge
+		for _, input in recipe.inputs do
+			if input.count > 0 then
+				maxBatch = math.min(maxBatch, math.floor((input.owned or 0) / input.count))
+			end
+		end
+		if (recipe.gems or 0) > 0 then
+			local gems = InventoryController.gems and InventoryController.gems:get() or 0
+			maxBatch = math.min(maxBatch, math.floor(gems / recipe.gems))
+		end
+		if maxBatch == math.huge then
+			maxBatch = 1
+		end
+		maxBatch = math.clamp(maxBatch, 0, math.max(1, recipe.output.remaining))
+
+		-- Only worth showing when more than one is actually possible; a stepper
+		-- pinned at 1 is clutter on every row you cannot batch.
+		local stepper = nil
+		if not soldOut and recipe.craftable and maxBatch > 1 then
+			stepper = Components.quantityStepper(row, {
+				min = 1,
+				max = maxBatch,
+				value = 1,
+				width = 44,
+				zIndex = 2,
+			})
+			stepper.frame.AnchorPoint = Vector2.new(1, 0)
+			stepper.frame.Position = UDim2.new(1, -12, 0, 78)
+		end
 		-- No busy gate and no "…" placeholder. Every craft is independently
 		-- validated server-side, so a second click is simply a second craft —
 		-- blocking it made a slow round trip look like a cooldown, and spamming
 		-- the button is a legitimate way to craft repeatedly.
 		btn.Activated:Connect(function()
 			task.spawn(function()
-				local result = Net.invoke("CraftItem", event.id, recipe.rid)
+				local want = stepper and stepper.get() or 1
+				local result = Net.invoke("CraftItem", event.id, recipe.rid, want)
 				if result.ok then
-					toast(("Made %s!"):format(result.output.name), Theme.Good)
+					local made = result.made or 1
+					local name = result.output and result.output.name or recipe.output.name
+					if made > 1 then
+						toast(("Made %d x %s!"):format(made, name), Theme.Good)
+					else
+						toast(("Made %s!"):format(name), Theme.Good)
+					end
 				elseif result.err == "recipe_soldout" then
 					toast(recipe.output.name .. " is fully crafted!", Theme.Warn)
 				elseif result.err == "recipe_not_active" then

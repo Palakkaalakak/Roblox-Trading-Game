@@ -49,7 +49,7 @@ local Enums = {
 		"BuyItem", -- (itemId) -> {ok, price?, err?}
 		"GetEvents", -- () -> {ok, events = {...}} — active crafting/sacrifice events
 		"GetRecipeGraph", -- () -> {ok, recipes = {{eventId, eventName, recipe}}} — the FULL static ladder, for the recipe-chain view
-		"CraftItem", -- (eventId, rid) -> {ok, output?, err?}
+		"CraftItem", -- (eventId, rid, count?) -> {ok, made?, asked?, output?, err?}
 		"GetCatalog", -- () -> {ok, items = {{itemId, name, imageId}}} — every registered item
 		"GetBoard", -- () -> {ok, listings}
 		"GetMarketSummary", -- () -> {ok, items} — per-item stats + best bid/ask (Market directory)

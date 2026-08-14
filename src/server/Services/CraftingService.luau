@@ -755,11 +755,43 @@ local function craftCore(userId: number, eventId: any, rid: any)
 	return { ok = true, output = { itemId = outId, name = recipe.output.name } }
 end
 
-local function handleCraft(player: Player, eventId: any, rid: any)
+local MAX_CRAFT_BATCH = 100
+
+-- `count` crafts the same recipe repeatedly in ONE call. Clicking a button
+-- three times to make three of a thing is busywork when the inputs are already
+-- sitting in the inventory.
+--
+-- Stops at the first failure and reports how many actually went through, rather
+-- than failing the whole batch: running out of inputs partway is the expected
+-- way a batch ends, not an error. Each iteration is the same fully-validated
+-- craftCore, so a batch can never do something N single crafts could not.
+local function handleCraft(player: Player, eventId: any, rid: any, count: any)
 	if not DataService.isLoaded(player) then
 		return { ok = false, err = "loading" }
 	end
-	return craftCore(player.UserId, eventId, rid)
+	local n = 1
+	if count ~= nil then
+		if not Guard.isPositiveInt(count) or count > MAX_CRAFT_BATCH then
+			return { ok = false, err = "bad_args" }
+		end
+		n = count
+	end
+
+	local made, last = 0, nil
+	for _ = 1, n do
+		local result = craftCore(player.UserId, eventId, rid)
+		if not result.ok then
+			last = result
+			break
+		end
+		made += 1
+		last = result
+	end
+
+	if made == 0 then
+		return last or { ok = false, err = "recipe_not_active" }
+	end
+	return { ok = true, made = made, asked = n, output = last and last.output }
 end
 
 -- Bot entry points + helpers
@@ -831,7 +863,7 @@ end
 function CraftingService.Start()
 	Net.bindFunction("GetEvents", handleGetEvents)
 	Net.bindFunction("GetRecipeGraph", handleGetRecipeGraph)
-	Net.bindFunction("CraftItem", handleCraft)
+	Net.bindFunction("CraftItem", handleCraft) -- (eventId, rid, count?)
 
 	-- prewarm output records so the events screen opens instantly
 	task.spawn(function()
