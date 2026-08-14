@@ -177,11 +177,10 @@ local function buildDevBatchRoll(panel: Frame, showReveal: (any) -> ())
 		rarityBtn.TextColor3 = Components.rarityColor(RARITY_ORDER[rarityIndex])
 	end)
 
-	local busy = false
+	-- No busy gate: every batch is validated server-side, so a second click is
+	-- simply a second batch. Gating it made the DataStore round trip read as a
+	-- cooldown.
 	goBtn.Activated:Connect(function()
-		if busy then
-			return
-		end
 		local n = math.floor(tonumber(countBox.Text) or 0)
 		if n < 1 then
 			result.Text = "Enter a count of 1 or more."
@@ -193,14 +192,10 @@ local function buildDevBatchRoll(panel: Frame, showReveal: (any) -> ())
 			countBox.Text = tostring(n)
 		end
 		local rarity = RARITY_ORDER[rarityIndex]
-		busy = true
-		goBtn.Text = "…"
 		result.Text = ("Rolling %d %s…"):format(n, rarity)
 		result.TextColor3 = Theme.TextDim
 		task.spawn(function()
 			local res = Net.invoke("DebugBatchRoll", rarity, n, gemsOn())
-			busy = false
-			goBtn.Text = "DEV batch roll"
 			if res and res.ok then
 				local parts = {}
 				for i, r in res.rows do

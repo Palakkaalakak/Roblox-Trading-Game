@@ -13,7 +13,7 @@ export type ItemDef = {
 }
 
 local Items = {
-	-- How many weighted draws each first-join starter bundle contains.
+	-- How many weighpted draws each first-join starter bundle contains.
 	-- Duplicates allowed (stack counts). K chosen so portfolios are
 	-- heterogeneous enough for starter-vs-starter trading.
 	StarterBundleSize = 5,

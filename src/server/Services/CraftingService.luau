@@ -687,17 +687,34 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		return { ok = false, err = "recipe_soldout" }
 	end
 
-	-- consumed inputs go back to the shared reserve — redistributed, never
-	-- destroyed (see the file header). Bots restock lazily (see reserveOneLazy).
+	-- Consumed inputs go back to the shared reserve — redistributed, never
+	-- destroyed (see the file header).
+	--
+	-- OFF THE RESPONSE PATH. restockCopies is a DataStore UpdateAsync PER INPUT,
+	-- so doing this inline made a craft cost one round trip for the output
+	-- reserve plus one more for every ingredient: measured ~950ms for a
+	-- one-input recipe and ~1.4-2.3s for a two-input one, against a 49ms
+	-- baseline. The player was waiting on bookkeeping that has nothing to do
+	-- with what they receive.
+	--
+	-- Still the STRONG cross-server CAS, just deferred — correctness is
+	-- unchanged, only the wait is gone. Nothing below depends on it: the output
+	-- was already reserved above, and the grant is a separate delta. Worst case
+	-- a shutdown lands between here and the write, leaving a few copies out of
+	-- reserve — scarcer than intended, never duplicated.
 	local touched = {}
 	for itemId, count in recipe.inputs do
-		if isBot then
-			EconomyService.restockCopiesLazy(itemId, count)
-		else
-			EconomyService.restockCopies(itemId, count)
-		end
 		table.insert(touched, itemId)
 	end
+	task.spawn(function()
+		for itemId, count in recipe.inputs do
+			if isBot then
+				EconomyService.restockCopiesLazy(itemId, count)
+			else
+				EconomyService.restockCopies(itemId, count)
+			end
+		end
+	end)
 
 	delta({ items = { [outId] = 1 } }, Enums.GrantSource.Craft)
 	if player then

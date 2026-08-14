@@ -303,13 +303,21 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 		return { ok = false, err = "nothing_left" }
 	end
 
-	-- item payments are REDISTRIBUTED: the copies go back into each item's
+	-- Item payments are REDISTRIBUTED: the copies go back into each item's
 	-- reserve, where future rolls/draws can hand them to someone else. Only
-	-- after the prize is safely ours, so a failed roll never moves anything.
+	-- reached once the prize is safely ours, so a failed roll never moves
+	-- anything.
+	--
+	-- Deferred for the same reason as the craft path: restockCopies is a
+	-- DataStore UpdateAsync per distinct item paid, and a roll paid with several
+	-- items would make the player sit through one round trip each before seeing
+	-- their prize. Still the strong cross-server CAS, just not on the wait.
 	if payment then
-		for payId, count in payment.items do
-			EconomyService.restockCopies(payId, count)
-		end
+		task.spawn(function()
+			for payId, count in payment.items do
+				EconomyService.restockCopies(payId, count)
+			end
+		end)
 	end
 
 	delta({ items = { [itemId] = 1 } }, Enums.GrantSource.Roll)

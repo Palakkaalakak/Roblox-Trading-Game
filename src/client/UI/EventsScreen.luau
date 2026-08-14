@@ -773,26 +773,26 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		btn.Visible = not soldOut
 		btn.BackgroundColor3 = recipe.craftable and Theme.Good or Theme.BgLight
 		btn.AutoButtonColor = recipe.craftable
+		-- No busy gate and no "…" placeholder. Every craft is independently
+		-- validated server-side, so a second click is simply a second craft —
+		-- blocking it made a slow round trip look like a cooldown, and spamming
+		-- the button is a legitimate way to craft repeatedly.
 		btn.Activated:Connect(function()
-			if crafting then
-				return
-			end
-			crafting = true
-			btn.Text = "…"
-			local result = Net.invoke("CraftItem", event.id, recipe.rid)
-			crafting = false
-			if result.ok then
-				toast(("Made %s!"):format(result.output.name), Theme.Good)
-			elseif result.err == "recipe_soldout" then
-				toast(recipe.output.name .. " is fully crafted!", Theme.Warn)
-			elseif result.err == "recipe_not_active" then
-				toast("That recipe just rotated out!", Theme.Warn)
-			elseif result.err and result.err:match("^insufficient") then
-				toast("You don't have the required items!", Theme.Bad)
-			else
-				toast("Craft failed: " .. tostring(result.err), Theme.Bad)
-			end
-			refresh()
+			task.spawn(function()
+				local result = Net.invoke("CraftItem", event.id, recipe.rid)
+				if result.ok then
+					toast(("Made %s!"):format(result.output.name), Theme.Good)
+				elseif result.err == "recipe_soldout" then
+					toast(recipe.output.name .. " is fully crafted!", Theme.Warn)
+				elseif result.err == "recipe_not_active" then
+					toast("That recipe just rotated out!", Theme.Warn)
+				elseif result.err and result.err:match("^insufficient") then
+					toast("You don't have the required items!", Theme.Bad)
+				else
+					toast("Craft failed: " .. tostring(result.err), Theme.Bad)
+				end
+				refresh()
+			end)
 		end)
 
 		EconomyController.ensure({ recipe.output.itemId })
