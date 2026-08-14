@@ -17,6 +17,29 @@ end
 return {
 	name = "PureLogic",
 	tests = {
+		-- A reset restores every reserve to full. If the copies already held
+		-- survive that, the cap is mintable a second time and players end up
+		-- with stacks larger than the item's total supply -- which is exactly
+		-- what "N in existence" claims cannot happen.
+		["reset clears held copies of an established profile"] = function()
+			local profile = { StarterGranted = true, Inventory = { itm_a = 5 }, EconomyGen = 0 }
+			eq(EconomyService.applyResetToProfile(profile, 1), true, "profile changed")
+			eq(next(profile.Inventory), nil, "held copies must be gone")
+			eq(profile.EconomyGen, 1, "generation stamped")
+		end,
+
+		["reset is idempotent for a profile already on this generation"] = function()
+			local profile = { StarterGranted = true, Inventory = { itm_a = 5 }, EconomyGen = 3 }
+			eq(EconomyService.applyResetToProfile(profile, 3), false, "no change")
+			eq(profile.Inventory.itm_a, 5, "a profile already reset keeps what it earned after")
+		end,
+
+		["reset does not clear a profile that has not had its starter grant"] = function()
+			local profile = { StarterGranted = false, Inventory = {}, EconomyGen = nil }
+			eq(EconomyService.applyResetToProfile(profile, 2), true, "still stamped")
+			eq(profile.EconomyGen, 2, "generation stamped")
+		end,
+
 		["rarity threshold boundaries"] = function()
 			eq(Rarity.tierFor(20000), "Common")
 			eq(Rarity.tierFor(19999), "Rare")

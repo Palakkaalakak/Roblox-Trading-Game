@@ -19,6 +19,7 @@
 -- Stat DAG: supply<-counts, demand<-events, value<-g(demand,supply), RAP<-trades.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local Items = require(ReplicatedStorage.Shared.Config.Items)
@@ -782,6 +783,56 @@ end
 -- Lifecycle
 --------------------------------------------------------------------------------
 
+-- RESET GENERATION. A reset puts every reserve back to full; that is only
+-- honest if the copies already handed out stop existing at the same moment,
+-- otherwise the cap is re-mintable and players end up holding more than the
+-- item's total supply. Players online at the time are cleared directly.
+-- Everyone else is caught on their next load by comparing this counter, which
+-- is durable and experience-wide, against the one stamped on their profile.
+local RESET_GEN_KEY = "__reset_generation"
+local resetGen = 0
+
+local function readResetGeneration(): number
+	local ok, stored = pcall(function()
+		return econStore:GetAsync(RESET_GEN_KEY)
+	end)
+	if ok then
+		resetGen = tonumber(stored) or 0
+	end
+	return resetGen
+end
+
+local function bumpResetGeneration(): number
+	local ok, updated = pcall(function()
+		return econStore:UpdateAsync(RESET_GEN_KEY, function(old)
+			return (tonumber(old) or 0) + 1
+		end)
+	end)
+	if ok then
+		resetGen = tonumber(updated) or (resetGen + 1)
+	else
+		resetGen += 1 -- still wipe this server's players; the durable bump retries next reset
+	end
+	return resetGen
+end
+
+-- What a reset does to one profile. Held stacks are not "reset" by restocking
+-- the reserve -- they have to go, or the supply cap means nothing. Returns
+-- whether the profile changed, so a caller only pushes state when it did.
+-- StarterGranted separates an established profile from one that has not been
+-- given anything yet: a brand-new profile holds nothing from before the reset
+-- and must not be cleared out from under StarterService.
+function EconomyService.applyResetToProfile(profile: any, gen: number): boolean
+	if (tonumber(profile.EconomyGen) or 0) == gen then
+		return false
+	end
+	if profile.StarterGranted then
+		profile.Inventory = {}
+	end
+	profile.EconomyGen = gen
+	return true
+end
+
 function EconomyService.Init()
 	StoreAdapters.init()
 	-- v6: six-tier rarity restructure (added Godly/Celestial, eased Mythical
@@ -789,6 +840,7 @@ function EconomyService.Init()
 	-- the new rarity/totalSupply instead of silently freezing at old values.
 	registryStore = StoreAdapters.dataStore("ItemRegistry_v6")
 	econStore = StoreAdapters.dataStore("EconomyStore_v6")
+	readResetGeneration()
 	EconomyService.loadRegistry()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything
@@ -849,8 +901,26 @@ function EconomyService.Start()
 				table.insert(failed, itemId .. ":" .. tostring(err))
 			end
 		end
-		AnalyticsService.log("admin_reset_economy", { by = player.UserId, reset = reset })
-		return { ok = true, reset = reset, failed = failed }
+		-- The reserves are full again, so the copies already out there have to
+		-- stop existing -- otherwise the cap is simply mintable twice and
+		-- players keep stacks larger than the item's total supply.
+		local gen = bumpResetGeneration()
+		local DataService = require(script.Parent.DataService) :: any
+		local InventoryService = require(script.Parent.InventoryService) :: any
+		local wiped = 0
+		for _, other in Players:GetPlayers() do
+			local profile = DataService.getProfile(other)
+			if profile then
+				if EconomyService.applyResetToProfile(profile, gen) then
+					InventoryService.pushState(other)
+					wiped += 1
+				end
+			end
+		end
+		-- other servers need the new generation, or their players keep theirs
+		StoreAdapters.publish(EconomyConfig.StatsBroadcastTopic, { resetGen = gen })
+		AnalyticsService.log("admin_reset_economy", { by = player.UserId, reset = reset, wiped = wiped, gen = gen })
+		return { ok = true, reset = reset, failed = failed, wiped = wiped }
 	end)
 
 	-- remote: batch stat fetch
@@ -869,9 +939,32 @@ function EconomyService.Start()
 		return { ok = true, snapshots = snapshots }
 	end)
 
+	-- Players who were elsewhere when the reset ran. Their profile still
+	-- carries the previous generation, so the stacks it holds came from an
+	-- economy that no longer exists.
+	local DataServiceRef = require(script.Parent.DataService) :: any
+	DataServiceRef.ProfileLoaded:Connect(function(_player, data)
+		EconomyService.applyResetToProfile(data, resetGen)
+	end)
+
 	-- cross-server economy deltas: invalidate + push
 	StoreAdapters.subscribe(EconomyConfig.StatsBroadcastTopic, function(payload)
-		if type(payload) ~= "table" or type(payload.items) ~= "table" then
+		if type(payload) ~= "table" then
+			return
+		end
+		local broadcastGen = tonumber(payload.resetGen)
+		if broadcastGen and broadcastGen > resetGen then
+			resetGen = broadcastGen
+			local DataService = require(script.Parent.DataService) :: any
+			local InventoryService = require(script.Parent.InventoryService) :: any
+			for _, other in Players:GetPlayers() do
+				local profile = DataService.getProfile(other)
+				if profile and EconomyService.applyResetToProfile(profile, resetGen) then
+					InventoryService.pushState(other)
+				end
+			end
+		end
+		if type(payload.items) ~= "table" then
 			return
 		end
 		for _, itemId in payload.items do
