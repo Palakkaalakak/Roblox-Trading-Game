@@ -356,6 +356,7 @@ function Components.quantityStepper(parent: Instance, opts: {
 	max: number,
 	value: number?,
 	width: number?,
+	height: number?,
 	zIndex: number?,
 	onChanged: ((n: number) -> ())?,
 }): Stepper
@@ -363,21 +364,24 @@ function Components.quantityStepper(parent: Instance, opts: {
 	local maxN = math.max(minN, opts.max)
 	local z = opts.zIndex or 1
 	local boxW = opts.width or 56
+	-- rows are tight; a caller with less vertical room can shrink the whole
+	-- control rather than have it hang over the row below
+	local h = opts.height or 28
 
 	local frame = Instance.new("Frame")
 	frame.Name = "QuantityStepper"
 	frame.BackgroundTransparency = 1
-	frame.Size = UDim2.fromOffset(28 + 4 + boxW + 4 + 28, 28)
+	frame.Size = UDim2.fromOffset(h + 4 + boxW + 4 + h, h)
 	frame.ZIndex = z
 	frame.Parent = parent
 
 	local function squareBtn(text: string, x: number): TextButton
 		local b = Instance.new("TextButton")
 		b.Position = UDim2.fromOffset(x, 0)
-		b.Size = UDim2.fromOffset(28, 28)
+		b.Size = UDim2.fromOffset(h, h)
 		b.BackgroundColor3 = Theme.BgLight
 		b.Font = Theme.Font
-		b.TextSize = 18
+		b.TextSize = math.max(14, h - 10)
 		b.TextColor3 = Theme.TextPrimary
 		b.AutoButtonColor = true
 		b.Text = text
@@ -394,8 +398,8 @@ function Components.quantityStepper(parent: Instance, opts: {
 
 	local box = Instance.new("TextBox")
 	box.Name = "Amount"
-	box.Position = UDim2.fromOffset(32, 0)
-	box.Size = UDim2.fromOffset(boxW, 28)
+	box.Position = UDim2.fromOffset(h + 4, 0)
+	box.Size = UDim2.fromOffset(boxW, h)
 	box.BackgroundColor3 = Theme.BgLight
 	box.Font = Theme.Font
 	box.TextSize = 14
@@ -408,7 +412,7 @@ function Components.quantityStepper(parent: Instance, opts: {
 	bc.CornerRadius = Theme.CornerSmall
 	bc.Parent = box
 
-	local plus = squareBtn("+", 32 + boxW + 4)
+	local plus = squareBtn("+", h + 4 + boxW + 4)
 	plus.Name = "Plus"
 
 	local current = math.clamp(opts.value or minN, minN, maxN)

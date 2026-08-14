@@ -718,8 +718,10 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local chainBtn = Instance.new("TextButton")
 		chainBtn.Name = "ChainButton"
 		chainBtn.AnchorPoint = Vector2.new(1, 0)
-		chainBtn.Position = UDim2.new(1, -8, 0, 4)
-		chainBtn.Size = UDim2.fromOffset(96, 22)
+		-- same width and right edge as CRAFT and the stepper below it, so the
+		-- three read as one column instead of three ragged edges
+		chainBtn.Position = UDim2.new(1, -12, 0, 6)
+		chainBtn.Size = UDim2.fromOffset(120, 22)
 		chainBtn.BackgroundColor3 = Theme.BgLight
 		chainBtn.Font = Theme.Font
 		chainBtn.TextSize = 11
@@ -801,19 +803,21 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				min = 1,
 				max = maxBatch,
 				value = 1,
-				width = 44,
+				-- 22 + 4 + 68 + 4 + 22 = 120, matching CRAFT above it
+				width = 68,
+				-- shorter than the default so it clears the CRAFT button above
+				-- it and still ends inside the row
+				height = 22,
 				zIndex = 2,
 			})
-			stepper.frame.AnchorPoint = Vector2.new(1, 0)
-			stepper.frame.Position = UDim2.new(1, -12, 0, 62)
-			-- the button gives up its centred position to make room: stacked
-			-- against a 92px row the two were touching, and the stepper hung
-			-- over the row below
-			btn.AnchorPoint = Vector2.new(1, 0)
-			btn.Position = UDim2.new(1, -12, 0, 6)
+			stepper.frame.AnchorPoint = Vector2.new(1, 1)
+			stepper.frame.Position = UDim2.new(1, -12, 1, -8)
+			-- the row grows to hold it. CRAFT keeps its own centred position
+			-- (moving it up collided with "How to make"), so the clearance has
+			-- to come from somewhere -- 92px leaves the two touching.
+			row.Size = UDim2.new(1, -8, 0, 112)
 		else
-			btn.AnchorPoint = Vector2.new(1, 0.5)
-			btn.Position = UDim2.new(1, -12, 0.5, 0)
+			row.Size = UDim2.new(1, -8, 0, 92)
 		end
 		-- No busy gate and no "…" placeholder. Every craft is independently
 		-- validated server-side, so a second click is simply a second craft —
