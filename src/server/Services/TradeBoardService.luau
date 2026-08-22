@@ -50,6 +50,7 @@
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Enums = require(ReplicatedStorage.Shared.Enums)
@@ -58,6 +59,7 @@ local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local BoothConfig = require(ReplicatedStorage.Shared.Config.BoothConfig)
 local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
 local TradeAdRules = require(ReplicatedStorage.Shared.Util.TradeAdRules)
+local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 
@@ -69,6 +71,7 @@ local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 local NotificationService = require(script.Parent.NotificationService)
+local ProductService = require(script.Parent.ProductService)
 
 local MAX_BULK_COUNT = 1000
 local BOARD_PAGE = 200 -- MemoryStore per-request ceiling
@@ -1673,6 +1676,49 @@ function TradeBoardService.boostListing(id: string, tier: number, extendSeconds:
 	return { ok = true }
 end
 
+-- Published for the boost remotes: they have to resolve an id to a listing
+-- before charging for it. Same function the internals already use; only the
+-- visibility changes.
+function TradeBoardService.getListing(id: string): any
+	return getListing(id)
+end
+
+-- Decide what a paid boost does when its receipt lands. Split out from the
+-- receipt handler so it can be tested without a purchase: the money has already
+-- changed hands by the time this runs, so "do nothing" is never an answer.
+function TradeBoardService.resolveBoost(profile: any, listing: any?, sku: any, openFeatured: number): string
+	if listing == nil or listing.status ~= "open" then
+		return "credit" -- the ad expired or settled while the purchase was in flight
+	end
+	if listing.scope ~= sku.scope then
+		return "credit" -- a server SKU must not buy global reach at the server price
+	end
+	if sku.tier >= TradeAdConfig.BoostTier.Featured and openFeatured <= 0 then
+		return "credit" -- the strip filled up mid-purchase; bank it rather than oversell
+	end
+	return "apply"
+end
+
+-- Bank an unappliable purchase. This is the only thing standing between a
+-- re-delivered receipt and real money evaporating, so it must never fail: it
+-- builds the container it writes into rather than assuming migration ran.
+local function bankCredit(profile: any, skuId: string)
+	profile.TradeAds = profile.TradeAds or { extraSlots = 0, credits = {} }
+	profile.TradeAds.credits = profile.TradeAds.credits or {}
+	profile.TradeAds.credits[skuId] = (profile.TradeAds.credits[skuId] or 0) + 1
+end
+
+-- Apply a SKU to a listing. Bump refreshes rank, tier lifts placement, seconds
+-- buy uptime that survives the poster logging out.
+-- Returns whether the listing actually took the boost: resolveBoost reads a
+-- scanned copy, but boostListing re-checks the live record, so an ad can still
+-- die in between. The callers turn a false here into a banked credit rather
+-- than swallowing the purchase.
+local function applySku(listingId: string, sku: any): boolean
+	local res = TradeBoardService.boostListing(listingId, sku.tier, sku.seconds > 0 and sku.seconds or nil)
+	return res.ok == true
+end
+
 -- Push one listing's death clock if it is close to expiring. Returns whether
 -- anything changed, so the caller only spends a store write when it did.
 --
@@ -1882,6 +1928,140 @@ function TradeBoardService.Start()
 			return { ok = false, err = "loading" }
 		end
 		return buyCore(player.UserId, player.Name, id, count)
+	end)
+
+	--------------------------------------------------------------------------
+	-- Paid ad boosts. Payment buys POSITION and DURATION only -- posting,
+	-- browsing and accepting stay free and none of them route through here.
+	--------------------------------------------------------------------------
+
+	Net.bindFunction("PromptAdBoost", function(player, listingId, skuId)
+		if not Guard.isString(listingId, 64) or not Guard.isString(skuId, 64) then
+			return { ok = false, err = "bad_args" }
+		end
+		local sku = TradeAdConfig.skuById(skuId :: string)
+		if sku == nil then
+			return { ok = false, err = "unknown_sku" }
+		end
+		local listing = TradeBoardService.getListing(listingId :: string)
+		if listing == nil or listing.status ~= "open" or listing.posterId ~= player.UserId then
+			return { ok = false, err = "not_your_ad" }
+		end
+		if listing.scope ~= sku.scope then
+			return { ok = false, err = "wrong_scope" }
+		end
+		local profile = DataService.getProfile(player)
+		if profile == nil then
+			return { ok = false, err = "no_profile" }
+		end
+		-- Recorded on the PROFILE, not in server memory: a receipt re-delivered
+		-- after a rejoin or a restart still has to know what was bought. The SKU
+		-- rides here and not in the product id, because every SKU shares one id.
+		profile.TradeAds = profile.TradeAds or { extraSlots = 0, credits = {} }
+		profile.TradeAds.pending = {
+			listingId = listingId,
+			skuId = skuId,
+			productId = MonetizationConfig.PlaceholderBoostProductId,
+			at = os.time(),
+		}
+		MarketplaceService:PromptProductPurchase(player, MonetizationConfig.PlaceholderBoostProductId)
+		return { ok = true }
+	end)
+
+	Net.bindFunction("ApplyAdBoostCredit", function(player, listingId, skuId)
+		if not Guard.isString(listingId, 64) or not Guard.isString(skuId, 64) then
+			return { ok = false, err = "bad_args" }
+		end
+		local sku = TradeAdConfig.skuById(skuId :: string)
+		local profile = DataService.getProfile(player)
+		if sku == nil or profile == nil then
+			return { ok = false, err = "bad_args" }
+		end
+		local credits = (profile.TradeAds and profile.TradeAds.credits) or {}
+		if (credits[skuId] or 0) <= 0 then
+			return { ok = false, err = "no_credit" }
+		end
+		local listing = TradeBoardService.getListing(listingId :: string)
+		if listing == nil or listing.posterId ~= player.UserId then
+			return { ok = false, err = "not_your_ad" }
+		end
+		local openFeatured =
+			TradeAdRules.featuredOpenSlots(TradeBoardService.rawOpenListings(), listing.scope, os.time())
+		if TradeBoardService.resolveBoost(profile, listing, sku, openFeatured) ~= "apply" then
+			return { ok = false, err = "cannot_apply" }
+		end
+		-- Spend the credit only once the boost has actually landed. The reverse
+		-- order would burn a paid credit on a listing that died between the
+		-- check and the write.
+		if not applySku(listingId :: string, sku) then
+			return { ok = false, err = "gone" }
+		end
+		credits[skuId] -= 1
+		AnalyticsService.log("ad_boost_credit_spent", { userId = player.UserId, sku = sku.id })
+		return { ok = true }
+	end)
+
+	Net.bindFunction("GetAdBoostState", function(player)
+		local profile = DataService.getProfile(player)
+		local credits = (profile and profile.TradeAds and profile.TradeAds.credits) or {}
+		local open = TradeBoardService.rawOpenListings()
+		local now = os.time()
+		return {
+			ok = true,
+			credits = credits,
+			featuredOpen = {
+				server = TradeAdRules.featuredOpenSlots(open, TradeAdConfig.Scopes.Server, now),
+				global = TradeAdRules.featuredOpenSlots(open, TradeAdConfig.Scopes.Global, now),
+			},
+		}
+	end)
+
+	-- ONE handler for every boost SKU, on an id of its own. It cannot share the
+	-- shop's PlaceholderProductId: ProductService.Init writes every shop offer
+	-- straight into devProductHandlers under that id, so registerDevProduct
+	-- would find an existing entry and refuse -- without a warning, because the
+	-- warning is suppressed for the placeholder. The registration would vanish
+	-- and no boost would ever grant. The intent recorded before the prompt is
+	-- what says which SKU was bought.
+	ProductService.registerDevProduct(MonetizationConfig.PlaceholderBoostProductId, "ad_boost", function(player, claimId)
+		local profile = DataService.getProfile(player)
+		if profile == nil then
+			return false -- let Roblox retry; the profile may still be loading
+		end
+		local pending = profile.TradeAds and profile.TradeAds.pending
+		if pending == nil then
+			return true -- not a boost purchase; another handler owns this receipt
+		end
+		local sku = TradeAdConfig.skuById(pending.skuId)
+		-- Every boost SKU shares one placeholder id today, so this cannot fire
+		-- yet. Once real product ids exist it is the only thing stopping a
+		-- client from asking for Featured while paying Bump's price -- keep it.
+		if sku == nil or pending.productId ~= MonetizationConfig.PlaceholderBoostProductId then
+			-- Bank rather than drop even here. A SKU retired from the config
+			-- between prompt and receipt, or a mismatched id, is still money
+			-- that was paid; a stranded credit can be refunded by hand, a
+			-- silently discarded receipt cannot.
+			bankCredit(profile, pending.skuId)
+			profile.TradeAds.pending = nil
+			return true
+		end
+		local listing = TradeBoardService.getListing(pending.listingId)
+		local openFeatured =
+			TradeAdRules.featuredOpenSlots(TradeBoardService.rawOpenListings(), sku.scope, os.time())
+		-- Real money: every path that is not a successful apply banks a credit.
+		local applied = false
+		if TradeBoardService.resolveBoost(profile, listing, sku, openFeatured) == "apply" then
+			applied = applySku(pending.listingId, sku)
+		end
+		if not applied then
+			bankCredit(profile, sku.id)
+		end
+		profile.TradeAds.pending = nil
+		AnalyticsService.log(
+			"ad_boost_purchased",
+			{ userId = player.UserId, sku = sku.id, claimId = claimId, applied = applied }
+		)
+		return true
 	end)
 end
 

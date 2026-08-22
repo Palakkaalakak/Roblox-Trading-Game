@@ -68,8 +68,19 @@ local PLACEHOLDER_PRODUCT_ID = 3611275062
 -- from "two real products collided", which is a genuine bug.
 local PlaceholderProductId = PLACEHOLDER_PRODUCT_ID
 
+-- Trade ad boosts need an id of their OWN, not the shared placeholder. Every
+-- shop offer already carries PlaceholderProductId, and ProductService.Init
+-- assigns those directly into devProductHandlers; a later registerDevProduct on
+-- that same id finds an existing entry and refuses -- silently, because the
+-- warning is deliberately suppressed for the placeholder. The boost handler
+-- would never register and no boost would ever grant, with no error anywhere.
+-- A distinct (still fake) id keeps the slot free so the registration lands.
+-- TODO: real id at publish.
+local PlaceholderBoostProductId = PLACEHOLDER_PRODUCT_ID + 1
+
 local MonetizationConfig = {
 	PlaceholderProductId = PlaceholderProductId,
+	PlaceholderBoostProductId = PlaceholderBoostProductId,
 
 	-- Section order in the shop, top to bottom. Sections with no live offers
 	-- are skipped, so unreleased categories simply don't render yet.

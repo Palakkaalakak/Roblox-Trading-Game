@@ -386,5 +386,56 @@ return {
 				truthy(perks.duration == true or perks.duration == false, "duration is a boolean, never nil")
 			end
 		end,
+
+		-- A receipt that cannot be applied must never be dropped: it is real
+		-- money. Both the "ad is gone" and "featured pool filled up while the
+		-- purchase was in flight" cases bank a credit instead.
+		["boost: an unappliable purchase banks a credit rather than vanishing"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local featured = TradeAdConfig.skuById("ad_featured_global_1d")
+			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
+			eq(TradeBoardService.resolveBoost(profile, nil, featured, 3), "credit", "ad gone -> credit")
+			local liveAd = { status = "open", scope = "global" }
+			eq(TradeBoardService.resolveBoost(profile, liveAd, featured, 0), "credit", "pool full -> credit")
+			eq(TradeBoardService.resolveBoost(profile, liveAd, featured, 2), "apply", "slot free -> apply")
+		end,
+
+		-- A non-featured boost has no scarce pool, so a full featured strip must
+		-- not block it.
+		["boost: priority and bump ignore the featured pool"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local priority = TradeAdConfig.skuById("ad_priority_global_1d")
+			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
+			local liveAd = { status = "open", scope = "global" }
+			eq(TradeBoardService.resolveBoost(profile, liveAd, priority, 0), "apply", "pool full is irrelevant")
+		end,
+
+		-- Scope is part of the product: a server SKU on a global ad would give
+		-- whole-game reach at the server price.
+		["boost: a SKU only applies to an ad in its own scope"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local serverSku = TradeAdConfig.skuById("ad_priority_server_1d")
+			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
+			local globalAd = { status = "open", scope = "global" }
+			eq(TradeBoardService.resolveBoost(profile, globalAd, serverSku, 3), "credit", "wrong scope -> credit")
+		end,
+
+		-- The boost handler must register on an id of its own. If it shared the
+		-- shop's placeholder, ProductService.Init would already own that slot and
+		-- registerDevProduct would refuse -- silently, for the placeholder id.
+		["boost: the boost product id is distinct from the shop placeholder"] = function()
+			local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
+			truthy(MonetizationConfig.PlaceholderBoostProductId ~= nil, "boost product id is configured")
+			truthy(
+				MonetizationConfig.PlaceholderBoostProductId ~= MonetizationConfig.PlaceholderProductId,
+				"boost id must not collide with the shop placeholder"
+			)
+			for _, offer in MonetizationConfig.Offers do
+				truthy(
+					offer.productId ~= MonetizationConfig.PlaceholderBoostProductId,
+					"no shop offer may claim the boost product id: " .. tostring(offer.id)
+				)
+			end
+		end,
 	},
 }
