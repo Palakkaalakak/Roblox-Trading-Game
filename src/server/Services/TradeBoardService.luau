@@ -1652,6 +1652,44 @@ function TradeBoardService.boostListing(id: string, tier: number, extendSeconds:
 	return { ok = true }
 end
 
+-- Push one listing's death clock if it is close to expiring. Returns whether
+-- anything changed, so the caller only spends a store write when it did.
+--
+-- This deliberately assigns expiresAt and NOTHING else. Moving bumpedAt here
+-- would hand an AFK player permanent rank one for free and make every paid
+-- placement worthless -- the invariant is covered by a test for that reason.
+function TradeBoardService.applyPresenceRefresh(listing: any, now: number): boolean
+	if listing.status ~= "open" then
+		return false
+	end
+	if not TradeAdRules.shouldRefresh(listing, now) then
+		return false
+	end
+	listing.expiresAt = TradeAdRules.refreshedExpiry(listing.scope or TradeAdConfig.Scopes.Global, now)
+	return true
+end
+
+-- Walk the board once and keep alive every ad whose poster is on THIS server.
+-- There is no by-poster index, so a per-player loop would mean a full scan per
+-- player; piggybacking the scan the sweep already performs costs nothing extra,
+-- and each server naturally refreshes only its own players' ads.
+function TradeBoardService.refreshPresenceExpiry()
+	local now = os.time()
+	for _, l in TradeBoardService.rawOpenListings() do
+		if l.posterId > 0 and Players:GetPlayerByUserId(l.posterId) ~= nil then
+			if TradeAdRules.shouldRefresh(l, now) then
+				mutate(l.id, function(live)
+					if not TradeBoardService.applyPresenceRefresh(live, os.time()) then
+						return nil
+					end
+					live.v += 1
+					return live
+				end)
+			end
+		end
+	end
+end
+
 --------------------------------------------------------------------------------
 -- Bot entry points + raw reads (BotService brains; no Player involved)
 --------------------------------------------------------------------------------
@@ -1751,6 +1789,9 @@ function TradeBoardService.Start()
 	task.spawn(function()
 		while true do
 			pcall(rebuildBookIndex)
+			-- Piggyback the presence refresh on the scan the rebuild just did --
+			-- no second timer, no second full-board walk.
+			pcall(TradeBoardService.refreshPresenceExpiry)
 			task.wait(BOOK_REBUILD_SECONDS)
 		end
 	end)

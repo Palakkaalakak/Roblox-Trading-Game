@@ -253,5 +253,34 @@ return {
 			-- server scope reads memBoard directly, so it is never capped
 			truthy(TradeBoardService.storesInMemory(Server), "server count source is memory")
 		end,
+
+		-- The whole decay design rests on this: refreshing an ad extends its
+		-- life without touching its rank. Verified against the real service
+		-- helper rather than the rules module, because it is the service that
+		-- could accidentally write bumpedAt alongside expiresAt.
+		["sweep: presence refresh extends life without changing rank"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = os.time()
+			local listing = {
+				id = "test",
+				scope = "global",
+				status = "open",
+				bumpedAt = now - 9000,
+				expiresAt = now + 60,
+			}
+			local rankBefore = listing.bumpedAt
+			local changed = TradeBoardService.applyPresenceRefresh(listing, now)
+			truthy(changed, "an ad near expiry gets refreshed")
+			eq(listing.bumpedAt, rankBefore, "rank MUST be untouched by a refresh")
+			truthy(listing.expiresAt > now + 3600, "life extended past the refresh window")
+		end,
+
+		["sweep: a healthy ad is left alone, so no write is spent"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = os.time()
+			local listing = { id = "t2", scope = "global", status = "open", bumpedAt = now, expiresAt = now + 20000 }
+			eq(TradeBoardService.applyPresenceRefresh(listing, now), false, "no refresh needed")
+			eq(listing.expiresAt, now + 20000, "clock untouched")
+		end,
 	},
 }
