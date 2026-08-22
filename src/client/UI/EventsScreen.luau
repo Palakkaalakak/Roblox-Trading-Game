@@ -303,6 +303,13 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	chainCloseCorner.Parent = chainClose
 	chainClose.Activated:Connect(function()
 		chainOverlay.Visible = false
+		-- The graph bakes in "owned" counts at fetch time. Keeping it cached
+		-- past this close is how a player ends up looking at "0/10" on
+		-- something they hold 141 of: nothing ever re-fetched after a craft,
+		-- a roll, or any other inventory change. The topology never changes,
+		-- but the counts do, so the whole graph refetches on next open instead
+		-- of trying to patch individual owned fields in place.
+		recipeGraph = nil
 	end)
 
 	local chainList = Instance.new("ScrollingFrame")
