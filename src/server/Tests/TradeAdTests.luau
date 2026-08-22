@@ -155,5 +155,26 @@ return {
 			local older = { boostTier = 0, bumpedAt = 100, id = "d" }
 			truthy(TradeAdRules.order(newer, older), "recency breaks a tier tie")
 		end,
+
+		-- A v5 profile that predates trade ads must come back with the new
+		-- fields populated, not nil -- every read site would otherwise need a
+		-- nil guard, and one missed guard is a runtime error in production.
+		["migration: a pre-trade-ads profile gains ad fields with safe defaults"] = function()
+			local DataService = require(script.Parent.Parent.Services.DataService)
+			local old = {
+				SchemaVersion = 5,
+				Gems = 10,
+				Inventory = {},
+				Booth = { skinId = "default", extraSlots = 0, tagline = "" },
+			}
+			local migrated = DataService.migrateForTest(old)
+			eq(migrated.SchemaVersion, 6, "schema bumped")
+			eq(migrated.TradeAds.extraSlots, 0, "extra slots default")
+			eq(typeof(migrated.TradeAds.credits), "table", "credits table")
+			eq(migrated.TradeAds.pending, nil, "no pending purchase")
+			eq(migrated.AdPerks.priority, false, "priority pass default")
+			eq(migrated.AdPerks.duration, false, "duration pass default")
+			eq(migrated.Gems, 10, "existing data survives")
+		end,
 	},
 }

@@ -17,7 +17,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local SessionStore = require(script.Parent.Parent.Stores.SessionStore)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
-local SCHEMA_VERSION = 5
+local SCHEMA_VERSION = 6
 
 local DataService = {}
 
@@ -71,6 +71,20 @@ local function template()
 			extraSlots = 0, -- purchased; slots = BoothConfig.BaseSlots + this
 			tagline = "",
 		},
+		-- v6: trade ads. `extraSlots` is purchased headroom applied to EACH
+		-- scope (server and global), mirroring Booth.extraSlots. `credits` is
+		-- where a paid boost lands when it cannot be applied -- the ad expired,
+		-- or the featured pool was full -- because a real-money purchase must
+		-- never evaporate. `pending` survives here rather than in server memory
+		-- so a receipt re-delivered after a rejoin still knows what was bought.
+		TradeAds = {
+			extraSlots = 0,
+			credits = {}, -- skuId -> count
+			pending = nil, -- {listingId, skuId, productId, at}
+		},
+		-- v6: gamepass-granted permanent ad perks. Stamped onto listings at post
+		-- time so sorting on OTHER servers needs no lookup for an absent poster.
+		AdPerks = { priority = false, duration = false },
 	}
 end
 
@@ -103,6 +117,14 @@ local migrations: { [number]: (any) -> any } = {
 	[4] = function(data)
 		data.Booth = data.Booth or { skinId = "default", extraSlots = 0, tagline = "" }
 		data.SchemaVersion = 5
+		return data
+	end,
+	[5] = function(data)
+		data.TradeAds = data.TradeAds or { extraSlots = 0, credits = {} }
+		data.TradeAds.extraSlots = data.TradeAds.extraSlots or 0
+		data.TradeAds.credits = data.TradeAds.credits or {}
+		data.AdPerks = data.AdPerks or { priority = false, duration = false }
+		data.SchemaVersion = 6
 		return data
 	end,
 }
@@ -668,6 +690,13 @@ end
 
 function DataService.newId(): string
 	return HttpService:GenerateGUID(false)
+end
+
+-- Migration is otherwise unreachable from a test: it runs inside profile load,
+-- which needs a live store and a session lock. Exposing it keeps the schema
+-- covered without either.
+function DataService.migrateForTest(data: any): any
+	return migrate(data)
 end
 
 return DataService
