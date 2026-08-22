@@ -4,6 +4,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
+local TradeAdRules = require(ReplicatedStorage.Shared.Util.TradeAdRules)
 
 local function eq(a: any, b: any, label: string?)
 	if a ~= b then
@@ -78,6 +79,81 @@ return {
 			local first = TradeAdConfig.Skus[1]
 			eq(TradeAdConfig.skuById(first.id), first, "skuById round-trip")
 			eq(TradeAdConfig.skuById("nope_not_a_sku"), nil, "unknown id")
+		end,
+
+		["slots: base allowance, purchased slots add, cap holds"] = function()
+			eq(TradeAdRules.slotLimit(0), TradeAdConfig.BaseSlotsPerScope, "base")
+			eq(TradeAdRules.slotLimit(2), TradeAdConfig.BaseSlotsPerScope + 2, "plus two")
+			eq(
+				TradeAdRules.slotLimit(9999),
+				TradeAdConfig.BaseSlotsPerScope + TradeAdConfig.MaxExtraSlots,
+				"cap"
+			)
+			truthy(TradeAdRules.canPost(2, 0), "under limit")
+			truthy(not TradeAdRules.canPost(3, 0), "at limit")
+			truthy(TradeAdRules.canPost(3, 1), "purchased slot opens it back up")
+		end,
+
+		-- Server ads die with the session because their store IS that server's
+		-- memory. Global ads get a grace window so a disconnect mid-negotiation
+		-- doesn't destroy the ad.
+		["lifetime: server ads die on leave, global ads get a grace window"] = function()
+			eq(TradeAdRules.graceFor("server"), TradeAdConfig.ServerGraceSeconds, "server grace")
+			eq(TradeAdRules.graceFor("global"), TradeAdConfig.GlobalGraceSeconds, "global grace")
+			truthy(TradeAdRules.graceFor("global") > TradeAdRules.graceFor("server"), "global outlives server")
+		end,
+
+		-- THE decay invariant. Staying online keeps an ad ALIVE, never on top.
+		-- If a refresh ever moved bumpedAt, an AFK player would hold rank one
+		-- forever for free and the whole paid-placement design would collapse.
+		["refresh: pushes the death clock and never touches sort position"] = function()
+			local now = 1000000
+			local listing = {
+				scope = "global",
+				bumpedAt = now - 5000,
+				expiresAt = now + 60, -- inside the refresh window
+			}
+			local before = listing.bumpedAt
+			truthy(TradeAdRules.shouldRefresh(listing, now), "should refresh when near expiry")
+			listing.expiresAt = TradeAdRules.refreshedExpiry(listing.scope, now)
+			eq(listing.bumpedAt, before, "bumpedAt MUST NOT move")
+			truthy(listing.expiresAt > now + TradeAdConfig.RefreshThresholdSeconds, "clock pushed clear of the window")
+		end,
+
+		["refresh: skipped while the ad is still comfortably alive"] = function()
+			local now = 1000000
+			local listing = { scope = "global", bumpedAt = now, expiresAt = now + 10 * 3600 }
+			truthy(not TradeAdRules.shouldRefresh(listing, now), "no write needed yet")
+		end,
+
+		-- A gamepass upgrades every ad the player owns, so the tier has to come
+		-- from the stamped perks as well as the purchased tier -- whichever is
+		-- higher wins, and a purchase never downgrades a pass.
+		["tier: stamped pass perks and purchased tier take the higher of the two"] = function()
+			eq(TradeAdRules.effectiveTier({ boostTier = 0 }), 0, "plain ad")
+			eq(TradeAdRules.effectiveTier({ boostTier = 0, perks = { priority = true } }), 1, "pass lifts it")
+			eq(TradeAdRules.effectiveTier({ boostTier = 2, perks = { priority = true } }), 2, "purchase wins when higher")
+		end,
+
+		["featured: pool counts only live featured ads in that scope"] = function()
+			local now = 1000
+			local listings = {
+				{ scope = "global", boostTier = 2, expiresAt = now + 100 },
+				{ scope = "global", boostTier = 2, expiresAt = now - 1 }, -- expired, frees its slot
+				{ scope = "server", boostTier = 2, expiresAt = now + 100 }, -- other scope
+				{ scope = "global", boostTier = 1, expiresAt = now + 100 }, -- not featured
+			}
+			eq(TradeAdRules.featuredOpenSlots(listings, "global", now), TradeAdConfig.FeaturedSlotsPerScope - 1, "global")
+			eq(TradeAdRules.featuredOpenSlots(listings, "server", now), TradeAdConfig.FeaturedSlotsPerScope - 1, "server")
+		end,
+
+		["order: tier first, then most recently bumped, then id"] = function()
+			local hi = { boostTier = 2, bumpedAt = 1, id = "a" }
+			local lo = { boostTier = 0, bumpedAt = 999, id = "b" }
+			truthy(TradeAdRules.order(hi, lo), "tier beats recency")
+			local newer = { boostTier = 0, bumpedAt = 500, id = "c" }
+			local older = { boostTier = 0, bumpedAt = 100, id = "d" }
+			truthy(TradeAdRules.order(newer, older), "recency breaks a tier tie")
 		end,
 	},
 }
