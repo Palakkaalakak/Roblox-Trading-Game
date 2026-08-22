@@ -45,14 +45,20 @@ return {
 		-- cheaper than its server twin, nobody would buy the server one.
 		["config: global SKUs cost more than their server twins"] = function()
 			for _, server in TradeAdConfig.skusForScope(TradeAdConfig.Scopes.Server) do
+				-- Count matches so a broken pairing (bump flipped, tier added
+				-- without a twin, etc.) fails loudly instead of the loop just
+				-- quietly asserting nothing and reporting PASS.
+				local matches = 0
 				for _, global in TradeAdConfig.skusForScope(TradeAdConfig.Scopes.Global) do
 					if server.tier == global.tier and server.bump == global.bump and server.seconds == global.seconds then
+						matches += 1
 						truthy(
 							global.robux > server.robux,
 							("%s (%d) must cost more than %s (%d)"):format(global.id, global.robux, server.id, server.robux)
 						)
 					end
 				end
+				truthy(matches > 0, server.id .. ": no global twin -- this test would otherwise assert nothing")
 			end
 		end,
 
