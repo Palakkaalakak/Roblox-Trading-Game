@@ -39,6 +39,19 @@ local dirStore: any -- DataStore "SyndicateDir_v1": key "all" -> {id -> {name, t
 local cache: { [string]: { at: number, record: any } } = {}
 local CACHE_TTL = 15
 local SYNC_TOPIC = "syndicate_changed"
+-- Directory writes are coalesced onto this timer (see updateDirectory).
+-- Previously referenced without being declared anywhere: Luau reads an
+-- undeclared name as a nil global rather than failing to compile, so
+-- task.wait(DIRECTORY_FLUSH_SECONDS) was task.wait(nil) -- next frame, not
+-- every 10s -- and the "batched off the action path" directory write ran on
+-- every single frame that had a dirty entry, hammering SyndicateDir_v1/all
+-- exactly as hard as an unbatched write would.
+local DIRECTORY_FLUSH_SECONDS = 10
+-- XP writes need the same coalescing: addXp used to CAS Syndicates_v1 on
+-- every single call, so a 100-craft batch fired 100 near-simultaneous
+-- UpdateAsyncs at the SAME key and Roblox's per-key write budget throttled
+-- most of them.
+local XP_FLUSH_SECONDS = 10
 
 local ensureRoles -- fwd decl: readRecord migrates old records through it
 
@@ -312,6 +325,15 @@ local function awardGoals(syndicateId: string)
 	end
 end
 
+-- XP is EARNED on the action path (a craft, a trade) but must not be WRITTEN
+-- there: it used to CAS Syndicates_v1 on every single call, so a 100-item
+-- batch craft fired 100 near-simultaneous UpdateAsyncs at the same key and
+-- Roblox's per-key write budget throttled most of them (see the DataStore
+-- error spam this caused live). Deltas are buffered in memory instead and
+-- flushed on the same timer as the directory -- one CAS per syndicate per
+-- flush, however many actions happened in between.
+local pendingXp: { [string]: { members: { [string]: number }, sources: { [string]: number } } } = {}
+
 function SyndicateService.addXp(userId: number, source: string)
 	local amount = SyndicateConfig.XpSources[source]
 	if amount == nil or amount <= 0 then
@@ -326,38 +348,78 @@ function SyndicateService.addXp(userId: number, source: string)
 	if syndicateId == "" then
 		return
 	end
-	task.spawn(function()
-		local key = tostring(userId)
+	local key = tostring(userId)
+	local bucket = pendingXp[syndicateId]
+	if bucket == nil then
+		bucket = { members = {}, sources = {} }
+		pendingXp[syndicateId] = bucket
+	end
+	bucket.members[key] = (bucket.members[key] or 0) + amount
+	bucket.sources[source] = (bucket.sources[source] or 0) + 1
+end
+
+local function flushXp()
+	if next(pendingXp) == nil then
+		return
+	end
+	local pending = pendingXp
+	pendingXp = {}
+	for syndicateId, bucket in pending do
 		local before = readRecord(syndicateId)
 		local levelBefore = before and SyndicateConfig.levelFor(before.xp or 0) or 1
+		local totalXp = 0
 		local committed = mutate(syndicateId, function(record)
-			if record.members[key] == nil then
-				return nil, "not_a_member"
-			end
-			record.xp = (record.xp or 0) + amount
-			record.members[key].xp = (record.members[key].xp or 0) + amount
-			-- per-source tallies: cheap here (we're already inside the CAS) and
-			-- they give the browse list real numbers to compare groups on
 			record.stats = record.stats or {}
-			record.stats[source] = (record.stats[source] or 0) + 1
+			local anyMember = false
+			for key, amount in bucket.members do
+				if record.members[key] then
+					record.xp = (record.xp or 0) + amount
+					record.members[key].xp = (record.members[key].xp or 0) + amount
+					totalXp += amount
+					anyMember = true
+				end
+				-- a member who left between earning and flushing loses that XP:
+				-- the same outcome as if they'd left before the old inline write,
+				-- since the record no longer has a slot to credit it to
+			end
+			for source, count in bucket.sources do
+				record.stats[source] = (record.stats[source] or 0) + count
+			end
+			if not anyMember then
+				return nil, "no_members_left"
+			end
 			return record
 		end)
 		if committed then
 			local levelAfter = SyndicateConfig.levelFor(committed.xp or 0)
-			-- refresh the browse row on every XP gain, not just level-ups: the
-			-- row now shows XP and activity counts, and the write is queued and
-			-- coalesced so doing it often costs nothing
+			-- refresh the browse row whenever XP moved, not just on level-ups:
+			-- the row shows XP and activity counts, and this write is itself
+			-- queued and coalesced, so refreshing it often costs nothing
 			updateDirectory(committed)
 			if levelAfter > levelBefore then
 				AnalyticsService.log("syndicate_levelup", {
 					id = syndicateId, level = levelAfter, xp = committed.xp,
 				})
 			end
-			-- every tallied stat changes here, so this is the one place a goal
-			-- can newly become complete
+			-- every tallied stat changed in this flush, so this is the one
+			-- place a goal can newly become complete
 			awardGoals(syndicateId)
+		else
+			-- put it back so the next flush retries, without clobbering
+			-- anything that was buffered while this attempt was in flight
+			local retry = pendingXp[syndicateId]
+			if retry == nil then
+				pendingXp[syndicateId] = bucket
+			else
+				for k, v in bucket.members do
+					retry.members[k] = (retry.members[k] or 0) + v
+				end
+				for k, v in bucket.sources do
+					retry.sources[k] = (retry.sources[k] or 0) + v
+				end
+			end
 		end
-	end)
+	end
 end
 
 -- Perks currently active for a player, for the systems that consume them
@@ -1232,7 +1294,17 @@ function SyndicateService.Start()
 			flushDirectory()
 		end
 	end)
-	game:BindToClose(flushDirectory)
+	-- XP writes are batched the same way (see addXp/flushXp).
+	task.spawn(function()
+		while true do
+			task.wait(XP_FLUSH_SECONDS)
+			flushXp()
+		end
+	end)
+	game:BindToClose(function()
+		flushXp()
+		flushDirectory()
+	end)
 
 	Net.bindFunction("GetSyndicate", function(player)
 		local profile = profileOf(player)

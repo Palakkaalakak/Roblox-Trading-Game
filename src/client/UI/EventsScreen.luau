@@ -812,12 +812,11 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			})
 			stepper.frame.AnchorPoint = Vector2.new(1, 1)
 			stepper.frame.Position = UDim2.new(1, -12, 1, -8)
-			-- the row grows to hold it. CRAFT keeps its own centred position
-			-- (moving it up collided with "How to make"), so the clearance has
-			-- to come from somewhere -- 92px leaves the two touching.
-			row.Size = UDim2.new(1, -8, 0, 112)
-		else
-			row.Size = UDim2.new(1, -8, 0, 92)
+			-- row is already 112 (set above, "room for the blurb") -- that is
+			-- also enough room for the stepper, so nothing to resize here.
+			-- An earlier version shrank the row back to 92 when no stepper
+			-- showed, which clipped the blurb into the row below on every
+			-- other recipe.
 		end
 		-- No busy gate and no "…" placeholder. Every craft is independently
 		-- validated server-side, so a second click is simply a second craft —
