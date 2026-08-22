@@ -1669,6 +1669,29 @@ function TradeBoardService.applyPresenceRefresh(listing: any, now: number): bool
 	return true
 end
 
+-- Pure eligibility decision: should THIS server refresh THIS listing right
+-- now? `isOnline` is injected (rather than calling Players directly) so tests
+-- can exercise every guard -- bot exclusion, offline poster, non-open status,
+-- outside the refresh window -- without touching real Players or MemoryStore.
+-- Bots use negative posterId and must never be refreshed by presence: only a
+-- real, connected player keeps an ad alive.
+function TradeBoardService.shouldPresenceRefresh(listing: any, now: number, isOnline: (number) -> boolean): boolean
+	if listing.posterId == nil or listing.posterId <= 0 then
+		return false
+	end
+	if not isOnline(listing.posterId) then
+		return false
+	end
+	if listing.status ~= "open" then
+		return false
+	end
+	return TradeAdRules.shouldRefresh(listing, now)
+end
+
+local function isPlayerOnline(userId: number): boolean
+	return Players:GetPlayerByUserId(userId) ~= nil
+end
+
 -- Walk the board once and keep alive every ad whose poster is on THIS server.
 -- There is no by-poster index, so a per-player loop would mean a full scan per
 -- player; piggybacking the scan the sweep already performs costs nothing extra,
@@ -1676,16 +1699,18 @@ end
 function TradeBoardService.refreshPresenceExpiry()
 	local now = os.time()
 	for _, l in TradeBoardService.rawOpenListings() do
-		if l.posterId > 0 and Players:GetPlayerByUserId(l.posterId) ~= nil then
-			if TradeAdRules.shouldRefresh(l, now) then
-				mutate(l.id, function(live)
-					if not TradeBoardService.applyPresenceRefresh(live, os.time()) then
-						return nil
-					end
-					live.v += 1
-					return live
-				end)
-			end
+		if TradeBoardService.shouldPresenceRefresh(l, now, isPlayerOnline) then
+			-- Re-check inside mutate against the freshly-read live record: it
+			-- may have changed between this scan and the write (another
+			-- server/action touched it), and a nil return here intentionally
+			-- skips the store write rather than spending one on a stale check.
+			mutate(l.id, function(live)
+				if not TradeBoardService.applyPresenceRefresh(live, now) then
+					return nil
+				end
+				live.v += 1
+				return live
+			end)
 		end
 	end
 end

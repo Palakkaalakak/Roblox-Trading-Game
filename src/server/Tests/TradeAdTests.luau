@@ -282,5 +282,55 @@ return {
 			eq(TradeBoardService.applyPresenceRefresh(listing, now), false, "no refresh needed")
 			eq(listing.expiresAt, now + 20000, "clock untouched")
 		end,
+
+		-- shouldPresenceRefresh is the eligibility gate refreshPresenceExpiry
+		-- actually runs. Injecting isOnline lets this fixture cover the sweep's
+		-- own guards -- bot exclusion, offline poster, non-open, outside window
+		-- -- without a real Players service or MemoryStore.
+		["sweep: shouldPresenceRefresh gates on bot / presence / status / window"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = os.time()
+			local everyoneOnline = function()
+				return true
+			end
+			local everyoneOffline = function()
+				return false
+			end
+
+			local bot = { posterId = -7, status = "open", expiresAt = now + 60 }
+			eq(
+				TradeBoardService.shouldPresenceRefresh(bot, now, everyoneOnline),
+				false,
+				"bot ad excluded even when its id reads 'online'"
+			)
+
+			local offline = { posterId = 5, status = "open", expiresAt = now + 60 }
+			eq(
+				TradeBoardService.shouldPresenceRefresh(offline, now, everyoneOffline),
+				false,
+				"poster not on this server is excluded"
+			)
+
+			local closed = { posterId = 5, status = "cancelled", expiresAt = now + 60 }
+			eq(
+				TradeBoardService.shouldPresenceRefresh(closed, now, everyoneOnline),
+				false,
+				"non-open listing is excluded"
+			)
+
+			local healthy = { posterId = 5, status = "open", expiresAt = now + 20000 }
+			eq(
+				TradeBoardService.shouldPresenceRefresh(healthy, now, everyoneOnline),
+				false,
+				"online poster but far from expiry: no write spent"
+			)
+
+			local dueForRefresh = { posterId = 5, status = "open", expiresAt = now + 60 }
+			eq(
+				TradeBoardService.shouldPresenceRefresh(dueForRefresh, now, everyoneOnline),
+				true,
+				"online poster, open, inside the refresh window: included"
+			)
+		end,
 	},
 }
