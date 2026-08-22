@@ -736,6 +736,24 @@ function TradeBoardService.validateScope(scope: any): boolean
 	return scope == TradeAdConfig.Scopes.Server or scope == TradeAdConfig.Scopes.Global
 end
 
+-- Scope describes REACH, and a memBoard listing reaches exactly one server, so
+-- a bot ad is server-scoped by definition -- it physically cannot be seen from
+-- anywhere else. Calling it global would advertise it on the global tab as a
+-- whole-game listing no other server can see, and strip the server tab of the
+-- listings that make a low-population board look alive. Single source of truth
+-- for the routing decision: scope and store can never disagree.
+function TradeBoardService.scopeFor(userId: number, requestedScope: string): string
+	if userId < 0 then
+		return TradeAdConfig.Scopes.Server
+	end
+	return requestedScope
+end
+
+-- Does this scope live in the server-local map rather than the shared store?
+function TradeBoardService.storesInMemory(scope: string): boolean
+	return scope == TradeAdConfig.Scopes.Server
+end
+
 -- How many open ads this player already holds in one scope. There is no
 -- by-poster index, so this filters the same scan the board already keeps warm;
 -- posting is rare enough that walking it is cheaper than maintaining an index.
@@ -754,10 +772,11 @@ local function postCore(userId: number, userName: string, payload: any)
 		return { ok = false, err = "bad_args" }
 	end
 
-	local scope = payload.scope or TradeAdConfig.Scopes.Global
-	if not TradeBoardService.validateScope(scope) then
+	local requestedScope = payload.scope or TradeAdConfig.Scopes.Global
+	if not TradeBoardService.validateScope(requestedScope) then
 		return { ok = false, err = "bad_scope" }
 	end
+	local scope = TradeBoardService.scopeFor(userId, requestedScope)
 
 	-- Per-poster limits, per scope: 3 free ads on this server AND 3 globally,
 	-- plus whatever headroom the player bought. Bots stay unlimited — throttling
@@ -897,10 +916,10 @@ local function postCore(userId: number, userName: string, payload: any)
 	listing.scope = scope
 
 	local stored = true
-	-- Bots and server-scoped ads both live in this server's memory: a bot only
-	-- exists here, and a server ad is defined as only existing while its poster
-	-- is on this server. Global player ads go to the shared map.
-	if userId < 0 or scope == TradeAdConfig.Scopes.Server then
+	-- Storage follows scope and nothing else. scopeFor has already forced bots to
+	-- server scope, so this single test keeps scope and store in lockstep: a
+	-- memBoard listing is always server-scoped, and vice versa.
+	if TradeBoardService.storesInMemory(scope) then
 		memBoard[id] = listing -- server-local order book, never fails
 	else
 		stored = pcall(function()

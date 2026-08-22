@@ -196,5 +196,32 @@ return {
 			truthy(not TradeAdRules.canPost(limit, 0), "server slots full blocks another server ad")
 			truthy(TradeAdRules.canPost(0, 0), "global slots untouched by server ads")
 		end,
+
+		-- Scope means REACH. A memBoard listing reaches exactly one server, so
+		-- anything routed there must be server-scoped or the global tab starts
+		-- advertising ads no other server can see. This locks the two together:
+		-- if someone later lets a bot post as global, or routes a global ad into
+		-- memory, one of these fails loudly.
+		["post: scope and store can never disagree"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local Server, Global = TradeAdConfig.Scopes.Server, TradeAdConfig.Scopes.Global
+
+			-- bots live only in this server's memory, so they are server-scoped
+			-- no matter what scope the caller asked for
+			eq(TradeBoardService.scopeFor(-42, Global), Server, "bot forced to server scope")
+			eq(TradeBoardService.scopeFor(-42, Server), Server, "bot stays server scope")
+
+			-- players keep the scope they chose
+			eq(TradeBoardService.scopeFor(7, Global), Global, "player global respected")
+			eq(TradeBoardService.scopeFor(7, Server), Server, "player server respected")
+
+			-- and the storage decision is a pure function of scope
+			truthy(TradeBoardService.storesInMemory(Server), "server scope stored in memory")
+			truthy(not TradeBoardService.storesInMemory(Global), "global scope stored in shared map")
+			truthy(
+				TradeBoardService.storesInMemory(TradeBoardService.scopeFor(-42, Global)),
+				"bot ad always lands in memory"
+			)
+		end,
 	},
 }
