@@ -347,5 +347,44 @@ return {
 			local bought = { boostTier = 2, bumpedAt = 1, id = "b" }
 			truthy(TradeAdRules.order(bought, pass), "featured outranks the priority pass")
 		end,
+
+		-- perksFor is the single shape both stamp sites (postCore, and the
+		-- re-stamp in refreshPresenceExpiry) call, so they can't drift into
+		-- different field names. This is the coverage that actually exercises
+		-- Task 6's new code -- the two order() tests above only re-exercise
+		-- Task 2's ordering.
+		["perksFor: pass-holder profile yields true for the field they hold"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local perks = TradeBoardService.perksFor({ AdPerks = { priority = true, duration = false } })
+			eq(perks.priority, true, "priority")
+			eq(perks.duration, false, "duration")
+		end,
+
+		["perksFor: un-migrated profile (no AdPerks field) yields false, never nil"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local perks = TradeBoardService.perksFor({})
+			eq(perks.priority, false, "priority")
+			eq(perks.duration, false, "duration")
+		end,
+
+		["perksFor: nil profile (bot, or profile not loaded) yields false, never nil"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local perks = TradeBoardService.perksFor(nil)
+			eq(perks.priority, false, "priority")
+			eq(perks.duration, false, "duration")
+		end,
+
+		["perksFor: same shape (exact field names) across every input"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local cases = {
+				TradeBoardService.perksFor({ AdPerks = { priority = true, duration = true } }),
+				TradeBoardService.perksFor({}),
+				TradeBoardService.perksFor(nil),
+			}
+			for _, perks in cases do
+				truthy(perks.priority == true or perks.priority == false, "priority is a boolean, never nil")
+				truthy(perks.duration == true or perks.duration == false, "duration is a boolean, never nil")
+			end
+		end,
 	},
 }

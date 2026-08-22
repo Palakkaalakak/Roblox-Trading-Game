@@ -797,6 +797,19 @@ function TradeBoardService.countOpenFor(userId: number, scope: string): number
 	return TradeBoardService.countOpenIn(TradeBoardService.rawOpenListings(), userId, scope)
 end
 
+-- Pure shape helper for the perks stamped onto a listing. Both stamp sites
+-- (postCore at post time, refreshPresenceExpiry's re-stamp) call this so they
+-- can never drift into different field names or shapes. Never returns nil for
+-- either field -- TradeAdRules.effectiveTier reads listing.perks.priority
+-- directly, and a nil there (vs. false) would be a silent shape bug.
+function TradeBoardService.perksFor(profile: any): { priority: boolean, duration: boolean }
+	local perks = profile and profile.AdPerks
+	return {
+		priority = (perks and perks.priority) == true,
+		duration = (perks and perks.duration) == true,
+	}
+end
+
 local function postCore(userId: number, userName: string, payload: any)
 	if type(payload) ~= "table" then
 		return { ok = false, err = "bad_args" }
@@ -815,10 +828,11 @@ local function postCore(userId: number, userName: string, payload: any)
 	-- The poster is by definition online here (they just called the remote), so
 	-- resolving through Players is enough -- DataService has no by-userId
 	-- profile lookup, and adding one for this would be dead weight.
+	local posterProfile: any = nil
 	if userId > 0 then
 		local posterPlayer = Players:GetPlayerByUserId(userId)
-		local profile = posterPlayer and DataService.getProfile(posterPlayer) or nil
-		local extraSlots = (profile and profile.TradeAds and profile.TradeAds.extraSlots) or 0
+		posterProfile = posterPlayer and DataService.getProfile(posterPlayer) or nil
+		local extraSlots = (posterProfile and posterProfile.TradeAds and posterProfile.TradeAds.extraSlots) or 0
 		if not TradeAdRules.canPost(TradeBoardService.countOpenFor(userId, scope), extraSlots) then
 			return { ok = false, err = "ad_slots_full" }
 		end
@@ -947,16 +961,10 @@ local function postCore(userId: number, userName: string, payload: any)
 
 	-- Snapshot the poster's pass perks onto the ad. Sorting runs on servers the
 	-- poster is not in, so there is nobody to ask about pass ownership there;
-	-- the answer has to travel with the listing. Re-resolved here (rather than
-	-- reused from the slot-limit check above) because that lookup is scoped to
-	-- its own `if userId > 0` block and bots (userId <= 0) still need perks = false.
-	local posterPlayer = userId > 0 and Players:GetPlayerByUserId(userId) or nil
-	local profile = posterPlayer and DataService.getProfile(posterPlayer) or nil
-	local perks = (profile and profile.AdPerks) or nil
-	listing.perks = {
-		priority = (perks and perks.priority) == true,
-		duration = (perks and perks.duration) == true,
-	}
+	-- the answer has to travel with the listing. Reuses posterProfile from the
+	-- slot-limit check above (nil for bots/unloaded profiles, which is fine --
+	-- perksFor treats nil as no perks) instead of looking the profile up again.
+	listing.perks = TradeBoardService.perksFor(posterProfile)
 
 	local stored = true
 	-- Storage follows scope and nothing else. scopeFor has already forced bots to
@@ -1728,8 +1736,8 @@ function TradeBoardService.refreshPresenceExpiry()
 				-- this server -- that is the filter that got us here.
 				local posterHere = Players:GetPlayerByUserId(live.posterId)
 				local prof = posterHere and DataService.getProfile(posterHere) or nil
-				if prof and prof.AdPerks then
-					live.perks = { priority = prof.AdPerks.priority == true, duration = prof.AdPerks.duration == true }
+				if prof then
+					live.perks = TradeBoardService.perksFor(prof)
 				end
 				live.v += 1
 				return live
