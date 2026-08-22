@@ -822,44 +822,29 @@ end
 -- StarterGranted separates an established profile from one that has not been
 -- given anything yet: a brand-new profile holds nothing from before the reset
 -- and must not be cleared out from under StarterService.
--- The actual wipe, shared by the server-wide reset (applyResetToProfile,
--- gated on the global generation below) and a single-player debug reset
--- (wipeProfileEconomyFields, called directly with no generation involved).
--- The starter grant, unique-craft offers and milestone/goal claims are
--- ONE-TIME flags gating something the wipe just destroyed. Left alone they
--- do not become correct again -- they become permanently stuck: no starter
--- bundle ever again, no unique-craft offer ever regenerates for that slot,
--- and a milestone reward already claimed against items that no longer exist
--- can never be claimed again. Purchased permanents are the one thing this
--- does NOT touch: UniqueCraftSlots was bought with gems, and gems are
--- untouched by a reset, so the slot stays bought.
-local function wipeProfileEconomyFields(profile: any)
-	profile.Inventory = {}
-	profile.StarterGranted = false
-	profile.StarterGrantId = ""
-	profile.UniqueCrafts = {}
-	profile.UniqueCraftNextAt = {}
-	profile.Crafting = nil
-end
-
 function EconomyService.applyResetToProfile(profile: any, gen: number): boolean
 	if (tonumber(profile.EconomyGen) or 0) == gen then
 		return false
 	end
 	if profile.StarterGranted then
-		wipeProfileEconomyFields(profile)
+		profile.Inventory = {}
+		-- The starter grant, unique-craft offers and milestone/goal claims are
+		-- ONE-TIME flags gating something the wipe just destroyed. Left alone
+		-- they do not become correct again -- they become permanently stuck:
+		-- no starter bundle ever again, no unique-craft offer ever regenerates
+		-- for that slot, and a milestone reward already claimed against items
+		-- that no longer exist can never be claimed again after a future wipe.
+		-- Purchased permanents are the one thing this does NOT touch:
+		-- UniqueCraftSlots was bought with gems, and gems are untouched by a
+		-- reset, so the slot stays bought.
+		profile.StarterGranted = false
+		profile.StarterGrantId = ""
+		profile.UniqueCrafts = {}
+		profile.UniqueCraftNextAt = {}
+		profile.Crafting = nil
 	end
 	profile.EconomyGen = gen
 	return true
-end
-
--- Debug/admin only: wipe ONE player's own progress right now, independent of
--- the server-wide generation. Does not touch reserves (a full reset restocks
--- every item's reserve; this destroys only what one player is holding, the
--- same as any other sink) and does not touch gems (same rule as the
--- server-wide reset -- gems only ever enter via ads/Robux).
-function EconomyService.debugWipePlayer(profile: any)
-	wipeProfileEconomyFields(profile)
 end
 
 function EconomyService.Init()
@@ -943,37 +928,46 @@ function EconomyService.Start()
 			if profile then
 				if EconomyService.applyResetToProfile(profile, gen) then
 					InventoryService.pushState(other)
-					LeaderboardService.clearInventoryScoresFor(other)
+					LeaderboardService.clearInventoryScoresFor(other.UserId)
 					wiped += 1
 				end
 			end
 		end
+
+		-- EVERYONE, not just who's online right now. A player who joined once
+		-- and never came back still has a durable profile record, and it was
+		-- sitting there holding pre-reset stacks and a pre-reset leaderboard
+		-- row until they next logged in -- which for most of them is never.
+		-- Reached directly through DataStore (DataService.wipeOfflineProfile),
+		-- the same safe detached-write pattern the offline-mailbox debit
+		-- already uses: peek the lock, then re-check it INSIDE the CAS, because
+		-- they can join a server in the gap between the two.
+		local wipedOffline, offlineSkipped = 0, 0
+		for _, userId in DataService.allSeenUserIds() do
+			if Players:GetPlayerByUserId(userId) == nil then -- not connected to THIS server
+				local ok2, err2 = DataService.wipeOfflineProfile(userId, function(data)
+					return EconomyService.applyResetToProfile(data, gen)
+				end)
+				if ok2 then
+					LeaderboardService.clearInventoryScoresFor(userId)
+					wipedOffline += 1
+				elseif err2 ~= "loaded_here" and err2 ~= "no_profile" then
+					-- "busy" (connected to a DIFFERENT server right now) is the
+					-- one real miss: that player's OWN server will catch them
+					-- on their next reconnect via the ProfileLoaded generation
+					-- check, same as any player who was never touched here
+					offlineSkipped += 1
+				end
+			end
+		end
+
 		-- other servers need the new generation, or their players keep theirs
 		StoreAdapters.publish(EconomyConfig.StatsBroadcastTopic, { resetGen = gen })
-		AnalyticsService.log("admin_reset_economy", { by = player.UserId, reset = reset, wiped = wiped, gen = gen })
-		return { ok = true, reset = reset, failed = failed, wiped = wiped }
-	end)
-
-	-- Debug/admin only: wipe the CALLER's own progress, right now, without
-	-- touching the server-wide economy -- reserves stay put and no other
-	-- player is affected. For "let me retest from zero" without taking
-	-- everyone else's economy down with it, the way AdminResetEconomy does.
-	Net.bindFunction("DebugResetMyProgress", function(player)
-		if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
-			return { ok = false, err = "not_admin" }
-		end
-		local DataService = require(script.Parent.DataService) :: any
-		local profile = DataService.getProfile(player)
-		if profile == nil then
-			return { ok = false, err = "loading" }
-		end
-		EconomyService.debugWipePlayer(profile)
-		local InventoryService = require(script.Parent.InventoryService) :: any
-		InventoryService.pushState(player)
-		local LeaderboardService = require(script.Parent.LeaderboardService) :: any
-		LeaderboardService.clearInventoryScoresFor(player)
-		AnalyticsService.log("debug_reset_my_progress", { userId = player.UserId })
-		return { ok = true }
+		AnalyticsService.log("admin_reset_economy", {
+			by = player.UserId, reset = reset, wiped = wiped, wipedOffline = wipedOffline,
+			offlineSkipped = offlineSkipped, gen = gen,
+		})
+		return { ok = true, reset = reset, failed = failed, wiped = wiped + wipedOffline }
 	end)
 
 	-- remote: batch stat fetch
@@ -999,7 +993,7 @@ function EconomyService.Start()
 	DataServiceRef.ProfileLoaded:Connect(function(player, data)
 		if EconomyService.applyResetToProfile(data, resetGen) then
 			local LeaderboardService = require(script.Parent.LeaderboardService) :: any
-			LeaderboardService.clearInventoryScoresFor(player)
+			LeaderboardService.clearInventoryScoresFor(player.UserId)
 		end
 	end)
 
@@ -1018,7 +1012,7 @@ function EconomyService.Start()
 				local profile = DataService.getProfile(other)
 				if profile and EconomyService.applyResetToProfile(profile, resetGen) then
 					InventoryService.pushState(other)
-					LeaderboardService.clearInventoryScoresFor(other)
+					LeaderboardService.clearInventoryScoresFor(other.UserId)
 				end
 			end
 		end

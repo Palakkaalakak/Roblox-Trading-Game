@@ -140,9 +140,9 @@ end
 -- Called for every wiped player so "N in existence" style claims hold for
 -- leaderboards too: portfolio value and rarest are both read from Inventory,
 -- so both go; trades is lifetime activity, not current holdings, and survives.
-function LeaderboardService.clearInventoryScoresFor(player: Player)
+function LeaderboardService.clearInventoryScoresFor(userId: number)
 	local window = currentWindow(os.time())
-	local key = tostring(player.UserId)
+	local key = tostring(userId)
 	for _, board in LeaderboardConfig.Boards do
 		if board.id == "portfolio" or board.id == "rarest" then
 			for _, scope in { "alltime", "weekly" } do

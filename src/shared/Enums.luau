@@ -102,7 +102,6 @@ local Enums = {
 		"GetFreeGems", -- () -> {ok, unlocked, players, target, reward, remaining, cooldown, available}
 		"WatchAd", -- () -> {ok, err?} — plays a rewarded video; the gems arrive via ProcessReceipt
 		"AdminResetEconomy", -- () -> {ok, reset} — admin only: every item back to full reserve
-		"DebugResetMyProgress", -- () -> {ok, err?} — admin only: wipes the CALLER's own inventory/progress/leaderboard rows, no one else affected
 		"DebugBatchRoll", -- (rarity, count) -> {ok, granted, tally, err?} — admin only: N rolls at one rarity
 		"GetBooths", -- () -> {ok, booths, yours?, skins, owned} — plaza storefronts
 		"ClaimBooth", -- (boothId) -> {ok, err?} — first-come, released on leave

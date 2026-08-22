@@ -31,6 +31,7 @@ local sessions: { [number]: any } = {} -- userId -> Session
 local loadedPlayers: { [number]: boolean } = {}
 local seenCache: { [string]: any } = {} -- userId(string) -> {name, lastSeen}
 local saveState: { [number]: { lastAt: number, pending: boolean } } = {} -- saveNow coalescing
+local refreshSeenCache: (force: boolean?) -> () -- forward-declared: allSeenUserIds (below) calls this before its definition later in the file
 
 local function template()
 	return {
@@ -213,6 +214,77 @@ function DataService.debitOffline(
 	return true, nil
 end
 
+-- Every userId that has EVER joined, from the seen directory -- the only
+-- durable enumeration of "everyone" this service has. A player who joined
+-- once and never came back still has a profile record; this is what makes
+-- them reachable for something like an admin reset without waiting for them
+-- to log back in.
+function DataService.allSeenUserIds(): { number }
+	refreshSeenCache(true)
+	local ids = {}
+	for key in seenCache do
+		local id = tonumber(key)
+		if id then
+			table.insert(ids, id)
+		end
+	end
+	return ids
+end
+
+-- Mutate a profile that is NOT loaded on this server, in place, durably --
+-- same shape and same safety as debitOffline (peek, then re-check the lock
+-- INSIDE the CAS transform, because they may have joined a server between
+-- the peek and the write). `transform` receives the migrated Data table and
+-- edits it directly; returning false from it aborts the write (used when the
+-- transform decides there's nothing to do).
+--
+-- Returns (true) on a write, (false, "loaded_here") if this server already
+-- holds their session (use the normal in-memory path instead), (false,
+-- "busy") if locked by another server, (false, "no_profile") if the seen
+-- directory named someone who was never actually saved, or (false,
+-- "store_error").
+function DataService.wipeOfflineProfile(userId: number, transform: (data: any) -> boolean?): (boolean, string?)
+	if loadedPlayers[userId] then
+		return false, "loaded_here"
+	end
+	local key = profileKey(userId)
+	local record = profileStore:peek(key)
+	local now = os.time()
+	if record and record.Lock and record.Lock.expiry and record.Lock.expiry > now then
+		return false, "busy"
+	end
+	if record == nil or record.Data == nil then
+		return false, "no_profile"
+	end
+
+	local outcome: string? = nil
+	local ok = profileStore:updateDetached(key, function(old)
+		if old == nil or old.Data == nil then
+			outcome = "no_profile"
+			return nil
+		end
+		if old.Lock and old.Lock.expiry and old.Lock.expiry > os.time() then
+			outcome = "busy"
+			return nil
+		end
+		local data = migrate(old.Data)
+		if transform(data) == false then
+			outcome = nil -- transform declined; not an error, just nothing to write
+			return nil
+		end
+		old.Data = data
+		return old
+	end)
+
+	if not ok then
+		return false, "store_error"
+	end
+	if outcome ~= nil then
+		return false, outcome
+	end
+	return true, nil
+end
+
 --------------------------------------------------------------------------------
 -- Mailbox
 --------------------------------------------------------------------------------
@@ -329,7 +401,7 @@ end
 local seenCacheAt = 0
 local SEEN_CACHE_TTL = 10
 
-local function refreshSeenCache(force: boolean?)
+function refreshSeenCache(force: boolean?)
 	if not force and os.clock() - seenCacheAt < SEEN_CACHE_TTL then
 		return -- fresh enough; keeps SearchPlayers off the DataStore hot path
 	end
