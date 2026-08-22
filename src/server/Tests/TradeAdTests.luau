@@ -332,5 +332,20 @@ return {
 				"online poster, open, inside the refresh window: included"
 			)
 		end,
+
+		-- Passes are stamped onto the listing at post time rather than looked up
+		-- at sort time, because sorting happens on servers where the poster is
+		-- absent -- there is nobody to ask about pass ownership there.
+		["perks: pass state is stamped on the listing, not looked up when sorting"] = function()
+			local free = { boostTier = 0, bumpedAt = 100, id = "free" }
+			local passHolder = { boostTier = 0, bumpedAt = 50, perks = { priority = true }, id = "pass" }
+			truthy(TradeAdRules.order(passHolder, free), "a pass holder outranks a newer free ad")
+		end,
+
+		["perks: a purchased featured tier still beats a priority pass"] = function()
+			local pass = { boostTier = 0, perks = { priority = true }, bumpedAt = 999, id = "p" }
+			local bought = { boostTier = 2, bumpedAt = 1, id = "b" }
+			truthy(TradeAdRules.order(bought, pass), "featured outranks the priority pass")
+		end,
 	},
 }

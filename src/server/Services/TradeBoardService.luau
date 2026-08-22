@@ -945,6 +945,19 @@ local function postCore(userId: number, userName: string, payload: any)
 	listing.expiresAt = now + (listing.ttlSeconds or EconomyConfig.BoardListingTTLSeconds)
 	listing.scope = scope
 
+	-- Snapshot the poster's pass perks onto the ad. Sorting runs on servers the
+	-- poster is not in, so there is nobody to ask about pass ownership there;
+	-- the answer has to travel with the listing. Re-resolved here (rather than
+	-- reused from the slot-limit check above) because that lookup is scoped to
+	-- its own `if userId > 0` block and bots (userId <= 0) still need perks = false.
+	local posterPlayer = userId > 0 and Players:GetPlayerByUserId(userId) or nil
+	local profile = posterPlayer and DataService.getProfile(posterPlayer) or nil
+	local perks = (profile and profile.AdPerks) or nil
+	listing.perks = {
+		priority = (perks and perks.priority) == true,
+		duration = (perks and perks.duration) == true,
+	}
+
 	local stored = true
 	-- Storage follows scope and nothing else. scopeFor has already forced bots to
 	-- server scope, so this single test keeps scope and store in lockstep: a
@@ -1707,6 +1720,16 @@ function TradeBoardService.refreshPresenceExpiry()
 			mutate(l.id, function(live)
 				if not TradeBoardService.applyPresenceRefresh(live, now) then
 					return nil
+				end
+				-- Re-stamp perks so a pass bought after posting still lifts
+				-- already-live ads. Rides the write this refresh is already
+				-- doing -- no extra store write budget spent.
+				-- Safe because this branch only runs for posters present on
+				-- this server -- that is the filter that got us here.
+				local posterHere = Players:GetPlayerByUserId(live.posterId)
+				local prof = posterHere and DataService.getProfile(posterHere) or nil
+				if prof and prof.AdPerks then
+					live.perks = { priority = prof.AdPerks.priority == true, duration = prof.AdPerks.duration == true }
 				end
 				live.v += 1
 				return live

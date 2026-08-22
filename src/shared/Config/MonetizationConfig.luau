@@ -162,8 +162,36 @@ local MonetizationConfig = {
 		},
 
 		-- ── Passes / subscriptions / bundles ─────────────────────────────
-		-- Intentionally empty. Drop entries here when they exist; the shop
-		-- grows a section automatically. Example shapes:
+		-- Priority and duration only -- NOT featured. Only 3 featured slots
+		-- exist per scope; a permanent featured pass would let one player
+		-- squat the pool forever. Payment buys position/duration, never a
+		-- trade action -- posting, browsing, accepting stay free for everyone.
+		{
+			id = "ad_pass_priority",
+			kind = "adperk",
+			section = "🎟 PASSES",
+			name = "Ad Priority Pass",
+			description = "Every trade ad you post sits above the free ads. Forever.",
+			imageId = "rbxassetid://15402880202",
+			productType = "gamepass",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { adPerk = "priority" },
+			sortOrder = 60,
+		},
+		{
+			id = "ad_pass_duration",
+			kind = "adperk",
+			section = "🎟 PASSES",
+			name = "Ad Duration Pass",
+			description = "Your trade ads last a full day and stay up after you leave.",
+			imageId = "rbxassetid://15402892798",
+			productType = "gamepass",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = { adPerk = "duration" },
+			sortOrder = 61,
+		},
+		--
+		-- Example shapes for other kinds still unfilled in this section:
 		--
 		-- {
 		-- 	id = "pass_trader",

@@ -113,6 +113,27 @@ local function grantOffer(player: Player, offer: any, claimId: string): boolean
 	-- Booth grants don't touch the inventory: shelf space and a skin live on the
 	-- profile, not as items. Idempotent by construction — granting an owned skin
 	-- or clamping at MaxSlots is a no-op — so a replayed receipt is safe.
+	-- Ad perk grants flip a profile flag directly -- no inventory delta, no
+	-- escrow. Idempotent: setting an already-true flag is a no-op, so a
+	-- replayed receipt is safe.
+	if offer.grants.adPerk then
+		local prof = DataService.getProfile(player)
+		if prof then
+			prof.AdPerks = prof.AdPerks or { priority = false, duration = false }
+			prof.AdPerks[offer.grants.adPerk] = true
+			task.spawn(function()
+				DataService.saveNow(player)
+			end)
+			AnalyticsService.log("offer_granted", {
+				userId = player.UserId,
+				offerId = offer.id,
+				adPerk = offer.grants.adPerk,
+				claimId = claimId,
+			})
+		end
+		return prof ~= nil
+	end
+
 	if offer.boothSlot or offer.boothSkin then
 		local booth = require(script.Parent.BoothService)
 		local granted = if offer.boothSkin
