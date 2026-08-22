@@ -54,6 +54,14 @@
 -- time window, deterministically — all servers agree with no coordination.
 
 local EventConfig: any = {
+	-- Single source of truth for the batch-craft cap. The client's quantity
+	-- stepper computes its max from stock/ingredients and has no reason on
+	-- its own to know the server's limit -- it picked up to whatever stock
+	-- allowed (sometimes thousands), the server correctly rejected anything
+	-- over this with bad_args, and the player saw a bare error with no
+	-- explanation because the UI let them select a number it could never
+	-- accept. Both sides read this one value now.
+	MaxCraftBatch = 100,
 	Events = {
 		--------------------------------------------------------------------
 		-- TIER 3 — the capstone. Burns Artifacts into a true grail.

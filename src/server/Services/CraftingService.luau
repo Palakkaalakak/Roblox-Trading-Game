@@ -755,7 +755,7 @@ local function craftCore(userId: number, eventId: any, rid: any)
 	return { ok = true, output = { itemId = outId, name = recipe.output.name } }
 end
 
-local MAX_CRAFT_BATCH = 100
+local MAX_CRAFT_BATCH = EventConfig.MaxCraftBatch
 
 -- `count` crafts the same recipe repeatedly in ONE call. Clicking a button
 -- three times to make three of a thing is busywork when the inputs are already

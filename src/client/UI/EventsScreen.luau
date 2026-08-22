@@ -800,7 +800,11 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		if maxBatch == math.huge then
 			maxBatch = 1
 		end
-		maxBatch = math.clamp(maxBatch, 0, math.max(1, recipe.output.remaining))
+		-- Stock/ingredients alone can put this past what the server will ever
+		-- accept in one call (MAX_CRAFT_BATCH there) -- without this clamp the
+		-- stepper let a player select a number the server was always going to
+		-- reject as bad_args, with no explanation on screen for why.
+		maxBatch = math.clamp(maxBatch, 0, math.min(EventConfig.MaxCraftBatch, math.max(1, recipe.output.remaining)))
 
 		-- Only worth showing when more than one is actually possible; a stepper
 		-- pinned at 1 is clutter on every row you cannot batch.
