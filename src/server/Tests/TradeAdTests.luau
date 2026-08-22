@@ -176,5 +176,25 @@ return {
 			eq(migrated.AdPerks.duration, false, "duration pass default")
 			eq(migrated.Gems, 10, "existing data survives")
 		end,
+
+		-- Scope decides which store an ad lives in, so an unknown scope must be
+		-- rejected at the door rather than silently defaulting -- a typo that
+		-- routed a global ad into server memory would make it vanish on restart.
+		["post: scope must be one the config knows"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local res = TradeBoardService.validateScope("sideways")
+			truthy(not res, "unknown scope rejected")
+			truthy(TradeBoardService.validateScope(TradeAdConfig.Scopes.Server), "server ok")
+			truthy(TradeBoardService.validateScope(TradeAdConfig.Scopes.Global), "global ok")
+		end,
+
+		-- The limit is per scope, so filling your server slots must not block a
+		-- global post. Players read "3 ads" as 3 of each; making it 3 total
+		-- would silently halve what they think they bought.
+		["post: slot limits count each scope separately"] = function()
+			local limit = TradeAdRules.slotLimit(0)
+			truthy(not TradeAdRules.canPost(limit, 0), "server slots full blocks another server ad")
+			truthy(TradeAdRules.canPost(0, 0), "global slots untouched by server ads")
+		end,
 	},
 }

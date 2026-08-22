@@ -56,6 +56,8 @@ local Enums = require(ReplicatedStorage.Shared.Enums)
 local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local BoothConfig = require(ReplicatedStorage.Shared.Config.BoothConfig)
+local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
+local TradeAdRules = require(ReplicatedStorage.Shared.Util.TradeAdRules)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 
@@ -107,8 +109,11 @@ local function newId(): string
 end
 
 local function mutate(id: string, fn: (any) -> any?): (any?, string?)
-	-- bot listing: in-memory transform. Single Luau thread + no yields in fn
-	-- means this is atomic — same CAS guarantee as UpdateAsync.
+	-- Where the listing ACTUALLY lives decides the transform, never the poster
+	-- id: server-scoped player ads live in memBoard too, so a positive poster
+	-- id is no longer proof of a shared-store listing.
+	-- In-memory transform is atomic: single Luau thread + no yields in fn gives
+	-- the same CAS guarantee as UpdateAsync.
 	local mem = memBoard[id]
 	if mem ~= nil then
 		local new, err = fn(mem)
@@ -724,11 +729,52 @@ end
 -- Posting
 --------------------------------------------------------------------------------
 
+-- Scope routes an ad to a store, so an unrecognised one is a hard error rather
+-- than a default: a global ad misrouted into server memory would disappear at
+-- the next restart with no trace of why.
+function TradeBoardService.validateScope(scope: any): boolean
+	return scope == TradeAdConfig.Scopes.Server or scope == TradeAdConfig.Scopes.Global
+end
+
+-- How many open ads this player already holds in one scope. There is no
+-- by-poster index, so this filters the same scan the board already keeps warm;
+-- posting is rare enough that walking it is cheaper than maintaining an index.
+function TradeBoardService.countOpenFor(userId: number, scope: string): number
+	local n = 0
+	for _, l in TradeBoardService.rawOpenListings() do
+		if l.posterId == userId and l.scope == scope and l.status == "open" then
+			n += 1
+		end
+	end
+	return n
+end
+
 local function postCore(userId: number, userName: string, payload: any)
 	if type(payload) ~= "table" then
 		return { ok = false, err = "bad_args" }
 	end
-	-- no per-poster limits; only a global board cap (soft, from latest scan)
+
+	local scope = payload.scope or TradeAdConfig.Scopes.Global
+	if not TradeBoardService.validateScope(scope) then
+		return { ok = false, err = "bad_scope" }
+	end
+
+	-- Per-poster limits, per scope: 3 free ads on this server AND 3 globally,
+	-- plus whatever headroom the player bought. Bots stay unlimited — throttling
+	-- them would starve the simulated market. Still bounded by the global board
+	-- cap below, which protects the store rather than the player.
+	-- The poster is by definition online here (they just called the remote), so
+	-- resolving through Players is enough -- DataService has no by-userId
+	-- profile lookup, and adding one for this would be dead weight.
+	if userId > 0 then
+		local posterPlayer = Players:GetPlayerByUserId(userId)
+		local profile = posterPlayer and DataService.getProfile(posterPlayer) or nil
+		local extraSlots = (profile and profile.TradeAds and profile.TradeAds.extraSlots) or 0
+		if not TradeAdRules.canPost(TradeBoardService.countOpenFor(userId, scope), extraSlots) then
+			return { ok = false, err = "ad_slots_full" }
+		end
+	end
+
 	if lastKnownCount >= MAX_BOARD_LISTINGS then
 		return { ok = false, err = "board_full" }
 	end
@@ -848,10 +894,14 @@ local function postCore(userId: number, userName: string, payload: any)
 	listing.boostTier = 0
 	listing.bumpedAt = now
 	listing.expiresAt = now + (listing.ttlSeconds or EconomyConfig.BoardListingTTLSeconds)
+	listing.scope = scope
 
 	local stored = true
-	if userId < 0 then
-		memBoard[id] = listing -- bot: server-local order book, never fails
+	-- Bots and server-scoped ads both live in this server's memory: a bot only
+	-- exists here, and a server ad is defined as only existing while its poster
+	-- is on this server. Global player ads go to the shared map.
+	if userId < 0 or scope == TradeAdConfig.Scopes.Server then
+		memBoard[id] = listing -- server-local order book, never fails
 	else
 		stored = pcall(function()
 			board:SetAsync(id, listing, EconomyConfig.BoardListingTTLSeconds + 24 * 3600)
