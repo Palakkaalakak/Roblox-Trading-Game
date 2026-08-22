@@ -822,29 +822,44 @@ end
 -- StarterGranted separates an established profile from one that has not been
 -- given anything yet: a brand-new profile holds nothing from before the reset
 -- and must not be cleared out from under StarterService.
+-- The actual wipe, shared by the server-wide reset (applyResetToProfile,
+-- gated on the global generation below) and a single-player debug reset
+-- (wipeProfileEconomyFields, called directly with no generation involved).
+-- The starter grant, unique-craft offers and milestone/goal claims are
+-- ONE-TIME flags gating something the wipe just destroyed. Left alone they
+-- do not become correct again -- they become permanently stuck: no starter
+-- bundle ever again, no unique-craft offer ever regenerates for that slot,
+-- and a milestone reward already claimed against items that no longer exist
+-- can never be claimed again. Purchased permanents are the one thing this
+-- does NOT touch: UniqueCraftSlots was bought with gems, and gems are
+-- untouched by a reset, so the slot stays bought.
+local function wipeProfileEconomyFields(profile: any)
+	profile.Inventory = {}
+	profile.StarterGranted = false
+	profile.StarterGrantId = ""
+	profile.UniqueCrafts = {}
+	profile.UniqueCraftNextAt = {}
+	profile.Crafting = nil
+end
+
 function EconomyService.applyResetToProfile(profile: any, gen: number): boolean
 	if (tonumber(profile.EconomyGen) or 0) == gen then
 		return false
 	end
 	if profile.StarterGranted then
-		profile.Inventory = {}
-		-- The starter grant, unique-craft offers and milestone/goal claims are
-		-- ONE-TIME flags gating something the wipe just destroyed. Left alone
-		-- they do not become correct again -- they become permanently stuck:
-		-- no starter bundle ever again, no unique-craft offer ever regenerates
-		-- for that slot, and a milestone reward already claimed against items
-		-- that no longer exist can never be claimed again after a future wipe.
-		-- Purchased permanents are the one thing this does NOT touch:
-		-- UniqueCraftSlots was bought with gems, and gems are untouched by a
-		-- reset, so the slot stays bought.
-		profile.StarterGranted = false
-		profile.StarterGrantId = ""
-		profile.UniqueCrafts = {}
-		profile.UniqueCraftNextAt = {}
-		profile.Crafting = nil
+		wipeProfileEconomyFields(profile)
 	end
 	profile.EconomyGen = gen
 	return true
+end
+
+-- Debug/admin only: wipe ONE player's own progress right now, independent of
+-- the server-wide generation. Does not touch reserves (a full reset restocks
+-- every item's reserve; this destroys only what one player is holding, the
+-- same as any other sink) and does not touch gems (same rule as the
+-- server-wide reset -- gems only ever enter via ads/Robux).
+function EconomyService.debugWipePlayer(profile: any)
+	wipeProfileEconomyFields(profile)
 end
 
 function EconomyService.Init()
@@ -937,6 +952,28 @@ function EconomyService.Start()
 		StoreAdapters.publish(EconomyConfig.StatsBroadcastTopic, { resetGen = gen })
 		AnalyticsService.log("admin_reset_economy", { by = player.UserId, reset = reset, wiped = wiped, gen = gen })
 		return { ok = true, reset = reset, failed = failed, wiped = wiped }
+	end)
+
+	-- Debug/admin only: wipe the CALLER's own progress, right now, without
+	-- touching the server-wide economy -- reserves stay put and no other
+	-- player is affected. For "let me retest from zero" without taking
+	-- everyone else's economy down with it, the way AdminResetEconomy does.
+	Net.bindFunction("DebugResetMyProgress", function(player)
+		if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
+			return { ok = false, err = "not_admin" }
+		end
+		local DataService = require(script.Parent.DataService) :: any
+		local profile = DataService.getProfile(player)
+		if profile == nil then
+			return { ok = false, err = "loading" }
+		end
+		EconomyService.debugWipePlayer(profile)
+		local InventoryService = require(script.Parent.InventoryService) :: any
+		InventoryService.pushState(player)
+		local LeaderboardService = require(script.Parent.LeaderboardService) :: any
+		LeaderboardService.clearInventoryScoresFor(player)
+		AnalyticsService.log("debug_reset_my_progress", { userId = player.UserId })
+		return { ok = true }
 	end)
 
 	-- remote: batch stat fetch

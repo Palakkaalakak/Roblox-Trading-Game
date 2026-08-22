@@ -750,10 +750,16 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		local bottomColor = Theme.TextDim
 		for _, input in recipe.inputs do
 			if input.from and input.owned < input.count then
+				-- "at %s" reads as a physical place to walk to. Every station is
+				-- a section of THIS SAME panel (see the header rows above/below
+				-- this one, or the Recipes tab, which always lists everything
+				-- regardless of rotation) -- there is no second location, and a
+				-- player who went looking for one found nothing, which is what
+				-- "Artisan Bench doesn't exist" meant.
 				if input.from.availableNow then
-					bottomText = ("Need %s? Craft it at %s."):format(input.name, input.from.name)
+					bottomText = ("Need %s? Craft it under %s (Recipes tab)."):format(input.name, input.from.name)
 				else
-					bottomText = ("Need %s? %s makes it — not this rotation, back in %s.")
+					bottomText = ("Need %s? %s makes it (Recipes tab) — not this rotation, back in %s.")
 						:format(input.name, input.from.name, timeText(input.from.rotatesAt))
 				end
 				bottomColor = Theme.Warn

@@ -238,6 +238,67 @@ local function buildDevBatchRoll(panel: Frame, showReveal: (any) -> ())
 			end
 		end)
 	end)
+
+	-- Separate sibling frame, not a third row of the strip above: the strip's
+	-- rows are all scale-positioned against ITS OWN height, and adding a row
+	-- there means rescaling every existing y-coordinate in it. Sitting just
+	-- below it costs nothing and touches none of that.
+	local resetRow = Instance.new("Frame")
+	resetRow.Name = "DevResetMyProgress"
+	resetRow.BackgroundTransparency = 1
+	resetRow.Position = UDim2.fromScale(0.53, 0.11)
+	resetRow.Size = UDim2.fromScale(0.4, 0.05)
+	resetRow.ZIndex = 5
+	resetRow.Parent = panel
+
+	local resetBtn = Instance.new("TextButton")
+	resetBtn.Name = "Go"
+	resetBtn.Size = UDim2.fromScale(0.4, 1)
+	resetBtn.BackgroundColor3 = Theme.Bad
+	resetBtn.Font = Theme.Font
+	resetBtn.TextSize = 12
+	resetBtn.TextColor3 = Theme.TextPrimary
+	resetBtn.AutoButtonColor = true
+	resetBtn.ZIndex = 5
+	resetBtn.Text = "RESET MY PROGRESS"
+	resetBtn.Parent = resetRow
+	local resetCorner = Instance.new("UICorner")
+	resetCorner.CornerRadius = Theme.CornerSmall
+	resetCorner.Parent = resetBtn
+	Instance.new("UITextSizeConstraint", resetBtn).MaxTextSize = 12
+
+	local resetResult = Instance.new("TextLabel")
+	resetResult.Name = "Result"
+	resetResult.BackgroundTransparency = 1
+	resetResult.Position = UDim2.fromScale(0.43, 0)
+	resetResult.Size = UDim2.fromScale(0.57, 1)
+	resetResult.Font = Theme.FontLight
+	resetResult.TextSize = 11
+	resetResult.TextColor3 = Theme.TextDim
+	resetResult.TextXAlignment = Enum.TextXAlignment.Left
+	resetResult.TextTruncate = Enum.TextTruncate.AtEnd
+	resetResult.ZIndex = 5
+	resetResult.Text = "wipes YOUR inventory, progress, board rows — no one else"
+	resetResult.Parent = resetRow
+	Instance.new("UITextSizeConstraint", resetResult).MaxTextSize = 11
+
+	resetBtn.Activated:Connect(function()
+		resetResult.Text = "Resetting…"
+		resetResult.TextColor3 = Theme.TextDim
+		task.spawn(function()
+			local res = Net.invoke("DebugResetMyProgress")
+			if res and res.ok then
+				resetResult.Text = "Done. Your progress is reset."
+				resetResult.TextColor3 = Theme.Good
+			else
+				resetResult.Text = ({
+					not_admin = "Admin only.",
+					loading = "Profile still loading.",
+				})[res and res.err] or ("Failed: " .. tostring(res and res.err))
+				resetResult.TextColor3 = Theme.Bad
+			end
+		end)
+	end)
 end
 
 function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, color: Color3) -> ())
