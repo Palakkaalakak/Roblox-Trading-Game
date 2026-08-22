@@ -223,5 +223,35 @@ return {
 				"bot ad always lands in memory"
 			)
 		end,
+
+		-- The slot limit is only worth what the count is worth, and players BUY
+		-- extra slots -- a count that conflates scopes, or drifts, sells nothing.
+		-- Server scope is counted exactly from memBoard, so this pins the rule:
+		-- same poster, both scopes, and each scope must see only its own ads.
+		["post: countOpenIn counts one poster's live ads per scope"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local Server, Global = TradeAdConfig.Scopes.Server, TradeAdConfig.Scopes.Global
+			local now = 1000
+			local me, other = 7, 8
+			local fixture = {
+				a = { posterId = me, scope = Server, status = "open", expiresAt = now + 60 },
+				b = { posterId = me, scope = Server, status = "open", expiresAt = now + 60 },
+				c = { posterId = me, scope = Global, status = "open", expiresAt = now + 60 },
+				-- must not count: someone else's, closed, and expired
+				d = { posterId = other, scope = Server, status = "open", expiresAt = now + 60 },
+				e = { posterId = me, scope = Server, status = "cancelled", expiresAt = now + 60 },
+				f = { posterId = me, scope = Server, status = "open", expiresAt = now - 1 },
+			}
+
+			-- fails loudly if the scopes were ever conflated: a combined count
+			-- would read 3 here, not 2 and 1
+			eq(TradeBoardService.countOpenIn(fixture, me, Server, now), 2, "server ads counted exactly")
+			eq(TradeBoardService.countOpenIn(fixture, me, Global, now), 1, "global ads counted separately")
+			eq(TradeBoardService.countOpenIn(fixture, other, Server, now), 1, "other poster counted alone")
+			eq(TradeBoardService.countOpenIn(fixture, 999, Server, now), 0, "poster with no ads")
+
+			-- server scope reads memBoard directly, so it is never capped
+			truthy(TradeBoardService.storesInMemory(Server), "server count source is memory")
+		end,
 	},
 }

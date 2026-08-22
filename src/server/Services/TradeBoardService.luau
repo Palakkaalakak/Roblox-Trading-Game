@@ -90,7 +90,10 @@ local SCAN_CAP = 2_000 -- how deep routine scans page (newest-first)
 local TradeBoardService = {}
 
 local board: any -- MemoryStore map (player listings only)
-local memBoard: { [string]: any } = {} -- bot listings, id -> record
+-- id -> record. Every server-scoped listing on this server: bots (which exist
+-- nowhere else) and players who chose server scope. Complete by construction,
+-- which is what lets countOpenFor count server slots exactly.
+local memBoard: { [string]: any } = {}
 
 -- Per-item order-book index (sell = asks, bulk = bids) serving the Market
 -- tab's reads without touching MemoryStore. Updated incrementally on every
@@ -754,17 +757,44 @@ function TradeBoardService.storesInMemory(scope: string): boolean
 	return scope == TradeAdConfig.Scopes.Server
 end
 
--- How many open ads this player already holds in one scope. There is no
--- by-poster index, so this filters the same scan the board already keeps warm;
--- posting is rare enough that walking it is cheaper than maintaining an index.
-function TradeBoardService.countOpenFor(userId: number, scope: string): number
+-- Count this poster's live ads in one scope out of any collection of listings.
+-- Split out so the counting rule is testable without a store: the callers below
+-- differ only in which collection they can see.
+function TradeBoardService.countOpenIn(listings: any, userId: number, scope: string, now: number?): number
+	local at = now or os.time()
 	local n = 0
-	for _, l in TradeBoardService.rawOpenListings() do
-		if l.posterId == userId and l.scope == scope and l.status == "open" then
+	for _, l in listings do
+		if
+			l ~= nil
+			and l.posterId == userId
+			and l.scope == scope
+			and l.status == "open"
+			and (l.expiresAt == nil or at <= l.expiresAt)
+		then
 			n += 1
 		end
 	end
 	return n
+end
+
+-- How many open ads this player already holds in one scope.
+--
+-- Server scope is EXACT: memBoard is by construction the complete set of
+-- server-scoped listings on this server, so walking it counts every one. It is
+-- a plain in-memory table, so no cap and no store call.
+--
+-- Global scope is BEST-EFFORT above SCAN_CAP: there is no by-poster index and
+-- no cross-server bookkeeping, so it reuses the capped newest-first scan the
+-- board already keeps warm. Past SCAN_CAP a player's oldest global ads fall
+-- outside the window and go uncounted. That error is deliberate and one-way --
+-- an uncounted ad hands the player an extra slot, it never blocks them. Wrongly
+-- denying a slot someone PAID for (see the "+1 Ad Slot" product) is the worse
+-- failure, so the approximation errs toward letting them post.
+function TradeBoardService.countOpenFor(userId: number, scope: string): number
+	if TradeBoardService.storesInMemory(scope) then
+		return TradeBoardService.countOpenIn(memBoard, userId, scope)
+	end
+	return TradeBoardService.countOpenIn(TradeBoardService.rawOpenListings(), userId, scope)
 end
 
 local function postCore(userId: number, userName: string, payload: any)
