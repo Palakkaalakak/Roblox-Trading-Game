@@ -133,6 +133,29 @@ local function pushScores(player: Player)
 	lastWrite[player.UserId] = os.clock()
 end
 
+-- pushScores only ever writes a score > 0 (a fresh 0 is not worth a write),
+-- which means a score that drops TO 0 -- the only way that happens today is
+-- an economy reset wiping every inventory -- leaves the old durable entry
+-- standing forever; nothing ever overwrites it, because nothing ever writes 0.
+-- Called for every wiped player so "N in existence" style claims hold for
+-- leaderboards too: portfolio value and rarest are both read from Inventory,
+-- so both go; trades is lifetime activity, not current holdings, and survives.
+function LeaderboardService.clearInventoryScoresFor(player: Player)
+	local window = currentWindow(os.time())
+	local key = tostring(player.UserId)
+	for _, board in LeaderboardConfig.Boards do
+		if board.id == "portfolio" or board.id == "rarest" then
+			for _, scope in { "alltime", "weekly" } do
+				local name = LeaderboardConfig.storeName(board, scope, window)
+				pcall(function()
+					storeFor(name):RemoveAsync(key)
+				end)
+				readCache[name] = nil
+			end
+		end
+	end
+end
+
 --------------------------------------------------------------------------------
 -- Reads
 --------------------------------------------------------------------------------

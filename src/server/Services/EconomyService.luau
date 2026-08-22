@@ -828,6 +828,20 @@ function EconomyService.applyResetToProfile(profile: any, gen: number): boolean
 	end
 	if profile.StarterGranted then
 		profile.Inventory = {}
+		-- The starter grant, unique-craft offers and milestone/goal claims are
+		-- ONE-TIME flags gating something the wipe just destroyed. Left alone
+		-- they do not become correct again -- they become permanently stuck:
+		-- no starter bundle ever again, no unique-craft offer ever regenerates
+		-- for that slot, and a milestone reward already claimed against items
+		-- that no longer exist can never be claimed again after a future wipe.
+		-- Purchased permanents are the one thing this does NOT touch:
+		-- UniqueCraftSlots was bought with gems, and gems are untouched by a
+		-- reset, so the slot stays bought.
+		profile.StarterGranted = false
+		profile.StarterGrantId = ""
+		profile.UniqueCrafts = {}
+		profile.UniqueCraftNextAt = {}
+		profile.Crafting = nil
 	end
 	profile.EconomyGen = gen
 	return true
@@ -907,12 +921,14 @@ function EconomyService.Start()
 		local gen = bumpResetGeneration()
 		local DataService = require(script.Parent.DataService) :: any
 		local InventoryService = require(script.Parent.InventoryService) :: any
+		local LeaderboardService = require(script.Parent.LeaderboardService) :: any
 		local wiped = 0
 		for _, other in Players:GetPlayers() do
 			local profile = DataService.getProfile(other)
 			if profile then
 				if EconomyService.applyResetToProfile(profile, gen) then
 					InventoryService.pushState(other)
+					LeaderboardService.clearInventoryScoresFor(other)
 					wiped += 1
 				end
 			end
@@ -943,8 +959,11 @@ function EconomyService.Start()
 	-- carries the previous generation, so the stacks it holds came from an
 	-- economy that no longer exists.
 	local DataServiceRef = require(script.Parent.DataService) :: any
-	DataServiceRef.ProfileLoaded:Connect(function(_player, data)
-		EconomyService.applyResetToProfile(data, resetGen)
+	DataServiceRef.ProfileLoaded:Connect(function(player, data)
+		if EconomyService.applyResetToProfile(data, resetGen) then
+			local LeaderboardService = require(script.Parent.LeaderboardService) :: any
+			LeaderboardService.clearInventoryScoresFor(player)
+		end
 	end)
 
 	-- cross-server economy deltas: invalidate + push
@@ -957,10 +976,12 @@ function EconomyService.Start()
 			resetGen = broadcastGen
 			local DataService = require(script.Parent.DataService) :: any
 			local InventoryService = require(script.Parent.InventoryService) :: any
+			local LeaderboardService = require(script.Parent.LeaderboardService) :: any
 			for _, other in Players:GetPlayers() do
 				local profile = DataService.getProfile(other)
 				if profile and EconomyService.applyResetToProfile(profile, resetGen) then
 					InventoryService.pushState(other)
+					LeaderboardService.clearInventoryScoresFor(other)
 				end
 			end
 		end

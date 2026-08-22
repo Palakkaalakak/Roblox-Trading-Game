@@ -150,6 +150,9 @@ local function mockOrderedStore(name: string)
 	function api.GetAsync(_, key: string): number?
 		return store[key]
 	end
+	function api.RemoveAsync(_, key: string)
+		store[key] = nil
+	end
 	-- top `count` entries, highest score first; ties broken by key for
 	-- determinism so a page never reorders between reads
 	function api.GetTopAsync(_, count: number): { { key: string, value: number } }
@@ -316,6 +319,11 @@ function StoreAdapters.orderedStore(name: string)
 			return store:GetAsync(key)
 		end)
 		return ok and v or nil
+	end
+	function api.RemoveAsync(_, key: string)
+		withRetry("Ordered RemoveAsync " .. name, 3, function()
+			store:RemoveAsync(key)
+		end)
 	end
 	function api.GetTopAsync(_, count: number): { { key: string, value: number } }
 		local ok, page = withRetry("Ordered GetSorted " .. name, 3, function()

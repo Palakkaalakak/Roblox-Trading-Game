@@ -7,6 +7,7 @@ local WeightedDraw = require(ReplicatedStorage.Shared.Util.WeightedDraw)
 local RollingAverage = require(ReplicatedStorage.Shared.Util.RollingAverage)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local EconomyService = require(script.Parent.Parent.Services.EconomyService)
+local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 
 local function eq(a: any, b: any, label: string?)
 	if a ~= b then
@@ -21,11 +22,48 @@ return {
 		-- survive that, the cap is mintable a second time and players end up
 		-- with stacks larger than the item's total supply -- which is exactly
 		-- what "N in existence" claims cannot happen.
-		["reset clears held copies of an established profile"] = function()
-			local profile = { StarterGranted = true, Inventory = { itm_a = 5 }, EconomyGen = 0 }
+		["reset clears held copies AND every one-time gate they unlock"] = function()
+			-- The starter grant, unique-craft offers and milestone claims are
+			-- one-time flags gating something the wipe just destroyed; a reset
+			-- that leaves them alone leaves them permanently stuck (never
+			-- re-grantable) rather than correct again.
+			local profile = {
+				StarterGranted = true,
+				StarterGrantId = "grant_123",
+				Inventory = { itm_a = 5 },
+				UniqueCrafts = { [1] = { outputItemId = "itm_old" } },
+				UniqueCraftNextAt = { [1] = 999 },
+				UniqueCraftSlots = 3, -- bought with gems; gems untouched by a reset
+				Crafting = { count = 40, claimed = { ["1"] = true } },
+				EconomyGen = 0,
+			}
 			eq(EconomyService.applyResetToProfile(profile, 1), true, "profile changed")
 			eq(next(profile.Inventory), nil, "held copies must be gone")
+			eq(profile.StarterGranted, false, "starter grant must re-open")
+			eq(profile.StarterGrantId, "", "old grant id cleared")
+			eq(next(profile.UniqueCrafts), nil, "stale unique-craft offers cleared")
+			eq(next(profile.UniqueCraftNextAt), nil, "stale cooldowns cleared")
+			eq(profile.Crafting, nil, "milestone/goal progress cleared")
+			eq(profile.UniqueCraftSlots, 3, "a slot bought with gems is not economy state")
 			eq(profile.EconomyGen, 1, "generation stamped")
+		end,
+
+		-- LeaderboardService.clearInventoryScoresFor calls RemoveAsync on this
+		-- adapter to erase a ghost score post-wipe. The wrapper only exposed
+		-- SetAsync/GetAsync/GetTopAsync -- RemoveAsync silently threw inside a
+		-- pcall, so the ghost score never actually cleared. Pin the fix here as
+		-- the fast check; the real end-to-end proof still needs a live reset.
+		["ordered store RemoveAsync actually removes"] = function()
+			StoreAdapters.init() -- no-op if the live server already called it; needed when this test runs via its own fresh require
+			local store = StoreAdapters.orderedStore("__test_ordered_remove")
+			store:SetAsync("k1", 500)
+			eq(store:GetAsync("k1"), 500, "set landed")
+			store:RemoveAsync("k1")
+			eq(store:GetAsync("k1"), nil, "removed key reads nil")
+			local top = store:GetTopAsync(10)
+			for _, row in top do
+				assert(row.key ~= "k1", "removed key must not appear in GetTopAsync")
+			end
 		end,
 
 		["reset is idempotent for a profile already on this generation"] = function()
