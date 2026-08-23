@@ -545,5 +545,34 @@ return {
 			local boostedAd = { status = "open", boostTier = TradeAdConfig.BoostTier.Boosted, expiresAt = now }
 			eq(TradeBoardService.shouldAutoRenew(boostedAd, 1, true, 1, now), false, "not featured")
 		end,
+
+		-- Value-delta meter: percentage the POSTER is giving away, denominator is
+		-- the WANT side (asymmetric on purpose -- see the function's own comment).
+		["valueDelta: fair trade is 0"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			eq(TradeBoardService.valueDelta(100, 100), 0, "equal sides -> fair")
+		end,
+
+		["valueDelta: poster gives more is positive"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			eq(TradeBoardService.valueDelta(150, 100), 50, "give 150 vs want 100 -> +50%")
+		end,
+
+		["valueDelta: poster wants more is negative and asymmetric"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			-- NOT -50: denominator is the want side (150), not the give side, so
+			-- this does not mirror the +50 case above.
+			eq(TradeBoardService.valueDelta(100, 150), -33, "give 100 vs want 150 -> -33%")
+		end,
+
+		["valueDelta: both sides empty never divides by zero"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			eq(TradeBoardService.valueDelta(0, 0), 0, "0/0 -> 0, not an error")
+		end,
+
+		["valueDelta: empty want side (make-me-an-offer) does not error"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			eq(TradeBoardService.valueDelta(100, 0), 0, "want side empty -> 0, not an error")
+		end,
 	},
 }

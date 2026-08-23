@@ -366,6 +366,37 @@ function TradeBoardService.offersEqual(a: any, b: any): boolean
 	return true
 end
 
+-- Percentage the POSTER is giving away, from the viewer's perspective:
+-- positive means the poster's side is worth more. Denominator is the WANT
+-- side on purpose (asymmetric) -- it answers "how good a deal is this for
+-- ME, relative to what I'd have to give up", not some symmetric spread.
+-- An empty want side ("make me an offer") is legitimate, not an error, so it
+-- reads as fair (0) rather than dividing by zero.
+function TradeBoardService.valueDelta(giveValue: number, wantValue: number): number
+	if wantValue <= 0 then
+		return 0
+	end
+	local pct = (giveValue - wantValue) / wantValue * 100
+	if pct >= 0 then
+		return math.floor(pct + 0.5)
+	end
+	return math.ceil(pct - 0.5)
+end
+
+-- Total value of one side of a swap offer: per-item Value (EconomyService's
+-- read, never RAP) times count, plus any gems on that side. An item that
+-- can't be resolved (e.g. it vanished from the registry) contributes 0
+-- rather than erroring -- this only feeds a UI meter, never a trade gate.
+local function offerValue(offer: any): number
+	local total = offer.gems or 0
+	for itemId, count in offer.items do
+		local snap = EconomyService.snapshot(itemId)
+		local v = snap and snap.value and snap.value.value or 0
+		total += v * count
+	end
+	return total
+end
+
 -- Pure validation for a swap payload's two offers (shape, non-empty, item
 -- existence, trade-ad token rules). Tokens are legal ONLY on the want side;
 -- a tokened want makes the listing fuzzy, so the caller must force ask-first.
@@ -562,9 +593,17 @@ local function describe(listing: any, viewerId: number): any
 		mine = listing.posterId == viewerId,
 		expiresAt = listing.expiresAt,
 		boostTier = listing.boostTier or 0,
+		scope = listing.scope or TradeAdConfig.Scopes.Global, -- legacy listings predate the field
+		-- poster present on THIS server right now -- drives the scope filter and
+		-- the "Live" pill: an ad from someone present settles immediately.
+		here = listing.posterId > 0 and Players:GetPlayerByUserId(listing.posterId) ~= nil,
+		perks = { priority = (listing.perks and listing.perks.priority) == true },
 	}
 	if listing.kind == "swap" then
 		out.autoTrade = listing.autoTrade
+		out.giveValue = offerValue(listing.give)
+		out.wantValue = offerValue(listing.want)
+		out.valueDelta = TradeBoardService.valueDelta(out.giveValue, out.wantValue)
 		local function describeOffer(offer)
 			local items = {}
 			for itemId, count in offer.items do
