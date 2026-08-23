@@ -27,6 +27,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Enums = require(ReplicatedStorage.Shared.Enums)
 local ProductConfig = require(ReplicatedStorage.Shared.Config.ProductConfig)
 local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
+local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 
 local Net = require(script.Parent.Parent.Net)
@@ -128,6 +129,30 @@ local function grantOffer(player: Player, offer: any, claimId: string): boolean
 				userId = player.UserId,
 				offerId = offer.id,
 				adPerk = offer.grants.adPerk,
+				claimId = claimId,
+			})
+		end
+		return prof ~= nil
+	end
+
+	-- Ad slots stack, so unlike the perk flags above this grant is NOT naturally
+	-- idempotent -- a replayed receipt would hand out a second slot. ProcessReceipt
+	-- dedupes on claimId before we get here, which is what makes the increment
+	-- safe; the clamp is a ceiling, not a dedupe.
+	if offer.grants.adSlots then
+		local prof = DataService.getProfile(player)
+		if prof then
+			prof.TradeAds = prof.TradeAds or { extraSlots = 0, credits = {} }
+			prof.TradeAds.extraSlots =
+				math.min((prof.TradeAds.extraSlots or 0) + offer.grants.adSlots, TradeAdConfig.MaxExtraSlots)
+			task.spawn(function()
+				DataService.saveNow(player)
+			end)
+			AnalyticsService.log("offer_granted", {
+				userId = player.UserId,
+				offerId = offer.id,
+				adSlots = offer.grants.adSlots,
+				extraSlots = prof.TradeAds.extraSlots,
 				claimId = claimId,
 			})
 		end

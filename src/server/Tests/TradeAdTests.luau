@@ -421,20 +421,25 @@ return {
 			end
 		end,
 
-		-- The boost handler must register on an id of its own. If it shared the
-		-- shop's placeholder, ProductService.Init would already own that slot and
-		-- registerDevProduct would refuse -- silently, for the placeholder id.
-		["boost: the boost product id is distinct from the shop placeholder"] = function()
+		-- Every boost SKU registers its own receipt handler, and ProductService
+		-- keys handlers by product id -- a second registration on an id the shop
+		-- already claimed is REFUSED, silently for the placeholder. So a SKU
+		-- sharing an id with any shop offer would simply never grant, with no
+		-- error anywhere. This is the guard for that.
+		["boost: no SKU shares a product id with a shop offer"] = function()
 			local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
-			truthy(MonetizationConfig.PlaceholderBoostProductId ~= nil, "boost product id is configured")
-			truthy(
-				MonetizationConfig.PlaceholderBoostProductId ~= MonetizationConfig.PlaceholderProductId,
-				"boost id must not collide with the shop placeholder"
-			)
+			local shopIds: { [number]: string } = {}
 			for _, offer in MonetizationConfig.Offers do
+				if offer.productId ~= 0 then
+					shopIds[offer.productId] = offer.id
+				end
+			end
+			for _, sku in TradeAdConfig.liveSkus() do
+				local clash = shopIds[sku.productId]
 				truthy(
-					offer.productId ~= MonetizationConfig.PlaceholderBoostProductId,
-					"no shop offer may claim the boost product id: " .. tostring(offer.id)
+					clash == nil,
+					("SKU %s shares product id %d with shop offer %s -- its handler would never register")
+						:format(sku.id, sku.productId, tostring(clash))
 				)
 			end
 		end,

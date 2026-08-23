@@ -68,19 +68,9 @@ local PLACEHOLDER_PRODUCT_ID = 3611275062
 -- from "two real products collided", which is a genuine bug.
 local PlaceholderProductId = PLACEHOLDER_PRODUCT_ID
 
--- Trade ad boosts need an id of their OWN, not the shared placeholder. Every
--- shop offer already carries PlaceholderProductId, and ProductService.Init
--- assigns those directly into devProductHandlers; a later registerDevProduct on
--- that same id finds an existing entry and refuses -- silently, because the
--- warning is deliberately suppressed for the placeholder. The boost handler
--- would never register and no boost would ever grant, with no error anywhere.
--- A distinct (still fake) id keeps the slot free so the registration lands.
--- TODO: real id at publish.
-local PlaceholderBoostProductId = PLACEHOLDER_PRODUCT_ID + 1
 
 local MonetizationConfig = {
 	PlaceholderProductId = PlaceholderProductId,
-	PlaceholderBoostProductId = PlaceholderBoostProductId,
 
 	-- Section order in the shop, top to bottom. Sections with no live offers
 	-- are skipped, so unreleased categories simply don't render yet.
@@ -173,7 +163,7 @@ local MonetizationConfig = {
 		},
 
 		-- ── Passes / subscriptions / bundles ─────────────────────────────
-		-- Priority and duration only -- NOT featured. Only 3 featured slots
+		-- Boost and duration only -- NOT featured. Only 6 featured slots
 		-- exist per scope; a permanent featured pass would let one player
 		-- squat the pool forever. Payment buys position/duration, never a
 		-- trade action -- posting, browsing, accepting stay free for everyone.
@@ -181,11 +171,11 @@ local MonetizationConfig = {
 			id = "ad_pass_priority",
 			kind = "adperk",
 			section = "🎟 PASSES",
-			name = "Ad Priority Pass",
-			description = "Every trade ad you post sits above the free ads. Forever.",
+			name = "Always Boosted Pass",
+			description = "Every trade ad you post is boosted automatically, forever. No boosts to spend.",
 			imageId = "rbxassetid://15402880202",
 			productType = "gamepass",
-			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			productId = 1953545207,
 			grants = { adPerk = "priority" },
 			sortOrder = 60,
 		},
@@ -194,12 +184,62 @@ local MonetizationConfig = {
 			kind = "adperk",
 			section = "🎟 PASSES",
 			name = "Ad Duration Pass",
-			description = "Your trade ads last a full day and stay up after you leave.",
+			description = "Your trade ads last a full day and stay up after you log off.",
 			imageId = "rbxassetid://15402892798",
 			productType = "gamepass",
-			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			productId = 1954536993,
 			grants = { adPerk = "duration" },
 			sortOrder = 61,
+		},
+		-- Ad slots, laid out as the same low/best/high ladder the boost shelves
+		-- use: the middle card is the one we want chosen, and the per-slot price
+		-- falling from 49 to ~40 to ~36 is what makes it the obvious pick.
+		-- Only +1 exists as a real product today; the other two are authored so
+		-- the shop layout is already the right shape when they are created.
+		{
+			id = "ad_slot_extra",
+			kind = "adslot",
+			section = "🎁 BUNDLES",
+			name = "+1 Trade Ad Slot",
+			description = "One more trade ad slot, on this server and globally. Stacks.",
+			imageId = "rbxassetid://15402892798",
+			productType = "devproduct",
+			productId = 3709438860,
+			grants = { adSlots = 1 },
+			repeatable = true,
+			shelf = "low",
+			sortOrder = 62,
+		},
+		{
+			id = "ad_slot_extra_3",
+			kind = "adslot",
+			section = "🎁 BUNDLES",
+			name = "+3 Trade Ad Slots",
+			description = "Three more trade ad slots, on this server and globally. Stacks.",
+			imageId = "rbxassetid://15402892798",
+			productType = "devproduct",
+			-- 0, not the shared placeholder: liveOffers() hides a 0 but would
+			-- happily publish a placeholder-id offer, which then collides with
+			-- every other placeholder product in devProductHandlers.
+			productId = 0, -- TODO: create the real product
+			grants = { adSlots = 3 },
+			repeatable = true,
+			shelf = "best",
+			sortOrder = 63,
+		},
+		{
+			id = "ad_slot_extra_5",
+			kind = "adslot",
+			section = "🎁 BUNDLES",
+			name = "+5 Trade Ad Slots",
+			description = "Five more trade ad slots, on this server and globally. Stacks.",
+			imageId = "rbxassetid://15402892798",
+			productType = "devproduct",
+			productId = 0, -- TODO: create the real product
+			grants = { adSlots = 5 },
+			repeatable = true,
+			shelf = "high",
+			sortOrder = 64,
 		},
 		--
 		-- Example shapes for other kinds still unfilled in this section:
