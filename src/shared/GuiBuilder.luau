@@ -1040,6 +1040,16 @@ local function buildBoardPanel(parent: Instance)
 		TextColor3 = C.TextDim,
 		Visible = false,
 	}, boostInv)
+	-- a new player with zero boosts had no path to the shop from this rail —
+	-- the empty state needs its own buy affordance, not just a label
+	button("GetBoostsButton", {
+		Position = UDim2.fromOffset(6, 72),
+		Size = UDim2.new(1, -12, 0, 32),
+		Text = "+ Get boosts",
+		TextSize = 12,
+		BackgroundColor3 = C.Gold,
+		Visible = false,
+	}, boostInv)
 
 	local creditRow = new("Frame", {
 		Name = "BoostCreditRow",
@@ -1229,32 +1239,38 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Good,
 	}, row)
 
-	-- value-delta chip: "Fair" at 0, else "+N% you" / "-N% you" tinted
-	-- Good/Bad from the viewer's side of the trade
+	-- value-delta chip: "Fair" at 0, else "You gain N%"/"You lose N%" (other's
+	-- ads) or "You're asking +N%" (your own — describes the ad, doesn't judge
+	-- it). Widened to 140 and TextScaled so the longer spelled-out phrasing
+	-- ("You're asking +100%") never clips.
 	label("ValueChip", {
 		Position = UDim2.fromOffset(460, 24),
-		Size = UDim2.fromOffset(105, 20),
+		Size = UDim2.fromOffset(140, 20),
 		Text = "Fair",
 		TextSize = 12,
+		TextScaled = true,
 		TextColor3 = C.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, row)
+	new("UITextSizeConstraint", { MaxTextSize = 12 }, row.ValueChip)
 
 	-- time-left pill: makes the presence-tied lifetime mechanic visible —
 	-- "Live · you're in game" while the poster is present, else a countdown
 	label("TimePill", {
 		Position = UDim2.fromOffset(460, 48),
-		Size = UDim2.fromOffset(105, 20),
+		Size = UDim2.fromOffset(140, 20),
 		Text = "2h left",
 		TextSize = 12,
+		TextScaled = true,
 		TextColor3 = C.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, row)
+	new("UITextSizeConstraint", { MaxTextSize = 12 }, row.TimePill)
 
 	-- opens the boost sheet; visible only on the poster's own listing
 	button("BoostButton", {
 		Position = UDim2.fromOffset(460, 74),
-		Size = UDim2.fromOffset(105, 28),
+		Size = UDim2.fromOffset(140, 28),
 		Text = "⏱ Boost",
 		TextSize = 12,
 		BackgroundColor3 = C.Gold,
@@ -1825,9 +1841,11 @@ local function buildBoardPanel(parent: Instance)
 		TextSize = 13,
 		ZIndex = 12,
 	}, skuCard)
+	-- shortened from 70 to 54: the "high" shelf can hold two SKUs (e.g. global's
+	-- Featured 24h + Featured 3d), which needs a second button below
 	label("BlurbLabel", {
 		Position = UDim2.fromOffset(10, 46),
-		Size = UDim2.new(1, -20, 0, 70),
+		Size = UDim2.new(1, -20, 0, 54),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 11,
@@ -1838,12 +1856,25 @@ local function buildBoardPanel(parent: Instance)
 	}, skuCard)
 	label("NoSlotsLabel", {
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 118),
-		Size = UDim2.new(1, -20, 0, 16),
+		Position = UDim2.new(0.5, 0, 0, 140),
+		Size = UDim2.new(1, -20, 0, 40),
 		Text = "NO SLOTS FREE",
 		TextSize = 11,
 		TextColor3 = C.Bad,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Visible = false,
+		ZIndex = 12,
+	}, skuCard)
+	-- second price button: hidden unless the shelf holds two SKUs (only the
+	-- "high"/Featured shelf does today), stacked above BuyButton
+	local buyButton2 = button("BuyButton2", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -48),
+		Size = UDim2.fromOffset(150, 32),
+		Text = "99 R$",
+		TextSize = 13,
+		BackgroundColor3 = C.Good,
 		Visible = false,
 		ZIndex = 12,
 	}, skuCard)

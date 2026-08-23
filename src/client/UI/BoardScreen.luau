@@ -62,6 +62,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local creditsList = boostInv:WaitForChild("CreditsList") :: ScrollingFrame
 	local creditRowTemplate = creditsList:WaitForChild("BoostCreditRow") :: Frame
 	local boostInvEmpty = boostInv:WaitForChild("EmptyLabel") :: TextLabel
+	local boostInvGetButton = boostInv:WaitForChild("GetBoostsButton") :: TextButton
 	local boostInvSpawned: { Instance } = {}
 	local lastBoostState: any = nil
 
@@ -159,6 +160,26 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		return ("%dm left"):format(math.max(1, math.floor(remaining / 60)))
 	end
 
+	-- "scope" is internal jargon; players see "this server" / "global ads"
+	local function scopeLabel(scope: string): string
+		return scope == TradeAdConfig.Scopes.Global and "global ads" or "this server"
+	end
+
+	local DAY_SECONDS = 24 * 3600
+
+	-- "24h", "3 days", "45m" — used on the per-duration buttons when a shelf
+	-- holds more than one SKU (today: the "high"/Featured shelf)
+	local function formatDuration(seconds: number): string
+		if seconds == DAY_SECONDS then
+			return "24h"
+		elseif seconds % DAY_SECONDS == 0 then
+			return ("%d days"):format(seconds / DAY_SECONDS)
+		elseif seconds % 3600 == 0 then
+			return ("%dh"):format(seconds / 3600)
+		end
+		return ("%dm"):format(math.max(1, math.floor(seconds / 60)))
+	end
+
 	--------------------------------------------------------------------------
 	-- Boost sheet: spend a banked credit, or buy one, for one ad. Opened from
 	-- a listing's own "⏱ Boost" button (sheetListingId set) or from the boost
@@ -217,60 +238,111 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			end
 		end
 		sheetCreditsEmpty.Visible = order == 0
+		sheetCreditsEmpty.Text = ("No banked boosts for %s yet — buy one below."):format(scopeLabel(sheetScope))
 	end
 
-	local SHELF_ORDER = { low = 1, best = 2, high = 3 }
+	local SHELF_ORDER = { "low", "best", "high" }
 
-	local function renderSheetSkus(boostState: any)
-		local skus = TradeAdConfig.skusForScope(sheetScope)
-		table.sort(skus, function(a, b)
-			return (SHELF_ORDER[a.shelf] or 9) < (SHELF_ORDER[b.shelf] or 9)
-		end)
-		local order = 0
-		for _, sku in skus do
-			order += 1
-			local card = sheetSkuTemplate:Clone()
-			card.Name = "sku_" .. sku.id
-			card.Visible = true
-			card.LayoutOrder = order
-			;(card:WaitForChild("NameLabel") :: TextLabel).Text = sku.name
-			;(card:WaitForChild("BlurbLabel") :: TextLabel).Text = sku.blurb
-			;(card:WaitForChild("Ribbon") :: Frame).Visible = sku.shelf == "best"
-			local noSlots = card:WaitForChild("NoSlotsLabel") :: TextLabel
-			local buyBtn = card:WaitForChild("BuyButton") :: TextButton
-			buyBtn.Text = ("%d R$"):format(sku.robux)
-			local outOfSlots = sku.tier == TradeAdConfig.BoostTier.Featured
-				and (boostState.featuredOpen[sheetScope] or 0) <= 0
-			noSlots.Visible = outOfSlots
-			buyBtn.Visible = not outOfSlots
-			if not outOfSlots then
-				buyBtn.Activated:Connect(function()
-					local result = invokeAction(function()
-						return Net.invoke("PromptAdBoost", sku.id)
-					end)
-					if result and not result.ok then
-						toast("Couldn't open that purchase.", Theme.Bad)
-					end
-					refreshBoostInventory()
-				end)
+	-- wires one price button to one SKU: label, out-of-slots gating, purchase
+	local function wireSkuButton(btn: TextButton, sku: any, boostState: any)
+		local outOfSlots = sku.tier == TradeAdConfig.BoostTier.Featured
+			and (boostState.featuredOpen[sheetScope] or 0) <= 0
+		btn.Visible = not outOfSlots
+		if outOfSlots then
+			return false
+		end
+		btn.Text = ("%s — %d R$"):format(formatDuration(sku.seconds), sku.robux)
+		btn.Activated:Connect(function()
+			local result = invokeAction(function()
+				return Net.invoke("PromptAdBoost", sku.id)
+			end)
+			if result and not result.ok then
+				toast("Couldn't open that purchase.", Theme.Bad)
 			end
-			card.Parent = sheetSkuRow
-			table.insert(sheetSpawned, card)
+			refreshBoostInventory()
+		end)
+		return true
+	end
+
+	-- Exactly three cards — low / best / high — never one-per-SKU. Global's
+	-- "high" shelf holds two SKUs (Featured 24h + Featured 3d); rather than
+	-- spill a 4th card past the sheet's edge, that shelf's card offers both
+	-- durations as two stacked price buttons.
+	local function renderSheetSkus(boostState: any)
+		local byShelf: { [string]: { any } } = {}
+		for _, sku in TradeAdConfig.skusForScope(sheetScope) do
+			local bucket = byShelf[sku.shelf]
+			if bucket == nil then
+				bucket = {}
+				byShelf[sku.shelf] = bucket
+			end
+			table.insert(bucket, sku)
+		end
+
+		local order = 0
+		for _, shelf in SHELF_ORDER do
+			local bucket = byShelf[shelf]
+			if bucket and #bucket > 0 then
+				order += 1
+				local card = sheetSkuTemplate:Clone()
+				card.Name = "shelf_" .. shelf
+				card.Visible = true
+				card.LayoutOrder = order
+
+				local first = bucket[1]
+				;(card:WaitForChild("NameLabel") :: TextLabel).Text = #bucket > 1 and "Featured" or first.name
+				;(card:WaitForChild("BlurbLabel") :: TextLabel).Text = first.blurb
+				;(card:WaitForChild("Ribbon") :: Frame).Visible = shelf == "best"
+
+				local buyBtn = card:WaitForChild("BuyButton") :: TextButton
+				local buyBtn2 = card:WaitForChild("BuyButton2") :: TextButton
+				local shown1 = wireSkuButton(buyBtn, bucket[1], boostState)
+				local shown2 = false
+				if bucket[2] then
+					shown2 = wireSkuButton(buyBtn2, bucket[2], boostState)
+				else
+					buyBtn2.Visible = false
+				end
+
+				;(card:WaitForChild("NoSlotsLabel") :: TextLabel).Visible = not shown1 and not shown2
+
+				card.Parent = sheetSkuRow
+				table.insert(sheetSpawned, card)
+			end
 		end
 	end
+
+	local sheetAutoRenewLabel = (boostSheet:WaitForChild("AutoRenew") :: Frame):WaitForChild("Label") :: TextLabel
+	-- false while nothing is scheduled and there's no Featured credit banked
+	-- to schedule — greyed out then so the checkbox doesn't imply a renewal
+	-- is pending when nothing is
+	local sheetAutoRenewInteractable = true
 
 	local function renderBoostSheet(boostState: any)
 		clearSheet()
 		renderSheetCredits(boostState)
 		renderSheetSkus(boostState)
-		sheetAutoRenewBox.Text = boostState.autoRenew[sheetScope] and "✓" or ""
+
+		local enabled = boostState.autoRenew[sheetScope] == true
+		local hasFeaturedCredit = false
+		for _, sku in TradeAdConfig.skusForScope(sheetScope) do
+			if sku.tier == TradeAdConfig.BoostTier.Featured and (boostState.credits[sku.id] or 0) > 0 then
+				hasFeaturedCredit = true
+				break
+			end
+		end
+		sheetAutoRenewInteractable = enabled or hasFeaturedCredit
+		sheetAutoRenewBox.Text = enabled and "✓" or ""
+		sheetAutoRenewBox.AutoButtonColor = sheetAutoRenewInteractable
+		sheetAutoRenewBox.BackgroundColor3 = sheetAutoRenewInteractable and Theme.BgLight or Theme.Bg
+		sheetAutoRenewLabel.TextColor3 = sheetAutoRenewInteractable and Theme.TextPrimary or Theme.TextDim
 	end
 
 	-- scope-prefixed short label: "Boost 24 hours" (global) -> "Global Boost 24h"
 	local function shortSkuLabel(sku: any): string
-		local scopeLabel = sku.scope == TradeAdConfig.Scopes.Global and "Global" or "Server"
+		local scopeName = sku.scope == TradeAdConfig.Scopes.Global and "Global" or "Server"
 		local shortName = sku.name:gsub(" hours", "h"):gsub(" hour", "h")
-		return scopeLabel .. " " .. shortName
+		return scopeName .. " " .. shortName
 	end
 
 	local function clearBoostInv()
@@ -299,8 +371,14 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				table.insert(boostInvSpawned, row)
 			end
 		end
+		-- zero boosts owned is exactly the player who most needs a way to the
+		-- shop, so the empty state gets its own buy button, not just a label
 		boostInvEmpty.Visible = order == 0
+		boostInvGetButton.Visible = order == 0
 	end
+	boostInvGetButton.Activated:Connect(function()
+		openBoostSheet(activeScope, nil)
+	end)
 
 	refreshBoostInventory = function()
 		task.spawn(function()
@@ -316,6 +394,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	sheetAutoRenewBox.Activated:Connect(function()
+		if not sheetAutoRenewInteractable then
+			return
+		end
 		local enabled = sheetAutoRenewBox.Text == ""
 		local result = invokeAction(function()
 			return Net.invoke("SetAdAutoRenew", sheetScope, enabled)
@@ -365,13 +446,23 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give) -- what the poster GIVES you
 		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want) -- what they WANT from you
 
-		-- value-delta chip: how this swap reads from the viewer's side
+		-- value-delta chip. On your OWN ad this must describe the ad, not judge
+		-- it — "-77% you" on your own listing reads like a self-inflicted scam
+		-- warning. On someone else's ad the delta is genuinely useful, but
+		-- "+12% you" leaves "you" dangling after a percentage with no verb to
+		-- anchor it, so spell out the direction instead.
 		if listing.valueDelta == 0 then
 			valueChip.Text = "Fair"
 			valueChip.TextColor3 = Theme.TextDim
+		elseif listing.mine then
+			valueChip.Text = ("You're asking %+d%%"):format(listing.valueDelta)
+			valueChip.TextColor3 = Theme.TextDim
+		elseif listing.valueDelta > 0 then
+			valueChip.Text = ("You gain %d%%"):format(listing.valueDelta)
+			valueChip.TextColor3 = Theme.Good
 		else
-			valueChip.Text = ("%+d%% you"):format(listing.valueDelta)
-			valueChip.TextColor3 = listing.valueDelta > 0 and Theme.Good or Theme.Bad
+			valueChip.Text = ("You lose %d%%"):format(-listing.valueDelta)
+			valueChip.TextColor3 = Theme.Bad
 		end
 
 		-- time-left pill: surfaces the presence-tied lifetime — otherwise
