@@ -109,9 +109,10 @@ local Enums = {
 		"SetBoothSkin", -- (skinId) -> {ok, err?} — cosmetic only, must be owned
 		"SetBoothTagline", -- (text) -> {ok, tagline?, err?} — filtered
 		"DebugForceGoal", -- () -> {ok, forced} — debug only, removed for release: toggles the unlocked view
-		"PromptAdBoost", -- (listingId, skuId) -> {ok, err?} — server-side boost purchase prompt
-		"ApplyAdBoostCredit", -- (listingId, skuId) -> {ok, err?} — spend a banked boost
-		"GetAdBoostState", -- () -> {ok, credits, featuredOpen} — owned credits + free featured slots
+		"PromptAdBoost", -- (skuId) -> {ok, err?} — server-side boost purchase prompt; always banks a credit
+		"ApplyAdBoost", -- (listingId, skuId) -> {ok, err?} — spend a banked credit on your own open ad
+		"GetAdBoostState", -- () -> {ok, credits, featuredOpen, autoRenew} — owned credits + free featured slots
+		"SetAdAutoRenew", -- (scope, enabled) -> {ok, err?} — per-scope featured auto-renew preference
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)

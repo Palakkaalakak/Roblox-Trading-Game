@@ -421,39 +421,6 @@ return {
 			end
 		end,
 
-		-- A receipt that cannot be applied must never be dropped: it is real
-		-- money. Both the "ad is gone" and "featured pool filled up while the
-		-- purchase was in flight" cases bank a credit instead.
-		["boost: an unappliable purchase banks a credit rather than vanishing"] = function()
-			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
-			local featured = TradeAdConfig.skuById("ad_featured_global_1d")
-			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
-			eq(TradeBoardService.resolveBoost(profile, nil, featured, 3), "credit", "ad gone -> credit")
-			local liveAd = { status = "open", scope = "global" }
-			eq(TradeBoardService.resolveBoost(profile, liveAd, featured, 0), "credit", "pool full -> credit")
-			eq(TradeBoardService.resolveBoost(profile, liveAd, featured, 2), "apply", "slot free -> apply")
-		end,
-
-		-- A non-featured boost has no scarce pool, so a full featured strip must
-		-- not block it.
-		["boost: priority and bump ignore the featured pool"] = function()
-			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
-			local priority = TradeAdConfig.skuById("ad_boost_global_1d")
-			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
-			local liveAd = { status = "open", scope = "global" }
-			eq(TradeBoardService.resolveBoost(profile, liveAd, priority, 0), "apply", "pool full is irrelevant")
-		end,
-
-		-- Scope is part of the product: a server SKU on a global ad would give
-		-- whole-game reach at the server price.
-		["boost: a SKU only applies to an ad in its own scope"] = function()
-			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
-			local serverSku = TradeAdConfig.skuById("ad_boost_server_1d")
-			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
-			local globalAd = { status = "open", scope = "global" }
-			eq(TradeBoardService.resolveBoost(profile, globalAd, serverSku, 3), "credit", "wrong scope -> credit")
-		end,
-
 		-- The boost handler must register on an id of its own. If it shared the
 		-- shop's placeholder, ProductService.Init would already own that slot and
 		-- registerDevProduct would refuse -- silently, for the placeholder id.
@@ -470,6 +437,108 @@ return {
 					"no shop offer may claim the boost product id: " .. tostring(offer.id)
 				)
 			end
+		end,
+
+		-- BUY always banks. There is no listing to resolve against any more, so
+		-- every live SKU must land a credit regardless of what the profile
+		-- looked like before.
+		["boost: bankCredit banks one credit, for every live SKU"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			for _, sku in TradeAdConfig.liveSkus() do
+				local profile = {}
+				TradeBoardService.bankCredit(profile, sku.id)
+				eq(profile.TradeAds.credits[sku.id], 1, "credit banked for " .. sku.id)
+			end
+		end,
+
+		["boost: bankCredit stacks on an existing balance"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local profile = { TradeAds = { extraSlots = 0, credits = { ad_boost_server_1h = 2 } } }
+			TradeBoardService.bankCredit(profile, "ad_boost_server_1h")
+			eq(profile.TradeAds.credits.ad_boost_server_1h, 3, "second receipt adds to the balance")
+		end,
+
+		-- APPLY spends exactly one credit; a refused apply must never touch the
+		-- balance -- that is what makes double-spend impossible: the check and
+		-- the decrement are the same call, so a failure leaves nothing charged.
+		["boost: canApplySku allows a matching-scope owned open ad with a free slot"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local featured = TradeAdConfig.skuById("ad_featured_global_1d")
+			local ad = { status = "open", scope = "global", posterId = 1 }
+			truthy(TradeBoardService.canApplySku(ad, featured, 2, 1), "scope matches, owner matches, slot free")
+		end,
+
+		["boost: canApplySku refuses an ad in the wrong scope"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local serverSku = TradeAdConfig.skuById("ad_boost_server_1d")
+			local globalAd = { status = "open", scope = "global", posterId = 1 }
+			eq(TradeBoardService.canApplySku(globalAd, serverSku, 3, 1), false, "wrong scope -> refused")
+		end,
+
+		["boost: canApplySku refuses an ad the caller does not own"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local sku = TradeAdConfig.skuById("ad_boost_global_1d")
+			local ad = { status = "open", scope = "global", posterId = 1 }
+			eq(TradeBoardService.canApplySku(ad, sku, 3, 2), false, "caller 2 does not own poster 1's ad")
+		end,
+
+		["boost: canApplySku refuses a featured apply when the pool is full"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local featured = TradeAdConfig.skuById("ad_featured_server_1d")
+			local ad = { status = "open", scope = "server", posterId = 1 }
+			eq(TradeBoardService.canApplySku(ad, featured, 0, 1), false, "pool full -> refused")
+			eq(
+				TradeBoardService.canApplySku(ad, featured, 1, 1),
+				true,
+				"one slot free (of FeaturedSlotsPerScope=6) -> allowed"
+			)
+		end,
+
+		["boost: canApplySku ignores the featured pool for a non-featured SKU"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local boost = TradeAdConfig.skuById("ad_boost_global_1d")
+			local ad = { status = "open", scope = "global", posterId = 1 }
+			truthy(TradeBoardService.canApplySku(ad, boost, 0, 1), "no scarce pool for a plain boost")
+		end,
+
+		-- Auto-renew: true only when every one of enabled/credit/slot/featured
+		-- holds; false in each negative case.
+		["boost: shouldAutoRenew is true only when every condition holds"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local featuredAd = { status = "open", boostTier = TradeAdConfig.BoostTier.Featured, expiresAt = now }
+			truthy(
+				TradeBoardService.shouldAutoRenew(featuredAd, 1, true, 1, now),
+				"enabled, credit held, slot free, featured, due for refresh"
+			)
+		end,
+
+		["boost: shouldAutoRenew is false when auto-renew is disabled"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local featuredAd = { status = "open", boostTier = TradeAdConfig.BoostTier.Featured, expiresAt = now }
+			eq(TradeBoardService.shouldAutoRenew(featuredAd, 1, false, 1, now), false, "auto-renew off")
+		end,
+
+		["boost: shouldAutoRenew is false with no credit held"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local featuredAd = { status = "open", boostTier = TradeAdConfig.BoostTier.Featured, expiresAt = now }
+			eq(TradeBoardService.shouldAutoRenew(featuredAd, 0, true, 1, now), false, "no credit")
+		end,
+
+		["boost: shouldAutoRenew is false when no featured slot is free"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local featuredAd = { status = "open", boostTier = TradeAdConfig.BoostTier.Featured, expiresAt = now }
+			eq(TradeBoardService.shouldAutoRenew(featuredAd, 1, true, 0, now), false, "pool full")
+		end,
+
+		["boost: shouldAutoRenew is false for a non-featured ad"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local boostedAd = { status = "open", boostTier = TradeAdConfig.BoostTier.Boosted, expiresAt = now }
+			eq(TradeBoardService.shouldAutoRenew(boostedAd, 1, true, 1, now), false, "not featured")
 		end,
 	},
 }
