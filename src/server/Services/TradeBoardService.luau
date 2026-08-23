@@ -992,13 +992,19 @@ local function postCore(userId: number, userName: string, payload: any)
 		return { ok = false, err = "bad_kind" }
 	end
 
-	-- Perk scaffolding: every listing carries boost/bump/TTL fields so future
-	-- paid perks (featured placement, bump-to-top, longer uptime) are a field
-	-- write away (see boostListing). Defaults preserve today's behavior.
+	-- Every listing carries boost/bump/TTL fields; paid perks are a field write
+	-- away (see boostListing).
 	listing.boostTier = 0
 	listing.bumpedAt = now
-	listing.expiresAt = now + (listing.ttlSeconds or EconomyConfig.BoardListingTTLSeconds)
 	listing.scope = scope
+	-- An ad starts with only its scope's grace window on the clock, NOT the old
+	-- multi-day board TTL. The presence sweep is what keeps it alive while the
+	-- poster is in game, so the starting clock has to be short enough that the
+	-- sweep is actually the thing extending it. Seeding a week here would make
+	-- the sweep dead code (shouldRefresh only fires near expiry) and every ad
+	-- would outlive its poster by days -- which is exactly the behaviour the
+	-- presence model replaces.
+	listing.expiresAt = now + (listing.ttlSeconds or TradeAdRules.refreshedExpiry(scope, 0))
 
 	-- Snapshot the poster's pass perks onto the ad. Sorting runs on servers the
 	-- poster is not in, so there is nobody to ask about pass ownership there;
@@ -2005,6 +2011,26 @@ function TradeBoardService.Init()
 end
 
 function TradeBoardService.Start()
+	-- A server-scoped ad promises "the poster is HERE, so this settles now".
+	-- The moment they leave, that promise is false, so the ad goes with them
+	-- rather than lingering until its clock runs out and wasting the reader's
+	-- time on someone who cannot answer. Global ads are untouched -- outliving
+	-- the session is the whole point of paying for global reach.
+	--
+	-- Cheap by construction: server-scoped ads live in the in-memory memBoard,
+	-- so this is a table walk and a table delete, never a store call.
+	Players.PlayerRemoving:Connect(function(player)
+		for id, listing in memBoard do
+			if
+				listing.posterId == player.UserId
+				and listing.scope == TradeAdConfig.Scopes.Server
+				and listing.status == "open"
+			then
+				task.spawn(cancelListing, listing, "poster_left")
+			end
+		end
+	end)
+
 	-- keep the market index fresh: initial fill + periodic full-scan rebuild
 	-- (picks up cross-server posts; local ops update it inline). pcall'd —
 	-- a throttled MemoryStore page must never kill the loop.
