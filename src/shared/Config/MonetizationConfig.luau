@@ -68,13 +68,30 @@ local PLACEHOLDER_PRODUCT_ID = 3611275062
 -- from "two real products collided", which is a genuine bug.
 local PlaceholderProductId = PLACEHOLDER_PRODUCT_ID
 
+-- Only for the ad-boost SECTION NAMES below. The boost SKUs themselves live in
+-- TradeAdConfig; this file never owns their prices.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
+
 
 local MonetizationConfig = {
 	PlaceholderProductId = PlaceholderProductId,
 
 	-- Section order in the shop, top to bottom. Sections with no live offers
 	-- are skipped, so unreleased categories simply don't render yet.
-	SectionOrder = { "💎 GEM PACKS", "🎟 PASSES", "⭐ SUBSCRIPTIONS", "🎁 BUNDLES", "🏪 BOOTH" },
+	-- The two AD BOOSTS sections are stocked by TradeAdConfig.shopOffers()
+	-- rather than by Offers below (the SKU catalogue owns their prices and
+	-- durations), but they are ordered here like any other section — the shop
+	-- is one storefront, so the boost shelves are not a special case in it.
+	SectionOrder = {
+		"💎 GEM PACKS",
+		"🎟 PASSES",
+		"⭐ SUBSCRIPTIONS",
+		"🎁 BUNDLES",
+		TradeAdConfig.ShopSections.server,
+		TradeAdConfig.ShopSections.global,
+		"🏪 BOOTH",
+	},
 
 	-- Per-section card size, in pixels. Real shops don't use one card size for
 	-- everything — small packs sit 5-across, chunkier items get wide 3-across
@@ -88,6 +105,8 @@ local MonetizationConfig = {
 		["🎟 PASSES"] = { width = 236, height = 250 },
 		["⭐ SUBSCRIPTIONS"] = { width = 236, height = 250 },
 		["🎁 BUNDLES"] = { width = 236, height = 250 },
+		[TradeAdConfig.ShopSections.server] = { width = 236, height = 250 },
+		[TradeAdConfig.ShopSections.global] = { width = 236, height = 250 },
 	} :: { [string]: { width: number, height: number } },
 
 	Offers = {

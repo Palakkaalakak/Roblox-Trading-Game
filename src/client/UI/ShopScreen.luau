@@ -52,6 +52,9 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 
 	local spawned: { Instance } = {}
 	local busy = false
+	-- section name or offer id to scroll to once the next render finishes.
+	-- Cleared after it is honoured, so a later plain open() lands at the top.
+	local pendingFocus: string? = nil
 
 	local function clear()
 		for _, inst in spawned do
@@ -279,11 +282,39 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		end
 	end
 
+	-- Scroll the body so `target` sits at the top. Runs a frame late because a
+	-- UIListLayout has not assigned AbsolutePosition to the freshly-parented
+	-- sections yet at the moment render() returns.
+	local function applyFocus()
+		local target = pendingFocus
+		pendingFocus = nil
+		if target == nil then
+			body.CanvasPosition = Vector2.new()
+			return
+		end
+		task.defer(function()
+			local node = body:FindFirstChild("section_" .. target)
+				or body:FindFirstChild("offer_" .. target, true)
+			if node == nil or not node:IsA("GuiObject") then
+				return
+			end
+			-- walk up to the top-level section: scrolling to the card itself
+			-- would hide the header that says what the player is looking at
+			local top: GuiObject = node
+			while top.Parent ~= body and top.Parent ~= nil and top.Parent:IsA("GuiObject") do
+				top = top.Parent :: GuiObject
+			end
+			local offset = top.AbsolutePosition.Y - body.AbsolutePosition.Y + body.CanvasPosition.Y
+			body.CanvasPosition = Vector2.new(0, math.max(0, offset - 8))
+		end)
+	end
+
 	local function refresh()
 		task.spawn(function()
 			local result = Net.invoke("GetShop")
 			if result.ok and panel.Visible then
 				render(result)
+				applyFocus()
 			end
 		end)
 	end
@@ -292,6 +323,15 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
 		refresh()
+	end
+
+	-- Open the shop anchored on one section (its header text) or one offer (its
+	-- id). Used by the trade board's boost affordances so "get boosts" lands on
+	-- the boost shelves inside the real shop instead of opening a second
+	-- storefront of its own.
+	function ShopScreen.openAt(sectionOrOfferId: string)
+		pendingFocus = sectionOrOfferId
+		ShopScreen.open()
 	end
 
 	function ShopScreen.toggle()

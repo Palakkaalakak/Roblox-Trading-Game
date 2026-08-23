@@ -20,6 +20,7 @@ local TradeController = require(script.Parent.Parent.Controllers.TradeController
 local NotificationController = require(script.Parent.Parent.Controllers.NotificationController)
 local TradeScreen = require(script.Parent.TradeScreen)
 local MarketScreen = require(script.Parent.MarketScreen)
+local ShopScreen = require(script.Parent.ShopScreen)
 
 local BoardScreen = {}
 
@@ -42,14 +43,19 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- featured strip (collapses to nothing when the active scope has no
 	-- boostTier >= 2 listings)
 	local featuredStrip = panel:WaitForChild("FeaturedStrip") :: ScrollingFrame
+	local featuredHeader = panel:WaitForChild("FeaturedHeader") :: TextLabel
 	local featuredCardTemplate = featuredStrip:WaitForChild("FeaturedCard") :: Frame
+	local featuredMiniChip = (featuredCardTemplate:WaitForChild("GiveHolder") :: Frame):WaitForChild("MiniChip") :: Frame
 	local featuredSpawned: { Instance } = {}
 	local LIST_Y_NO_FEATURED = 112
-	local FEATURED_H = 110
-	local LIST_Y_WITH_FEATURED = LIST_Y_NO_FEATURED + FEATURED_H + 8
+	-- header (106..122) + strip (126..228), then the usual 8px gutter
+	local LIST_Y_WITH_FEATURED = 236
 
+	-- Header and strip live and die together: half of a collapsed strip is a
+	-- gold word floating over nothing.
 	local function setFeaturedVisible(visible: boolean)
 		featuredStrip.Visible = visible
+		featuredHeader.Visible = visible
 		local listY = visible and LIST_Y_WITH_FEATURED or LIST_Y_NO_FEATURED
 		list.Position = UDim2.fromOffset(12, listY)
 		list.Size = UDim2.new(0, 744, 1, -(listY + 12))
@@ -74,9 +80,20 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local sheetSkuRow = boostSheet:WaitForChild("SkuRow") :: Frame
 	local sheetSkuTemplate = sheetSkuRow:WaitForChild("SkuCard") :: Frame
 	local sheetAutoRenewBox = (boostSheet:WaitForChild("AutoRenew") :: Frame):WaitForChild("Checkbox") :: TextButton
+	local sheetOpenShopBtn = boostSheet:WaitForChild("OpenShopButton") :: TextButton
 	local sheetSpawned: { Instance } = {}
 	local sheetScope: string = TradeAdConfig.Scopes.Server
 	local sheetListingId: string? = nil
+
+	-- post-time boost picker (item 3): shown between compose and PostListing
+	local postBoostPanel = panel:WaitForChild("PostBoostPanel") :: Frame
+	local postBoostOptions = postBoostPanel:WaitForChild("OptionsList") :: ScrollingFrame
+	local postBoostOptionTemplate = postBoostOptions:WaitForChild("OptionButton") :: TextButton
+	local postBoostEmpty = postBoostPanel:WaitForChild("EmptyLabel") :: TextLabel
+	local postBoostGetBtn = postBoostPanel:WaitForChild("GetBoostsButton") :: TextButton
+	local postBoostPostBtn = postBoostPanel:WaitForChild("PostButton") :: TextButton
+	local postBoostCloseBtn = postBoostPanel:WaitForChild("CloseButton") :: TextButton
+	local postBoostSpawned: { Instance } = {}
 
 	local spawned: { Instance } = {}
 	local lastListings: { any }? = nil
@@ -92,6 +109,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local closeBtn = panel:WaitForChild("CloseButton") :: TextButton
 	closeBtn.Activated:Connect(function()
 		panel.Visible = false
+		postBoostPanel.Visible = false -- a half-answered post picker must not survive a close
 		MarketScreen.hide() -- stop background refreshes while closed
 	end)
 
@@ -180,6 +198,32 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		return ("%dm"):format(math.max(1, math.floor(seconds / 60)))
 	end
 
+	-- "2d left" / "23h left" / "45m left" — the BOOST's own clock, which is a
+	-- different thing from the ad's lifetime pill above it.
+	local function boostLeftText(boostExpiresAt: number): string
+		local remaining = math.max(0, boostExpiresAt - os.time())
+		local days = math.floor(remaining / DAY_SECONDS)
+		if days >= 1 then
+			return ("%dd left"):format(days)
+		end
+		local hours = math.floor(remaining / 3600)
+		if hours >= 1 then
+			return ("%dh left"):format(hours)
+		end
+		return ("%dm left"):format(math.max(1, math.floor(remaining / 60)))
+	end
+
+	-- One storefront. "Get boosts" anywhere on the board lands in ShopScreen on
+	-- that scope's boost shelves — never in a second parallel shop.
+	local function openShopAtBoosts(scope: string)
+		panel.Visible = false
+		MarketScreen.hide()
+		local openAt = (ShopScreen :: any).openAt
+		if openAt then
+			openAt(TradeAdConfig.shopSection(scope))
+		end
+	end
+
 	--------------------------------------------------------------------------
 	-- Boost sheet: spend a banked credit, or buy one, for one ad. Opened from
 	-- a listing's own "⏱ Boost" button (sheetListingId set) or from the boost
@@ -195,6 +239,41 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	local function refreshBoostInventory() -- fwd decl target, assigned below
+	end
+
+	-- Applying a boost used to be silent, so a player had no way to tell a
+	-- purchase had done anything. Say what they got and for how long.
+	local function boostSuccessText(sku: any): string
+		local where = sku.scope == TradeAdConfig.Scopes.Global and "all free ads game-wide"
+			or "free ads on this server"
+		if sku.tier >= TradeAdConfig.BoostTier.Featured then
+			return ("Featured! Your ad is pinned to the Featured strip for %s."):format(formatDuration(sku.seconds))
+		end
+		return ("Boosted! Your ad is above %s for %s."):format(where, formatDuration(sku.seconds))
+	end
+
+	local BOOST_ERRORS = {
+		no_credit = "You don't own that boost any more.",
+		not_your_ad = "You can only boost your own ads.",
+		cannot_apply = "No Featured slots free right now — try a Boost instead.",
+		gone = "That ad is gone — nothing was spent.",
+	}
+
+	-- Shared by the boost sheet and the post-time picker so both give the same
+	-- confirmation for the same action.
+	local function applyBoost(listingId: string, sku: any): boolean
+		local result = invokeAction(function()
+			return Net.invoke("ApplyAdBoost", listingId, sku.id)
+		end)
+		if result == nil then
+			return false
+		end
+		if result.ok then
+			toast(boostSuccessText(sku), Theme.Good)
+			return true
+		end
+		toast(BOOST_ERRORS[tostring(result.err)] or ("Couldn't apply boost: " .. tostring(result.err)), Theme.Bad)
+		return false
 	end
 
 	local function closeBoostSheet()
@@ -218,17 +297,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				if sheetListingId then
 					local listingId = sheetListingId
 					btn.Activated:Connect(function()
-						local result = invokeAction(function()
-							return Net.invoke("ApplyAdBoost", listingId, sku.id)
-						end)
-						if result then
-							if result.ok then
-								toast("Boost applied!", Theme.Good)
-								closeBoostSheet()
-								refresh()
-							else
-								toast("Couldn't apply boost: " .. tostring(result.err), Theme.Bad)
-							end
+						if applyBoost(listingId, sku) then
+							closeBoostSheet()
+							refresh()
 						end
 						refreshBoostInventory()
 					end)
@@ -364,8 +435,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				row.Visible = true
 				row.LayoutOrder = order
 				;(row:WaitForChild("Label") :: TextLabel).Text = ("%s: %d"):format(shortSkuLabel(sku), count)
+				-- "+" means BUY MORE, and buying happens in the one shop
 				;(row:WaitForChild("AddButton") :: TextButton).Activated:Connect(function()
-					openBoostSheet(sku.scope, nil)
+					openShopAtBoosts(sku.scope)
 				end)
 				row.Parent = creditsList
 				table.insert(boostInvSpawned, row)
@@ -377,7 +449,11 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		boostInvGetButton.Visible = order == 0
 	end
 	boostInvGetButton.Activated:Connect(function()
-		openBoostSheet(activeScope, nil)
+		openShopAtBoosts(activeScope)
+	end)
+	sheetOpenShopBtn.Activated:Connect(function()
+		closeBoostSheet()
+		openShopAtBoosts(sheetScope)
 	end)
 
 	refreshBoostInventory = function()
@@ -437,6 +513,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local valueChip = row:WaitForChild("ValueChip") :: TextLabel
 		local timePill = row:WaitForChild("TimePill") :: TextLabel
 		local boostBtn = row:WaitForChild("BoostButton") :: TextButton
+		local boostBadge = row:WaitForChild("BoostBadge") :: TextLabel
 		countBox.Visible = false
 		;(row:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
 			.. (listing.mine and " (you)" or "")
@@ -482,6 +559,24 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		else
 			timePill.Text = timeLeftText(listing.expiresAt)
 			timePill.TextColor3 = Theme.TextDim
+		end
+
+		-- boost badge: a paid placement has to keep LOOKING paid in the feed —
+		-- position alone is not something a player can read as "it worked".
+		-- Shown on everyone's ads, not just your own, because that visible
+		-- privilege is what the boost is actually selling.
+		local tier = listing.boostTier or TradeAdConfig.BoostTier.None
+		boostBadge.Visible = tier >= TradeAdConfig.BoostTier.Boosted
+		if boostBadge.Visible then
+			local icon = tier >= TradeAdConfig.BoostTier.Featured and "★ FEATURED" or "⚡ BOOSTED"
+			-- no boostExpiresAt means the tier comes from a pass perk, which
+			-- has no clock to count down
+			if listing.boostExpiresAt then
+				boostBadge.Text = ("%s · %s"):format(icon, boostLeftText(listing.boostExpiresAt))
+			else
+				boostBadge.Text = icon
+			end
+			boostBadge.TextColor3 = tier >= TradeAdConfig.BoostTier.Featured and Theme.Gold or Theme.Warn
 		end
 
 		-- boost button: only the poster can push their own ad
@@ -566,6 +661,49 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		table.clear(featuredSpawned)
 	end
 
+	-- Fill one side of a featured card with icon chips and report how many
+	-- items did not fit. FEATURED_CHIPS_PER_SIDE is a LAYOUT constant, not a
+	-- rule: the card is fixed-height on purpose (a wrapping summary used to
+	-- jitter every card's height), so overflow is summarised as "+N more"
+	-- rather than allowed to grow the card.
+	local FEATURED_CHIPS_PER_SIDE = 2
+
+	local function fillFeaturedSide(holder: Frame, offer: any): number
+		local shown = 0
+		for _, entry in offer.items do
+			if shown >= FEATURED_CHIPS_PER_SIDE then
+				break
+			end
+			shown += 1
+			local chip = featuredMiniChip:Clone()
+			chip.Name = "chip_" .. tostring(shown)
+			chip.Visible = true
+			chip.LayoutOrder = shown
+			Components.setIcon(chip:WaitForChild("Icon") :: ImageLabel, { imageId = entry.imageId, name = entry.name })
+			;(chip:WaitForChild("CountLabel") :: TextLabel).Text = entry.wildcard and "ANY" or ("x" .. entry.count)
+			chip.Parent = holder
+			table.insert(featuredSpawned, chip)
+			if entry.itemId and not entry.wildcard then
+				EconomyController.ensure({ entry.itemId })
+			end
+			tooltip.attach(chip, function()
+				if entry.wildcard and entry.itemId then
+					return WildcardConfig.snapshot(entry.itemId), nil
+				end
+				if entry.itemId then
+					return EconomyController.get(entry.itemId) or { name = entry.name, imageId = entry.imageId }, nil
+				end
+				return { name = entry.name, imageId = entry.imageId }, nil
+			end)
+		end
+		-- gems on a side still count as "something else in this trade"
+		local extra = #offer.items - shown
+		if offer.gems > 0 then
+			extra += 1
+		end
+		return math.max(0, extra)
+	end
+
 	-- gold strip above the list: at most FeaturedSlotsPerScope boosted ads for
 	-- the active scope. Collapses to nothing rather than show as an empty rail.
 	local function renderFeatured(scopeListings: { any })
@@ -582,16 +720,20 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				card.Visible = true
 				card.LayoutOrder = shown
 				;(card:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
-				local giveNames, wantNames = {}, {}
-				for _, e in listing.give.items do
-					table.insert(giveNames, e.name)
-				end
-				for _, e in listing.want.items do
-					table.insert(wantNames, e.name)
-				end
-				;(card:WaitForChild("SummaryLabel") :: TextLabel).Text = table.concat(giveNames, ", ")
-					.. " ⇄ "
-					.. table.concat(wantNames, ", ")
+
+				-- The paid card shows the same item icons the free rows below
+				-- show. A three-label text card made the premium placement look
+				-- cheaper than the thing it outranks.
+				local hidden = fillFeaturedSide(card:WaitForChild("GiveHolder") :: Frame, listing.give)
+					+ fillFeaturedSide(card:WaitForChild("WantHolder") :: Frame, listing.want)
+				local more = card:WaitForChild("MoreLabel") :: TextLabel
+				more.Visible = hidden > 0
+				more.Text = hidden > 0 and ("+%d more"):format(hidden) or ""
+
+				local tierLabel = card:WaitForChild("TierLabel") :: TextLabel
+				tierLabel.Text = listing.boostExpiresAt and ("⭐ " .. boostLeftText(listing.boostExpiresAt))
+					or "⭐ FEATURED"
+
 				card.Parent = featuredStrip
 				table.insert(featuredSpawned, card)
 			end
@@ -714,24 +856,137 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- Posting a swap: the trade window in compose mode
 	--------------------------------------------------------------------------
 
+	-- The composed trade, held between the compose window closing and the
+	-- boost picker resolving. Nothing is posted until the player answers the
+	-- picker, so the boost choice is part of posting rather than a chore the
+	-- player has to rediscover afterwards.
+	local pendingPost: { give: any, want: any, auto: boolean, scope: string }? = nil
+
+	local function clearPostBoostOptions()
+		for _, inst in postBoostSpawned do
+			inst:Destroy()
+		end
+		table.clear(postBoostSpawned)
+	end
+
+	local function closePostBoost()
+		postBoostPanel.Visible = false
+		pendingPost = nil
+		clearPostBoostOptions()
+	end
+
+	local function submitPost(sku: any?)
+		local pending = pendingPost
+		if pending == nil then
+			return
+		end
+		postBoostPanel.Visible = false
+		clearPostBoostOptions()
+		pendingPost = nil
+		task.spawn(function()
+			local result = Net.invoke("PostListing", {
+				kind = "swap",
+				give = pending.give,
+				want = pending.want,
+				autoTrade = pending.auto,
+				-- post into the feed the player is looking at, which is also
+				-- the scope whose credits the picker just offered
+				scope = pending.scope,
+			})
+			toast(
+				result.ok and "Posted to the board!" or ("Couldn't post: " .. tostring(result.err)),
+				result.ok and Theme.Good or Theme.Bad
+			)
+			if result.ok then
+				-- reuse the existing apply endpoint rather than teaching the
+				-- server a post-with-boost path: buying and applying stay the
+				-- two separate actions they already are
+				if sku and result.id then
+					applyBoost(result.id, sku)
+				end
+				NotificationController.promptOptIn(
+					"Enable notifications so we can tell you about activity on this trade!",
+					toast
+				)
+			end
+			refreshBoostInventory()
+			BoardScreen.open()
+		end)
+	end
+
+	local function renderPostBoostOptions(scope: string)
+		clearPostBoostOptions()
+		local credits = (lastBoostState and lastBoostState.credits) or {}
+		local order = 0
+
+		local none = postBoostOptionTemplate:Clone()
+		none.Name = "option_none"
+		none.Visible = true
+		none.LayoutOrder = 0
+		none.Text = "No boost — post for free"
+		none.Activated:Connect(function()
+			submitPost(nil)
+		end)
+		none.Parent = postBoostOptions
+		table.insert(postBoostSpawned, none)
+
+		for _, sku in TradeAdConfig.skusForScope(scope) do
+			local count = credits[sku.id] or 0
+			if count > 0 then
+				order += 1
+				local btn = postBoostOptionTemplate:Clone()
+				btn.Name = "option_" .. sku.id
+				btn.Visible = true
+				btn.LayoutOrder = order
+				btn.Text = ("%s — %s  (x%d owned)"):format(sku.name, formatDuration(sku.seconds), count)
+				btn.Activated:Connect(function()
+					submitPost(sku)
+				end)
+				btn.Parent = postBoostOptions
+				table.insert(postBoostSpawned, btn)
+			end
+		end
+
+		-- the picker stays visible with zero credits: hiding it would make the
+		-- option undiscoverable for exactly the players who have never bought
+		postBoostEmpty.Visible = order == 0
+		postBoostEmpty.Text = ("You have no boosts banked for %s yet."):format(scopeLabel(scope))
+	end
+
+	postBoostCloseBtn.Activated:Connect(function()
+		closePostBoost()
+		toast("Post cancelled — nothing went up.", Theme.Warn)
+	end)
+	postBoostPostBtn.Activated:Connect(function()
+		submitPost(nil)
+	end)
+	postBoostGetBtn.Activated:Connect(function()
+		-- leaving for the shop drops the composed trade; say so rather than
+		-- silently discarding it
+		local scope = pendingPost and pendingPost.scope or activeScope
+		closePostBoost()
+		toast("Post cancelled — grab a boost, then post again.", Theme.Warn)
+		openShopAtBoosts(scope)
+	end)
+
 	postBtn.Activated:Connect(function()
 		panel.Visible = false
 		TradeScreen.openCompose(function(give, want, auto)
+			pendingPost = { give = give, want = want, auto = auto, scope = activeScope }
+			BoardScreen.open()
+			postBoostPanel.Visible = true
+			renderPostBoostOptions(activeScope)
+			-- credits may be stale (a purchase can have landed since the last
+			-- board open); re-render once the fresh state arrives
 			task.spawn(function()
-				local result = Net.invoke("PostListing", {
-					kind = "swap",
-					give = give,
-					want = want,
-					autoTrade = auto,
-				})
-				toast(result.ok and "Posted to the board!" or ("Couldn't post: " .. tostring(result.err)), result.ok and Theme.Good or Theme.Bad)
+				local result = Net.invoke("GetAdBoostState")
 				if result.ok then
-					NotificationController.promptOptIn(
-						"Enable notifications so we can tell you about activity on this trade!",
-						toast
-					)
+					lastBoostState = result
+					renderBoostInventory(result)
+					if postBoostPanel.Visible then
+						renderPostBoostOptions(activeScope)
+					end
 				end
-				BoardScreen.open()
 			end)
 		end)
 	end)

@@ -703,5 +703,118 @@ return {
 			}
 			eq(TradeBoardService.shouldAutoRenew(lapsed, 1, true, 3, now), false, "lapsed boost is not featured")
 		end,
+
+		----------------------------------------------------------------------
+		-- Shop adapter: boosts are sold from the ONE storefront, so the SKU
+		-- catalogue has to describe itself in the shape the shop renders.
+		----------------------------------------------------------------------
+
+		["shop: every live SKU appears exactly once as a shop offer"] = function()
+			local offers = TradeAdConfig.shopOffers()
+			eq(#offers, #TradeAdConfig.liveSkus(), "one offer per live SKU")
+			local seen: { [string]: number } = {}
+			for _, offer in offers do
+				seen[offer.id] = (seen[offer.id] or 0) + 1
+			end
+			for _, sku in TradeAdConfig.liveSkus() do
+				eq(seen[sku.id], 1, sku.id .. " appears once")
+			end
+		end,
+
+		["shop: a SKU with no real product id is never offered"] = function()
+			local live: { [string]: boolean } = {}
+			for _, sku in TradeAdConfig.liveSkus() do
+				live[sku.id] = true
+			end
+			for _, offer in TradeAdConfig.shopOffers() do
+				truthy(live[offer.id], offer.id .. " is backed by a real product")
+				truthy(offer.productId > 0, offer.id .. " has a non-zero product id")
+			end
+		end,
+
+		["shop: each scope lands in its own section"] = function()
+			for _, offer in TradeAdConfig.shopOffers() do
+				local sku = TradeAdConfig.skuById(offer.id)
+				truthy(sku ~= nil, offer.id .. " resolves back to a SKU")
+				eq(offer.section, TradeAdConfig.shopSection((sku :: any).scope), offer.id .. " section matches scope")
+			end
+		end,
+
+		-- The ladder is the whole persuasion: low anchors, best is the pick,
+		-- high anchors from above. Rendering them out of order would break it.
+		["shop: shelves render low -> best -> high within a section"] = function()
+			local rank = { low = 1, best = 2, high = 3 }
+			local lastBySection: { [string]: number } = {}
+			for _, offer in TradeAdConfig.shopOffers() do
+				local sku = TradeAdConfig.skuById(offer.id) :: any
+				local r = rank[sku.shelf]
+				truthy(r ~= nil, offer.id .. " sits on a known shelf")
+				local prev = lastBySection[offer.section] or 0
+				truthy(r >= prev, offer.section .. ": shelves never go backwards")
+				lastBySection[offer.section] = r
+			end
+		end,
+
+		["shop: exactly the middle shelf carries BEST VALUE"] = function()
+			local badged: { [string]: number } = {}
+			for _, offer in TradeAdConfig.shopOffers() do
+				local sku = TradeAdConfig.skuById(offer.id) :: any
+				if sku.shelf == "best" then
+					eq(offer.badge, "BEST VALUE", offer.id .. " is emphasised")
+					badged[offer.section] = (badged[offer.section] or 0) + 1
+				else
+					eq(offer.badge, nil, offer.id .. " carries no badge")
+				end
+			end
+			-- two cards both claiming to be the pick is the failure this guards
+			for section, count in badged do
+				eq(count, 1, section .. " has one BEST VALUE card")
+			end
+		end,
+
+		["shop: every offer carries an icon and a blurb the card can render"] = function()
+			for _, offer in TradeAdConfig.shopOffers() do
+				truthy(type(offer.imageId) == "string" and #offer.imageId > 0, offer.id .. " has an icon")
+				truthy(type(offer.description) == "string" and #offer.description > 0, offer.id .. " has a blurb")
+				eq(offer.productType, "devproduct", offer.id .. " is a dev product")
+			end
+		end,
+
+		-- Both boost sections must be ORDERED by the shop, or they would fall
+		-- to the bottom as unordered leftovers below the booth cosmetics.
+		["shop: both boost sections are ordered by MonetizationConfig"] = function()
+			local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
+			local ordered: { [string]: boolean } = {}
+			for _, name in MonetizationConfig.SectionOrder do
+				ordered[name] = true
+			end
+			truthy(ordered[TradeAdConfig.ShopSections.server], "server boost section is ordered")
+			truthy(ordered[TradeAdConfig.ShopSections.global], "global boost section is ordered")
+			for _, offer in TradeAdConfig.shopOffers() do
+				truthy(ordered[offer.section], offer.section .. " is ordered")
+				truthy(MonetizationConfig.SectionLayout[offer.section] ~= nil, offer.section .. " has a card size")
+			end
+		end,
+
+		-- The boost sections must not collide with a hand-authored one, or the
+		-- shop would interleave gem packs with placement.
+		["shop: boost sections are not reused by MonetizationConfig.Offers"] = function()
+			local MonetizationConfig = require(ReplicatedStorage.Shared.Config.MonetizationConfig)
+			for _, offer in MonetizationConfig.Offers do
+				truthy(
+					offer.section ~= TradeAdConfig.ShopSections.server
+						and offer.section ~= TradeAdConfig.ShopSections.global,
+					offer.id .. " does not squat a boost section"
+				)
+			end
+		end,
+
+		["shop: offer ids resolve back through skuById for the purchase prompt"] = function()
+			for _, offer in TradeAdConfig.shopOffers() do
+				local sku = TradeAdConfig.skuById(offer.id)
+				truthy(sku ~= nil, offer.id .. " is promptable")
+				eq((sku :: any).productId, offer.productId, offer.id .. " prompts its own product")
+			end
+		end,
 	},
 }

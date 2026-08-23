@@ -195,6 +195,65 @@ function TradeAdConfig.liveSkus(): { Sku }
 	return out
 end
 
+--------------------------------------------------------------------------------
+-- Shop presentation. Boosts are sold from the ONE storefront (ShopScreen), not
+-- from a second parallel one — a player who wants to buy placement should end
+-- up in the same shop as everyone buying anything else. These helpers are the
+-- adapter: they describe the SKUs in the shape MonetizationConfig offers use,
+-- so ShopScreen renders them through its existing card template with no
+-- special-casing. The SKU catalogue above stays the single source of truth for
+-- price, duration and tier.
+--------------------------------------------------------------------------------
+
+-- Simulator Icon Pack ids, reused from the shared UI chrome set.
+local BOOST_ICON = "rbxassetid://15403064919" -- trade arrows
+local FEATURED_ICON = "rbxassetid://17368097932" -- star
+
+TradeAdConfig.ShopSections = {
+	server = "⚡ AD BOOSTS · THIS SERVER",
+	global = "⚡ AD BOOSTS · GLOBAL",
+}
+
+function TradeAdConfig.shopSection(scope: string): string
+	return scope == TradeAdConfig.Scopes.Global and TradeAdConfig.ShopSections.global
+		or TradeAdConfig.ShopSections.server
+end
+
+-- Shelf order is the whole persuasion: low anchors, best is the intended pick,
+-- high anchors from above. Rendering them in any other order would break the
+-- ladder the prices were written for.
+local SHELF_SORT = { low = 1, best = 2, high = 3 }
+
+-- Offer-shaped rows for the shop. One per live SKU, ordered low → best → high
+-- within each scope's section, with the middle card carrying BEST VALUE.
+function TradeAdConfig.shopOffers(): { any }
+	local out = {}
+	for _, sku in TradeAdConfig.liveSkus() do
+		local isFeatured = sku.tier >= TradeAdConfig.BoostTier.Featured
+		table.insert(out, {
+			id = sku.id,
+			kind = "adboost",
+			section = TradeAdConfig.shopSection(sku.scope),
+			name = sku.name,
+			description = sku.blurb,
+			imageId = isFeatured and FEATURED_ICON or BOOST_ICON,
+			productType = "devproduct",
+			productId = sku.productId,
+			grants = {},
+			badge = sku.shelf == "best" and "BEST VALUE" or nil,
+			accent = isFeatured and { 253, 179, 30 } or nil, -- Theme.Gold
+			sortOrder = (SHELF_SORT[sku.shelf] or 9) * 10 + sku.seconds / 3600,
+		})
+	end
+	table.sort(out, function(a, b)
+		if a.section ~= b.section then
+			return a.section < b.section
+		end
+		return a.sortOrder < b.sortOrder
+	end)
+	return out
+end
+
 function TradeAdConfig.skusForScope(scope: string): { Sku }
 	local out: { Sku } = {}
 	for _, sku in TradeAdConfig.Skus do

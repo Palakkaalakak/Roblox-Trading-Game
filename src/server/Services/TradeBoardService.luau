@@ -595,6 +595,11 @@ local function describe(listing: any, viewerId: number): any
 		-- The tier IN FORCE right now, not the one on the record: a paid
 		-- window that has run out must stop showing a Featured pill.
 		boostTier = TradeAdRules.effectiveTier(listing, os.time()),
+		-- The boost's OWN clock, not the ad's. The feed row counts this down in
+		-- its "⚡ BOOSTED · 23h left" badge, so a buyer keeps seeing the thing
+		-- they paid for instead of having to trust that it worked. nil means
+		-- "no paid window" (a pass perk, or an unboosted ad).
+		boostExpiresAt = listing.boostExpiresAt,
 		scope = listing.scope or TradeAdConfig.Scopes.Global, -- legacy listings predate the field
 		-- poster present on THIS server right now -- drives the scope filter and
 		-- the "Live" pill: an ad from someone present settles immediately.
@@ -1036,7 +1041,10 @@ local function postCore(userId: number, userName: string, payload: any)
 	elseif listing.kind == "sell" or listing.kind == "bulk" then
 		task.spawn(TradeBoardService.tryCross, listing)
 	end
-	return { ok = true, id = id }
+	-- scope travels back so the poster's client can offer exactly the banked
+	-- credits that are applicable to the ad it just created (a credit whose
+	-- scope differs is rejected by canApplySku)
+	return { ok = true, id = id, scope = scope }
 end
 
 -- Find a mirror listing for a fresh swap post. Both auto-trade -> execute the

@@ -328,7 +328,15 @@ function ProductService.Start()
 	-- which gamepasses this player already owns (for the OWNED state).
 	Net.bindFunction("GetShop", function(player)
 		local offers = {}
-		for _, offer in MonetizationConfig.visibleOffers() do
+		-- Ad boosts are sold here alongside everything else. They come from
+		-- TradeAdConfig rather than MonetizationConfig.Offers because the SKU
+		-- catalogue owns their tier/duration rules, but from the shop's point
+		-- of view they are ordinary offers in ordinary sections.
+		local catalogue = MonetizationConfig.visibleOffers()
+		for _, boostOffer in TradeAdConfig.shopOffers() do
+			table.insert(catalogue, boostOffer)
+		end
+		for _, offer in catalogue do
 			local sellable = offer.productId ~= 0
 			local owned = false
 			if sellable and offer.productType == "gamepass" then
@@ -370,6 +378,15 @@ function ProductService.Start()
 	Net.bindFunction("PromptPurchase", function(player, offerId)
 		if not Guard.isString(offerId, 64) then
 			return { ok = false, err = "bad_args" }
+		end
+		-- boost SKUs are shop offers too, and their receipts are already handled
+		-- by TradeBoardService's per-SKU dev-product registrations
+		local sku = TradeAdConfig.skuById(offerId :: string)
+		if sku and sku.productId > 0 then
+			local ok = pcall(function()
+				MarketplaceService:PromptProductPurchase(player, sku.productId)
+			end)
+			return { ok = ok }
 		end
 		for _, offer in MonetizationConfig.liveOffers() do
 			if offer.id == offerId then
