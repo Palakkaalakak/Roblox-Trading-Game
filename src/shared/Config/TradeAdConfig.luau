@@ -205,9 +205,24 @@ end
 -- price, duration and tier.
 --------------------------------------------------------------------------------
 
--- Simulator Icon Pack ids, reused from the shared UI chrome set.
-local BOOST_ICON = "rbxassetid://15403064919" -- trade arrows
-local FEATURED_ICON = "rbxassetid://17368097932" -- star
+-- Simulator Icon Pack ids, reused from the shared UI chrome set. Exported so
+-- the shop section, the boost sheet card and the inventory slot all show the
+-- SAME art for the same tier -- a boost the player bought has to be
+-- recognisable wherever it turns up.
+TradeAdConfig.Icons = {
+	Boost = "rbxassetid://15403064919", -- trade arrows
+	Featured = "rbxassetid://17368097932", -- star
+}
+
+-- Art for one SKU, keyed off tier rather than id, so a new SKU inherits the
+-- right icon without another lookup table to keep in sync.
+function TradeAdConfig.iconFor(sku: Sku): string
+	return sku.tier >= TradeAdConfig.BoostTier.Featured and TradeAdConfig.Icons.Featured
+		or TradeAdConfig.Icons.Boost
+end
+
+local BOOST_ICON = TradeAdConfig.Icons.Boost
+local FEATURED_ICON = TradeAdConfig.Icons.Featured
 
 TradeAdConfig.ShopSections = {
 	server = "⚡ AD BOOSTS · THIS SERVER",

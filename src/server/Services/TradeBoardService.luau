@@ -615,11 +615,19 @@ local function describe(listing: any, viewerId: number): any
 			local items = {}
 			for itemId, count in offer.items do
 				local name, imageId, wildcard = itemInfo(itemId)
+				-- Per-item UNIT value. The feed used to ship only the side
+				-- totals, so a chip could show an icon and a count and nothing
+				-- a trader could judge -- every real trade-ad board shows
+				-- icon + name + value per item, and the number was already
+				-- being computed here for offerValue.
+				local snap = not wildcard and EconomyService.snapshot(itemId) or nil
+				local unitValue = snap and snap.value and snap.value.value or nil
 				table.insert(items, {
 					itemId = itemId,
 					name = name,
 					imageId = imageId,
 					count = count,
+					value = unitValue,
 					wildcard = wildcard or nil,
 				})
 			end

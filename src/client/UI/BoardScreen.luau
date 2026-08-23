@@ -14,6 +14,7 @@ local Components = require(script.Parent.Components)
 local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 local Net = require(script.Parent.Parent.Net)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
@@ -49,9 +50,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local featuredDivider = panel:WaitForChild("FeaturedDivider") :: Frame
 	local featuredSpawned: { Instance } = {}
 	local FEED_W = 976 -- reclaimed from the old 220px boost rail
-	local LIST_Y_NO_FEATURED = 112
-	-- header (106..122) + strip (126..278) + divider (282..284), then a gutter
-	local LIST_Y_WITH_FEATURED = 290
+	-- the tab row, scope filter and boost slot row occupy 40..148
+	local LIST_Y_NO_FEATURED = 152
+	-- header (152..168) + strip (172..310) + divider (314..316), then a gutter
+	local LIST_Y_WITH_FEATURED = 322
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.
@@ -66,12 +68,12 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 	setFeaturedVisible(false)
 
-	-- Banked credits, as one slim line above the feed. The old right rail held
-	-- the same data in ~23% of the panel; this is layout only, same source and
-	-- same click target.
-	local boostStrip = panel:WaitForChild("BoostStrip") :: Frame
-	local boostStripSummary = boostStrip:WaitForChild("SummaryLabel") :: TextLabel
-	local boostStripAdd = boostStrip:WaitForChild("AddButton") :: TextButton
+	-- Banked credits as a slot row above the feed. Same data source and same
+	-- click targets as the 220px rail it replaces — layout only.
+	local boostStrip = panel:WaitForChild("BoostSlotRow") :: Frame
+	local boostSlotTemplate = boostStrip:WaitForChild("BoostSlot") :: TextButton
+	local boostAddSlot = boostStrip:WaitForChild("AddSlot") :: TextButton
+	local boostSlotSpawned: { Instance } = {}
 	local lastBoostState: any = nil
 
 	-- boost sheet (spend a banked credit, or buy one, for one ad)
@@ -122,42 +124,82 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		table.clear(spawned)
 	end
 
-	-- One offer chip. Real items hover to live stats; trade-ad tokens hover
-	-- to their explanation. Gems are never a chip — see fillOfferChips.
-	local function addChip(holder: Frame, imageId: string?, name: string, countText: string, order: number, itemId: string?, isWildcard: boolean?)
+	-- "x2 · 1.2k" — count and unit value on one line. Value is what a trader
+	-- actually decides on, and the server has been sending it per item since
+	-- the payload gained `value`; the chip used to throw it away and show a
+	-- bare "x1", which told nobody anything.
+	local function countValueText(entry: any): string
+		local countText = entry.wildcard and "any" or ("x" .. entry.count)
+		if entry.value == nil or entry.value <= 0 then
+			return countText
+		end
+		return ("%s · %s"):format(countText, Format.abbrev(entry.value * entry.count))
+	end
+
+	-- One offer chip: icon + NAME + count/value. Real items hover to live
+	-- stats; trade-ad tokens hover to their explanation. Gems are never a chip
+	-- — see fillOfferChips.
+	local function addChip(holder: Frame, entry: any, order: number)
 		local chip = chipTemplate:Clone()
 		chip.Visible = true
 		chip.LayoutOrder = order
-		Components.setIcon(chip:WaitForChild("Icon") :: ImageLabel, { imageId = imageId, name = name })
-		;(chip:WaitForChild("CountLabel") :: TextLabel).Text = countText
+		Components.setIcon(chip:WaitForChild("Icon") :: ImageLabel, { imageId = entry.imageId, name = entry.name })
+		;(chip:WaitForChild("NameLabel") :: TextLabel).Text = entry.name
+		;(chip:WaitForChild("CountLabel") :: TextLabel).Text = countValueText(entry)
 		chip.Parent = holder
 		table.insert(spawned, chip)
-		if itemId and not isWildcard then
-			EconomyController.ensure({ itemId })
+		if entry.itemId and not entry.wildcard then
+			EconomyController.ensure({ entry.itemId })
 		end
 		tooltip.attach(chip, function()
-			if isWildcard and itemId then
-				return WildcardConfig.snapshot(itemId), nil
+			if entry.wildcard and entry.itemId then
+				return WildcardConfig.snapshot(entry.itemId), nil
 			end
-			if itemId then
-				return EconomyController.get(itemId) or { name = name, imageId = imageId }, nil
+			if entry.itemId then
+				return EconomyController.get(entry.itemId) or { name = entry.name, imageId = entry.imageId }, nil
 			end
-			return { name = name, imageId = imageId }, nil
+			return { name = entry.name, imageId = entry.imageId }, nil
 		end)
 	end
 
-	-- Item cards only in the chip row; gems are never a fake item card — just
-	-- an icon + "+N gems (after tax)" line under the holder.
+	-- One named chip per side plus a "+N more" line, rather than a wall of
+	-- anonymous icons: a row that shows five 46px squares and no names is
+	-- unreadable, and every real trade-ad board leads with one item.
 	local function fillOfferChips(holder: Frame, gemsIcon: ImageLabel, gemsLabel: TextLabel, offer: any)
-		local order = 0
-		for _, entry in offer.items do
-			order += 1
-			local countText = entry.wildcard and "" or ("x" .. entry.count)
-			addChip(holder, entry.imageId, entry.name, countText, order, entry.itemId, entry.wildcard)
+		local more = holder:WaitForChild("MoreLabel") :: TextLabel
+		local first = offer.items[1]
+		if first then
+			addChip(holder, first, 1)
 		end
+		local extra = #offer.items - (first and 1 or 0)
+		more.Visible = extra > 0
+		more.Text = extra > 0 and ("+%d more item%s"):format(extra, extra == 1 and "" or "s") or ""
 		local hasGems = offer.gems > 0
 		gemsIcon.Visible = hasGems
 		gemsLabel.Text = hasGems and ("+%d gems (after tax)"):format(Tax.split(offer.gems)) or ""
+	end
+
+	-- The single wording for "is this trade fair", shared by the feed rows and
+	-- the featured cards so the same listing never gets two different verdicts.
+	--
+	-- On your OWN ad this must describe the ad, not judge it — "-77% you" on
+	-- your own listing reads like a self-inflicted scam warning. valueDelta is
+	-- signed from the GIVE side: negative means the want side is worth more,
+	-- i.e. you are asking a premium, so the sign is flipped to keep the number
+	-- describing the size of what you ask OVER what you offer.
+	local function verdictFor(listing: any): (string, Color3)
+		if listing.valueDelta == 0 then
+			return "Fair", Theme.TextDim
+		elseif listing.mine then
+			if listing.valueDelta < 0 then
+				return ("You're asking %d%% more"):format(-listing.valueDelta), Theme.TextDim
+			end
+			return ("You're offering %d%% more"):format(listing.valueDelta), Theme.TextDim
+		elseif listing.valueDelta > 0 then
+			return ("You gain %d%%"):format(listing.valueDelta), Theme.Good
+		end
+		return ("You lose %d%%"):format(-listing.valueDelta), Theme.Bad
+	end
 	end
 
 	local function invokeAction(fn: () -> any): any
@@ -363,6 +405,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				card.LayoutOrder = order
 
 				local first = bucket[1]
+				-- same art as this tier's shop section and inventory slot, so a
+				-- boost is recognisable wherever the player meets it
+				;(card:WaitForChild("Icon") :: ImageLabel).Image = TradeAdConfig.iconFor(first)
 				;(card:WaitForChild("NameLabel") :: TextLabel).Text = #bucket > 1 and "Featured" or first.name
 				;(card:WaitForChild("BlurbLabel") :: TextLabel).Text = first.blurb
 				;(card:WaitForChild("Ribbon") :: Frame).Visible = shelf == "best"
@@ -411,35 +456,60 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		sheetAutoRenewLabel.TextColor3 = sheetAutoRenewInteractable and Theme.TextPrimary or Theme.TextDim
 	end
 
-	-- Per-scope totals rather than a row per SKU: the line is a status readout,
-	-- not an inventory screen. Which SKU a credit is stays visible where it
-	-- matters — the boost sheet and the post-time picker both name them.
+	-- One slot per OWNED boost: icon, count badge, short name. Consumables in
+	-- Roblox games read as slots, not as a comma-separated sentence — and a
+	-- slot is a click target, so spending and buying are the same gesture.
+	local function slotName(sku: any): string
+		-- the scope is already implied by the board tab the player is on, so
+		-- the slot caption spends its ~62px on duration instead
+		return sku.tier >= TradeAdConfig.BoostTier.Featured and ("Featured " .. formatDuration(sku.seconds))
+			or ("Boost " .. formatDuration(sku.seconds))
+	end
+
+	-- The ad a slot-tap should target: the player's own open ad in that scope.
+	-- Picking it here (rather than inventing a chooser) keeps spending on the
+	-- existing ApplyAdBoost path with nothing new server-side.
+	local function ownListingIn(scope: string): string?
+		for _, listing in lastListings or {} do
+			if listing.mine and listing.kind == "swap" and listing.scope == scope then
+				return listing.id
+			end
+		end
+		return nil
+	end
+
 	local function renderBoostInventory(boostState: any)
-		local totals: { [string]: number } = {}
+		for _, inst in boostSlotSpawned do
+			inst:Destroy()
+		end
+		table.clear(boostSlotSpawned)
+
+		local order = 0
 		for _, sku in TradeAdConfig.liveSkus() do
 			local count = boostState.credits[sku.id] or 0
 			if count > 0 then
-				totals[sku.scope] = (totals[sku.scope] or 0) + count
+				order += 1
+				local slot = boostSlotTemplate:Clone()
+				slot.Name = "slot_" .. sku.id
+				slot.Visible = true
+				slot.LayoutOrder = order
+				;(slot:WaitForChild("Icon") :: ImageLabel).Image = TradeAdConfig.iconFor(sku)
+				;(slot:WaitForChild("CountBadge") :: TextLabel).Text = "x" .. count
+				;(slot:WaitForChild("NameLabel") :: TextLabel).Text = slotName(sku)
+				slot.Activated:Connect(function()
+					-- opens the sheet already aimed at one of your ads when you
+					-- have one, so the credit is one more tap from being spent
+					openBoostSheet(sku.scope, ownListingIn(sku.scope))
+				end)
+				slot.Parent = boostStrip
+				table.insert(boostSlotSpawned, slot)
 			end
 		end
-		local parts = {}
-		for _, scope in { TradeAdConfig.Scopes.Server, TradeAdConfig.Scopes.Global } do
-			local count = totals[scope]
-			if count then
-				local scopeName = scope == TradeAdConfig.Scopes.Global and "Global" or "Server"
-				table.insert(parts, ("%s %d"):format(scopeName, count))
-			end
-		end
-		-- owning nothing collapses to one quiet line, not a reserved block
-		if #parts == 0 then
-			boostStripSummary.Text = "⚡ No boosts banked"
-			boostStripSummary.TextColor3 = Theme.TextDim
-		else
-			boostStripSummary.Text = "⚡ Boosts:  " .. table.concat(parts, "  ·  ")
-			boostStripSummary.TextColor3 = Theme.TextPrimary
-		end
+		-- nothing owned leaves just the AddSlot, which is a real affordance
+		-- rather than a reserved empty block
+		;(boostAddSlot:WaitForChild("NameLabel") :: TextLabel).Text = order == 0 and "Get boosts" or "More"
 	end
-	boostStripAdd.Activated:Connect(function()
+	boostAddSlot.Activated:Connect(function()
 		openShopAtBoosts(activeScope)
 	end)
 	sheetOpenShopBtn.Activated:Connect(function()
@@ -514,33 +584,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give) -- what the poster GIVES you
 		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want) -- what they WANT from you
 
-		-- value-delta chip. On your OWN ad this must describe the ad, not judge
-		-- it — "-77% you" on your own listing reads like a self-inflicted scam
-		-- warning. On someone else's ad the delta is genuinely useful, but
-		-- "+12% you" leaves "you" dangling after a percentage with no verb to
-		-- anchor it, so spell out the direction instead.
-		if listing.valueDelta == 0 then
-			valueChip.Text = "Fair"
-			valueChip.TextColor3 = Theme.TextDim
-		elseif listing.mine then
-			-- valueDelta is signed from the GIVE side: negative means the want
-			-- side is worth more, i.e. you are asking for a premium. Feeding
-			-- that sign straight into "asking" produces "You're asking -77%",
-			-- which reads as asking for less. Flip it so the number always
-			-- describes the size of what you are asking OVER what you offer.
-			if listing.valueDelta < 0 then
-				valueChip.Text = ("You're asking %d%% more"):format(-listing.valueDelta)
-			else
-				valueChip.Text = ("You're offering %d%% more"):format(listing.valueDelta)
-			end
-			valueChip.TextColor3 = Theme.TextDim
-		elseif listing.valueDelta > 0 then
-			valueChip.Text = ("You gain %d%%"):format(listing.valueDelta)
-			valueChip.TextColor3 = Theme.Good
-		else
-			valueChip.Text = ("You lose %d%%"):format(-listing.valueDelta)
-			valueChip.TextColor3 = Theme.Bad
-		end
+		-- the verdict, right after the want side so it reads as part of the trade
+		valueChip.Text, valueChip.TextColor3 = verdictFor(listing)
 
 		-- time-left pill: surfaces the presence-tied lifetime — otherwise
 		-- invisible — so players learn staying online keeps an ad alive
@@ -652,26 +697,21 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		table.clear(featuredSpawned)
 	end
 
-	-- Fill one side of a featured card with icon chips and report how many
-	-- items did not fit. FEATURED_CHIPS_PER_SIDE is a LAYOUT constant, not a
-	-- rule: the card is fixed-height on purpose (a wrapping summary used to
-	-- jitter every card's height), so overflow is summarised as "+N more"
-	-- rather than allowed to grow the card.
-	local FEATURED_CHIPS_PER_SIDE = 2
-
-	local function fillFeaturedSide(holder: Frame, offer: any): number
-		local shown = 0
-		for _, entry in offer.items do
-			if shown >= FEATURED_CHIPS_PER_SIDE then
-				break
-			end
-			shown += 1
+	-- Fill one side of a featured card: ONE named, priced item plus a "+N more"
+	-- line. The card is fixed-height on purpose (a wrapping summary used to
+	-- jitter every card's height), and one item with a name and a value is
+	-- worth more to a trader than three anonymous icons.
+	local function fillFeaturedSide(holder: Frame, offer: any)
+		local more = holder:WaitForChild("MoreLabel") :: TextLabel
+		local entry = offer.items[1]
+		if entry then
 			local chip = featuredMiniChip:Clone()
-			chip.Name = "chip_" .. tostring(shown)
+			chip.Name = "chip"
 			chip.Visible = true
-			chip.LayoutOrder = shown
+			chip.LayoutOrder = 1
 			Components.setIcon(chip:WaitForChild("Icon") :: ImageLabel, { imageId = entry.imageId, name = entry.name })
-			;(chip:WaitForChild("CountLabel") :: TextLabel).Text = entry.wildcard and "ANY" or ("x" .. entry.count)
+			;(chip:WaitForChild("NameLabel") :: TextLabel).Text = entry.name
+			;(chip:WaitForChild("CountLabel") :: TextLabel).Text = countValueText(entry)
 			chip.Parent = holder
 			table.insert(featuredSpawned, chip)
 			if entry.itemId and not entry.wildcard then
@@ -688,11 +728,12 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			end)
 		end
 		-- gems on a side still count as "something else in this trade"
-		local extra = #offer.items - shown
+		local extra = #offer.items - (entry and 1 or 0)
 		if offer.gems > 0 then
 			extra += 1
 		end
-		return math.max(0, extra)
+		more.Visible = extra > 0
+		more.Text = extra > 0 and ("+%d more"):format(extra) or ""
 	end
 
 	-- gold strip above the list: at most FeaturedSlotsPerScope boosted ads for
@@ -712,18 +753,19 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				card.LayoutOrder = shown
 				;(card:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
 
-				-- The paid card shows the same item icons the free rows below
-				-- show. A three-label text card made the premium placement look
-				-- cheaper than the thing it outranks.
-				local hidden = fillFeaturedSide(card:WaitForChild("GiveHolder") :: Frame, listing.give)
-					+ fillFeaturedSide(card:WaitForChild("WantHolder") :: Frame, listing.want)
-				local more = card:WaitForChild("MoreLabel") :: TextLabel
-				more.Visible = hidden > 0
-				more.Text = hidden > 0 and ("+%d more"):format(hidden) or ""
+				-- what / how much / is it fair — the three things a trader
+				-- decides on. Anything less and the paid card is worth less
+				-- than the free row underneath it.
+				fillFeaturedSide(card:WaitForChild("GiveHolder") :: Frame, listing.give)
+				fillFeaturedSide(card:WaitForChild("WantHolder") :: Frame, listing.want)
 
+				local verdict = card:WaitForChild("VerdictLabel") :: TextLabel
+				verdict.Text, verdict.TextColor3 = verdictFor(listing)
+
+				-- countdown only: every card in this strip is featured, so
+				-- repeating the word on each one was noise against the art
 				local tierLabel = card:WaitForChild("TierLabel") :: TextLabel
-				tierLabel.Text = listing.boostExpiresAt and ("⭐ " .. boostLeftText(listing.boostExpiresAt))
-					or "⭐ FEATURED"
+				tierLabel.Text = listing.boostExpiresAt and boostLeftText(listing.boostExpiresAt) or "Featured"
 
 				card.Parent = featuredStrip
 				table.insert(featuredSpawned, card)
