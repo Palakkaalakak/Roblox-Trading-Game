@@ -455,7 +455,16 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			valueChip.Text = "Fair"
 			valueChip.TextColor3 = Theme.TextDim
 		elseif listing.mine then
-			valueChip.Text = ("You're asking %+d%%"):format(listing.valueDelta)
+			-- valueDelta is signed from the GIVE side: negative means the want
+			-- side is worth more, i.e. you are asking for a premium. Feeding
+			-- that sign straight into "asking" produces "You're asking -77%",
+			-- which reads as asking for less. Flip it so the number always
+			-- describes the size of what you are asking OVER what you offer.
+			if listing.valueDelta < 0 then
+				valueChip.Text = ("You're asking %d%% more"):format(-listing.valueDelta)
+			else
+				valueChip.Text = ("You're offering %d%% more"):format(listing.valueDelta)
+			end
 			valueChip.TextColor3 = Theme.TextDim
 		elseif listing.valueDelta > 0 then
 			valueChip.Text = ("You gain %d%%"):format(listing.valueDelta)
