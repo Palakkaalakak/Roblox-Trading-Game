@@ -1,10 +1,10 @@
 --!strict
--- Trade board wiring (the pillar). Panel + templates live in StarterGui.
--- Two tabs:
---   * TRADES — item-for-item swap listings (AUTO = instant accept, ASK =
+-- Trade Ads — item-for-item swap listings (AUTO = instant accept, ASK =
 --     register interest). Posting opens the trade window in compose mode;
 --     the want side accepts trade-ad tokens (Upgrade, Any, …) from
---     WildcardConfig, which force the listing to ask-first.
+--     WildcardConfig, which force the listing to ask-first. Two tabs:
+--   * TRADE ADS — the swap board above, with a server/global scope filter,
+--     a featured strip, and paid boost placement (see TradeAdConfig).
 --   * MARKET — the per-item order book (buy orders + sell listings, priced
 --     in gems). All of it lives in MarketScreen; this file just switches.
 
@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
+local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
 local Net = require(script.Parent.Parent.Net)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
@@ -31,11 +32,61 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local chipTemplate = (rowTemplate:WaitForChild("GiveHolder") :: Frame):WaitForChild("Chip") :: Frame
 	local emptyLabel = panel:WaitForChild("EmptyLabel") :: TextLabel
 
+	-- scope filter
+	local scopeRow = panel:WaitForChild("ScopeRow") :: Frame
+	local scopeButtons = {
+		server = scopeRow:WaitForChild("ScopeServer") :: TextButton,
+		global = scopeRow:WaitForChild("ScopeGlobal") :: TextButton,
+	}
+
+	-- featured strip (collapses to nothing when the active scope has no
+	-- boostTier >= 2 listings)
+	local featuredStrip = panel:WaitForChild("FeaturedStrip") :: ScrollingFrame
+	local featuredCardTemplate = featuredStrip:WaitForChild("FeaturedCard") :: Frame
+	local featuredSpawned: { Instance } = {}
+	local LIST_Y_NO_FEATURED = 112
+	local FEATURED_H = 110
+	local LIST_Y_WITH_FEATURED = LIST_Y_NO_FEATURED + FEATURED_H + 8
+
+	local function setFeaturedVisible(visible: boolean)
+		featuredStrip.Visible = visible
+		local listY = visible and LIST_Y_WITH_FEATURED or LIST_Y_NO_FEATURED
+		list.Position = UDim2.fromOffset(12, listY)
+		list.Size = UDim2.new(0, 744, 1, -(listY + 12))
+		emptyLabel.Position = UDim2.fromOffset(12, listY + 38)
+	end
+	setFeaturedVisible(false)
+
+	-- boost inventory (banked, unspent credits)
+	local boostInv = panel:WaitForChild("BoostInventoryPanel") :: Frame
+	local creditsList = boostInv:WaitForChild("CreditsList") :: ScrollingFrame
+	local creditRowTemplate = creditsList:WaitForChild("BoostCreditRow") :: Frame
+	local boostInvEmpty = boostInv:WaitForChild("EmptyLabel") :: TextLabel
+	local boostInvSpawned: { Instance } = {}
+	local lastBoostState: any = nil
+
+	-- boost sheet (spend a banked credit, or buy one, for one ad)
+	local boostSheet = panel:WaitForChild("BoostSheet") :: Frame
+	local sheetCreditsList = boostSheet:WaitForChild("CreditsList") :: ScrollingFrame
+	local sheetCreditTemplate = sheetCreditsList:WaitForChild("CreditButton") :: TextButton
+	local sheetCreditsEmpty = boostSheet:WaitForChild("EmptyLabel") :: TextLabel
+	local sheetSkuRow = boostSheet:WaitForChild("SkuRow") :: Frame
+	local sheetSkuTemplate = sheetSkuRow:WaitForChild("SkuCard") :: Frame
+	local sheetAutoRenewBox = (boostSheet:WaitForChild("AutoRenew") :: Frame):WaitForChild("Checkbox") :: TextButton
+	local sheetSpawned: { Instance } = {}
+	local sheetScope: string = TradeAdConfig.Scopes.Server
+	local sheetListingId: string? = nil
+
 	local spawned: { Instance } = {}
 	local lastListings: { any }? = nil
 	local busy = false
 	local refresh
+	local openBoostSheet: (scope: string, listingId: string?) -> ()
 	local activeTab: "swap" | "market" = "swap"
+	-- default "server": bot ads are all server-scoped, so the global feed
+	-- looks empty at low population — a new player's first look at the board
+	-- should show ads, not a void
+	local activeScope: string = TradeAdConfig.Scopes.Server
 
 	local closeBtn = panel:WaitForChild("CloseButton") :: TextButton
 	closeBtn.Activated:Connect(function()
@@ -98,6 +149,192 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		return result
 	end
 
+	-- "2h left" / "45m left" — makes the presence-tied ad lifetime visible.
+	local function timeLeftText(expiresAt: number): string
+		local remaining = math.max(0, expiresAt - os.time())
+		local hours = math.floor(remaining / 3600)
+		if hours >= 1 then
+			return ("%dh left"):format(hours)
+		end
+		return ("%dm left"):format(math.max(1, math.floor(remaining / 60)))
+	end
+
+	--------------------------------------------------------------------------
+	-- Boost sheet: spend a banked credit, or buy one, for one ad. Opened from
+	-- a listing's own "⏱ Boost" button (sheetListingId set) or from the boost
+	-- inventory panel's "+" (sheetListingId nil — buy-only, nothing to spend on
+	-- yet).
+	--------------------------------------------------------------------------
+
+	local function clearSheet()
+		for _, inst in sheetSpawned do
+			inst:Destroy()
+		end
+		table.clear(sheetSpawned)
+	end
+
+	local function refreshBoostInventory() -- fwd decl target, assigned below
+	end
+
+	local function closeBoostSheet()
+		boostSheet.Visible = false
+		clearSheet()
+	end
+	(boostSheet:WaitForChild("CloseButton") :: TextButton).Activated:Connect(closeBoostSheet)
+
+	local function renderSheetCredits(boostState: any)
+		local order = 0
+		for _, sku in TradeAdConfig.skusForScope(sheetScope) do
+			local count = boostState.credits[sku.id] or 0
+			if count > 0 then
+				order += 1
+				local btn = sheetCreditTemplate:Clone()
+				btn.Name = "credit_" .. sku.id
+				btn.Visible = true
+				btn.LayoutOrder = order
+				btn.Text = ("%s\nx%d owned%s"):format(sku.name, count, sheetListingId and " — tap to apply" or "")
+				btn.AutoButtonColor = sheetListingId ~= nil
+				if sheetListingId then
+					local listingId = sheetListingId
+					btn.Activated:Connect(function()
+						local result = invokeAction(function()
+							return Net.invoke("ApplyAdBoost", listingId, sku.id)
+						end)
+						if result then
+							if result.ok then
+								toast("Boost applied!", Theme.Good)
+								closeBoostSheet()
+								refresh()
+							else
+								toast("Couldn't apply boost: " .. tostring(result.err), Theme.Bad)
+							end
+						end
+						refreshBoostInventory()
+					end)
+				end
+				btn.Parent = sheetCreditsList
+				table.insert(sheetSpawned, btn)
+			end
+		end
+		sheetCreditsEmpty.Visible = order == 0
+	end
+
+	local SHELF_ORDER = { low = 1, best = 2, high = 3 }
+
+	local function renderSheetSkus(boostState: any)
+		local skus = TradeAdConfig.skusForScope(sheetScope)
+		table.sort(skus, function(a, b)
+			return (SHELF_ORDER[a.shelf] or 9) < (SHELF_ORDER[b.shelf] or 9)
+		end)
+		local order = 0
+		for _, sku in skus do
+			order += 1
+			local card = sheetSkuTemplate:Clone()
+			card.Name = "sku_" .. sku.id
+			card.Visible = true
+			card.LayoutOrder = order
+			;(card:WaitForChild("NameLabel") :: TextLabel).Text = sku.name
+			;(card:WaitForChild("BlurbLabel") :: TextLabel).Text = sku.blurb
+			;(card:WaitForChild("Ribbon") :: Frame).Visible = sku.shelf == "best"
+			local noSlots = card:WaitForChild("NoSlotsLabel") :: TextLabel
+			local buyBtn = card:WaitForChild("BuyButton") :: TextButton
+			buyBtn.Text = ("%d R$"):format(sku.robux)
+			local outOfSlots = sku.tier == TradeAdConfig.BoostTier.Featured
+				and (boostState.featuredOpen[sheetScope] or 0) <= 0
+			noSlots.Visible = outOfSlots
+			buyBtn.Visible = not outOfSlots
+			if not outOfSlots then
+				buyBtn.Activated:Connect(function()
+					local result = invokeAction(function()
+						return Net.invoke("PromptAdBoost", sku.id)
+					end)
+					if result and not result.ok then
+						toast("Couldn't open that purchase.", Theme.Bad)
+					end
+					refreshBoostInventory()
+				end)
+			end
+			card.Parent = sheetSkuRow
+			table.insert(sheetSpawned, card)
+		end
+	end
+
+	local function renderBoostSheet(boostState: any)
+		clearSheet()
+		renderSheetCredits(boostState)
+		renderSheetSkus(boostState)
+		sheetAutoRenewBox.Text = boostState.autoRenew[sheetScope] and "✓" or ""
+	end
+
+	-- scope-prefixed short label: "Boost 24 hours" (global) -> "Global Boost 24h"
+	local function shortSkuLabel(sku: any): string
+		local scopeLabel = sku.scope == TradeAdConfig.Scopes.Global and "Global" or "Server"
+		local shortName = sku.name:gsub(" hours", "h"):gsub(" hour", "h")
+		return scopeLabel .. " " .. shortName
+	end
+
+	local function clearBoostInv()
+		for _, inst in boostInvSpawned do
+			inst:Destroy()
+		end
+		table.clear(boostInvSpawned)
+	end
+
+	local function renderBoostInventory(boostState: any)
+		clearBoostInv()
+		local order = 0
+		for _, sku in TradeAdConfig.liveSkus() do
+			local count = boostState.credits[sku.id] or 0
+			if count > 0 then
+				order += 1
+				local row = creditRowTemplate:Clone()
+				row.Name = "credit_" .. sku.id
+				row.Visible = true
+				row.LayoutOrder = order
+				;(row:WaitForChild("Label") :: TextLabel).Text = ("%s: %d"):format(shortSkuLabel(sku), count)
+				;(row:WaitForChild("AddButton") :: TextButton).Activated:Connect(function()
+					openBoostSheet(sku.scope, nil)
+				end)
+				row.Parent = creditsList
+				table.insert(boostInvSpawned, row)
+			end
+		end
+		boostInvEmpty.Visible = order == 0
+	end
+
+	refreshBoostInventory = function()
+		task.spawn(function()
+			local result = Net.invoke("GetAdBoostState")
+			if result.ok then
+				lastBoostState = result
+				renderBoostInventory(result)
+				if boostSheet.Visible then
+					renderBoostSheet(result)
+				end
+			end
+		end)
+	end
+
+	sheetAutoRenewBox.Activated:Connect(function()
+		local enabled = sheetAutoRenewBox.Text == ""
+		local result = invokeAction(function()
+			return Net.invoke("SetAdAutoRenew", sheetScope, enabled)
+		end)
+		if result and result.ok then
+			sheetAutoRenewBox.Text = enabled and "✓" or ""
+		end
+	end)
+
+	openBoostSheet = function(scope: string, listingId: string?)
+		sheetScope = scope
+		sheetListingId = listingId
+		boostSheet.Visible = true
+		if lastBoostState then
+			renderBoostSheet(lastBoostState)
+		end
+		refreshBoostInventory()
+	end
+
 	local function renderListing(listing: any, order: number)
 		local row = rowTemplate:Clone()
 		row.Name = "listing_" .. listing.id
@@ -116,6 +353,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local badge = row:WaitForChild("Badge") :: TextLabel
 		local countBox = row:WaitForChild("CountBox") :: TextBox
 		local action = row:WaitForChild("ActionButton") :: TextButton
+		local valueChip = row:WaitForChild("ValueChip") :: TextLabel
+		local timePill = row:WaitForChild("TimePill") :: TextLabel
+		local boostBtn = row:WaitForChild("BoostButton") :: TextButton
 		countBox.Visible = false
 		;(row:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
 			.. (listing.mine and " (you)" or "")
@@ -124,6 +364,33 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
 		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give) -- what the poster GIVES you
 		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want) -- what they WANT from you
+
+		-- value-delta chip: how this swap reads from the viewer's side
+		if listing.valueDelta == 0 then
+			valueChip.Text = "Fair"
+			valueChip.TextColor3 = Theme.TextDim
+		else
+			valueChip.Text = ("%+d%% you"):format(listing.valueDelta)
+			valueChip.TextColor3 = listing.valueDelta > 0 and Theme.Good or Theme.Bad
+		end
+
+		-- time-left pill: surfaces the presence-tied lifetime — otherwise
+		-- invisible — so players learn staying online keeps an ad alive
+		if listing.here then
+			timePill.Text = "Live · you're in game"
+			timePill.TextColor3 = Theme.Good
+		else
+			timePill.Text = timeLeftText(listing.expiresAt)
+			timePill.TextColor3 = Theme.TextDim
+		end
+
+		-- boost button: only the poster can push their own ad
+		boostBtn.Visible = listing.mine
+		if listing.mine then
+			boostBtn.Activated:Connect(function()
+				openBoostSheet(listing.scope, listing.id)
+			end)
+		end
 		if listing.mine and #listing.interested > 0 then
 			local names = {}
 			for _, e in listing.interested do
@@ -192,16 +459,59 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end
 	end
 
-	local function renderBoard(listings: { any })
-		clearRendered()
+	local function clearFeatured()
+		for _, inst in featuredSpawned do
+			inst:Destroy()
+		end
+		table.clear(featuredSpawned)
+	end
+
+	-- gold strip above the list: at most FeaturedSlotsPerScope boosted ads for
+	-- the active scope. Collapses to nothing rather than show as an empty rail.
+	local function renderFeatured(scopeListings: { any })
+		clearFeatured()
 		local shown = 0
-		for _, listing in listings do
-			if listing.kind == "swap" then
+		for _, listing in scopeListings do
+			if shown >= TradeAdConfig.FeaturedSlotsPerScope then
+				break
+			end
+			if listing.boostTier and listing.boostTier >= TradeAdConfig.BoostTier.Featured then
 				shown += 1
-				renderListing(listing, shown)
+				local card = featuredCardTemplate:Clone()
+				card.Name = "featured_" .. listing.id
+				card.Visible = true
+				card.LayoutOrder = shown
+				;(card:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
+				local giveNames, wantNames = {}, {}
+				for _, e in listing.give.items do
+					table.insert(giveNames, e.name)
+				end
+				for _, e in listing.want.items do
+					table.insert(wantNames, e.name)
+				end
+				;(card:WaitForChild("SummaryLabel") :: TextLabel).Text = table.concat(giveNames, ", ")
+					.. " ⇄ "
+					.. table.concat(wantNames, ", ")
+				card.Parent = featuredStrip
+				table.insert(featuredSpawned, card)
 			end
 		end
-		emptyLabel.Visible = shown == 0 and activeTab == "swap"
+		setFeaturedVisible(shown > 0)
+	end
+
+	local function renderBoard(listings: { any })
+		clearRendered()
+		local scopeListings = {}
+		for _, listing in listings do
+			if listing.kind == "swap" and listing.scope == activeScope then
+				table.insert(scopeListings, listing)
+			end
+		end
+		renderFeatured(scopeListings)
+		for i, listing in scopeListings do
+			renderListing(listing, i)
+		end
+		emptyLabel.Visible = #scopeListings == 0 and activeTab == "swap"
 		emptyLabel.Text = "No trades posted — hit + to post one!"
 	end
 
@@ -216,6 +526,22 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			end
 		end)
 	end
+
+	local function selectScope(scope: string)
+		activeScope = scope
+		for key, btn in scopeButtons do
+			btn.BackgroundColor3 = (key == scope) and Theme.Accent or Theme.BgLight
+		end
+		if lastListings then
+			renderBoard(lastListings)
+		end
+	end
+	for scope, btn in scopeButtons do
+		btn.Activated:Connect(function()
+			selectScope(scope)
+		end)
+	end
+	selectScope(activeScope)
 
 	--------------------------------------------------------------------------
 	-- Tabs
@@ -238,15 +564,22 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			MarketScreen.hide()
 			list.Visible = true
 			postBtn.Visible = true
+			scopeRow.Visible = true
+			boostInv.Visible = true
 			if lastListings then
 				renderBoard(lastListings)
 			end
 			refresh()
+			refreshBoostInventory()
 		else
 			clearRendered()
+			clearFeatured()
 			emptyLabel.Visible = false
 			list.Visible = false
 			postBtn.Visible = false
+			scopeRow.Visible = false
+			setFeaturedVisible(false)
+			boostInv.Visible = false
 			MarketScreen.show()
 		end
 	end

@@ -819,7 +819,7 @@ local function buildBoardPanel(parent: Instance)
 	local boardPanel = panel("BoardPanel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Size = UDim2.fromOffset(760, 560),
+		Size = UDim2.fromOffset(1000, 600), -- widened to fit the boost inventory side panel
 		Visible = false,
 	}, parent)
 
@@ -859,9 +859,9 @@ local function buildBoardPanel(parent: Instance)
 		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, tabRow)
-	local function tab(name: string, text: string, order: number)
+	local function tab(name: string, text: string, order: number, width: number?)
 		local b = button(name, {
-			Size = UDim2.fromOffset(150, 30),
+			Size = UDim2.fromOffset(width or 150, 30),
 			Text = text,
 			TextSize = 13,
 			BackgroundColor3 = C.BgLight,
@@ -869,13 +869,122 @@ local function buildBoardPanel(parent: Instance)
 		}, tabRow)
 		return b
 	end
-	tab("TabTrades", "🔁 Trades", 1)
+	-- 170px: "🔁 Trade Ads" clips at the old 150px tab width
+	tab("TabTrades", "🔁 Trade Ads", 1, 170)
 	tab("TabMarket", "📈 Market", 2)
 
+	-- scope filter: server-only vs game-wide feed. Defaults to "server" at
+	-- runtime (BoardScreen) so a low-pop server's first look at the board
+	-- isn't an empty global feed.
+	local scopeRow = new("Frame", {
+		Name = "ScopeRow",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(12, 76),
+		Size = UDim2.fromOffset(744, 26),
+	}, boardPanel)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, scopeRow)
+	button("ScopeServer", {
+		Size = UDim2.fromOffset(120, 26),
+		Text = "THIS SERVER",
+		TextSize = 12,
+		BackgroundColor3 = C.Accent,
+		LayoutOrder = 1,
+	}, scopeRow)
+	button("ScopeGlobal", {
+		Size = UDim2.fromOffset(120, 26),
+		Text = "GLOBAL",
+		TextSize = 12,
+		BackgroundColor3 = C.BgLight,
+		LayoutOrder = 2,
+	}, scopeRow)
+
+	-- featured strip: gold-edged horizontal rail, at most FeaturedSlotsPerScope
+	-- cards. Collapses to zero height + Visible=false at runtime when the
+	-- active scope has no boostTier>=2 listings, so a quiet board doesn't
+	-- render a wall of dead space above the main feed.
+	local featuredStrip = new("ScrollingFrame", {
+		Name = "FeaturedStrip",
+		Position = UDim2.fromOffset(12, 108),
+		Size = UDim2.fromOffset(744, 110),
+		BackgroundColor3 = C.Panel,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		CanvasSize = UDim2.new(),
+		Visible = false,
+	}, boardPanel)
+	corner(featuredStrip, 8)
+	stroke(featuredStrip, C.Gold, 2)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, featuredStrip)
+	new("UIPadding", {
+		PaddingLeft = UDim.new(0, 34),
+		PaddingTop = UDim.new(0, 8),
+		PaddingBottom = UDim.new(0, 8),
+	}, featuredStrip)
+	label("FeaturedLabel", {
+		Name = "FeaturedLabel",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, 14, 0.5, 0),
+		Rotation = -90,
+		Size = UDim2.fromOffset(94, 20),
+		Text = "FEATURED",
+		TextSize = 12,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 2,
+	}, featuredStrip)
+
+	-- one featured card: compact summary, gold ribbon, boost-tier badge
+	local featuredCard = new("Frame", {
+		Name = "FeaturedCard",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(150, 94),
+		Visible = false,
+	}, featuredStrip)
+	corner(featuredCard, 6)
+	stroke(featuredCard, C.Gold, 1.5)
+	label("PosterLabel", {
+		Position = UDim2.fromOffset(8, 6),
+		Size = UDim2.fromOffset(134, 16),
+		Text = "PosterName",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+	}, featuredCard)
+	label("SummaryLabel", {
+		Position = UDim2.fromOffset(8, 24),
+		Size = UDim2.fromOffset(134, 46),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+	}, featuredCard)
+	label("TierLabel", {
+		Position = UDim2.fromOffset(8, 72),
+		Size = UDim2.fromOffset(134, 16),
+		Text = "⭐ FEATURED",
+		TextSize = 11,
+		TextColor3 = C.Gold,
+	}, featuredCard)
+
+	-- Default position/size assume the featured strip is hidden (the common
+	-- case). BoardScreen shifts this down and shrinks it when the strip is
+	-- populated, and restores these values when it empties back out.
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
-		Position = UDim2.fromOffset(12, 78),
-		Size = UDim2.new(1, -24, 1, -90),
+		Position = UDim2.fromOffset(12, 112),
+		Size = UDim2.new(0, 744, 1, -124),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
@@ -885,14 +994,78 @@ local function buildBoardPanel(parent: Instance)
 	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
 	label("EmptyLabel", {
-		Position = UDim2.fromOffset(0, 90),
-		Size = UDim2.new(1, 0, 0, 24),
+		Position = UDim2.fromOffset(12, 150),
+		Size = UDim2.fromOffset(744, 24),
 		Text = "Nothing here yet — be the first!",
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.TextDim,
 		Visible = false,
 	}, boardPanel)
+
+	-- boost inventory: banked credits (bought, not yet applied), right rail
+	local boostInv = new("Frame", {
+		Name = "BoostInventoryPanel",
+		Position = UDim2.fromOffset(768, 40),
+		Size = UDim2.new(0, 220, 1, -52),
+		BackgroundColor3 = C.Panel,
+		BorderSizePixel = 0,
+	}, boardPanel)
+	corner(boostInv, 8)
+	stroke(boostInv, C.Stroke, 1)
+	label("Header", {
+		Position = UDim2.fromOffset(10, 6),
+		Size = UDim2.fromOffset(200, 20),
+		Text = "⏱ Your Boosts",
+		TextSize = 13,
+	}, boostInv)
+	local creditsList = new("ScrollingFrame", {
+		Name = "CreditsList",
+		Position = UDim2.fromOffset(6, 30),
+		Size = UDim2.new(1, -12, 1, -36),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, boostInv)
+	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, creditsList)
+
+	label("EmptyLabel", {
+		Position = UDim2.fromOffset(6, 30),
+		Size = UDim2.new(1, -12, 0, 40),
+		Text = "No boosts owned yet.",
+		TextSize = 11,
+		TextWrapped = true,
+		TextColor3 = C.TextDim,
+		Visible = false,
+	}, boostInv)
+
+	local creditRow = new("Frame", {
+		Name = "BoostCreditRow",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 40),
+		Visible = false,
+	}, creditsList)
+	corner(creditRow, 6)
+	label("Label", {
+		Position = UDim2.fromOffset(8, 0),
+		Size = UDim2.new(1, -46, 1, 0),
+		Text = "Global Boost 24h: 2",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, creditRow)
+	button("AddButton", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -6, 0.5, 0),
+		Size = UDim2.fromOffset(28, 28),
+		Text = "+",
+		TextSize = 16,
+		BackgroundColor3 = C.Good,
+	}, creditRow)
 
 	-- listing row template (tall enough for chips + a multi-line stats/payout block)
 	local row = new("Frame", {
@@ -1054,6 +1227,38 @@ local function buildBoardPanel(parent: Instance)
 		Text = "Accept",
 		TextSize = 13,
 		BackgroundColor3 = C.Good,
+	}, row)
+
+	-- value-delta chip: "Fair" at 0, else "+N% you" / "-N% you" tinted
+	-- Good/Bad from the viewer's side of the trade
+	label("ValueChip", {
+		Position = UDim2.fromOffset(460, 24),
+		Size = UDim2.fromOffset(105, 20),
+		Text = "Fair",
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, row)
+
+	-- time-left pill: makes the presence-tied lifetime mechanic visible —
+	-- "Live · you're in game" while the poster is present, else a countdown
+	label("TimePill", {
+		Position = UDim2.fromOffset(460, 48),
+		Size = UDim2.fromOffset(105, 20),
+		Text = "2h left",
+		TextSize = 12,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, row)
+
+	-- opens the boost sheet; visible only on the poster's own listing
+	button("BoostButton", {
+		Position = UDim2.fromOffset(460, 74),
+		Size = UDim2.fromOffset(105, 28),
+		Text = "⏱ Boost",
+		TextSize = 12,
+		BackgroundColor3 = C.Gold,
+		Visible = false,
 	}, row)
 
 	--------------------------------------------------------------------------
@@ -1481,6 +1686,201 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Good,
 		ZIndex = 11,
 	}, post)
+
+	--------------------------------------------------------------------------
+	-- Boost sheet (Trade Ads only: spend a banked credit, or buy one, on the
+	-- ad whose "⏱ Boost" button opened this). Same nested-modal pattern as
+	-- the Market's PostPanel above — centered over BoardPanel, own ZIndex.
+	--------------------------------------------------------------------------
+	local sheet = panel("BoostSheet", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.fromOffset(560, 420),
+		Visible = false,
+		ZIndex = 10,
+		BackgroundColor3 = C.Panel,
+	}, boardPanel)
+	label("Title", {
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.fromOffset(320, 22),
+		Text = "Boost This Ad",
+		TextSize = 16,
+		ZIndex = 11,
+	}, sheet)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(26, 26),
+		Text = "X",
+		BackgroundColor3 = C.Bad,
+		ZIndex = 11,
+	}, sheet)
+
+	-- your banked credits for this ad's scope — click one to apply it now
+	label("CreditsHeader", {
+		Position = UDim2.fromOffset(14, 36),
+		Size = UDim2.fromOffset(300, 18),
+		Text = "Your banked boosts",
+		TextSize = 13,
+		ZIndex = 11,
+	}, sheet)
+	local sheetCredits = new("ScrollingFrame", {
+		Name = "CreditsList",
+		Position = UDim2.fromOffset(14, 56),
+		Size = UDim2.new(1, -28, 0, 70),
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		CanvasSize = UDim2.new(),
+		ZIndex = 11,
+	}, sheet)
+	corner(sheetCredits, 6)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, sheetCredits)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 6) }, sheetCredits)
+	label("EmptyLabel", {
+		Position = UDim2.fromOffset(14, 56),
+		Size = UDim2.new(1, -28, 0, 70),
+		Text = "No banked boosts for this scope yet — buy one below.",
+		TextSize = 11,
+		TextWrapped = true,
+		TextColor3 = C.TextDim,
+		Visible = false,
+		ZIndex = 11,
+	}, sheet)
+	local creditButton = new("TextButton", {
+		Name = "CreditButton",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(140, 58),
+		Font = FONT,
+		TextColor3 = C.Text,
+		TextSize = 12,
+		TextWrapped = true,
+		AutoButtonColor = true,
+		Text = "Boost 24h\n(tap to apply)",
+		Visible = false,
+		ZIndex = 12,
+	}, sheetCredits)
+	corner(creditButton, 6)
+
+	-- buy section: three shelf cards (low / best / high), the "best" shelf
+	-- visually emphasised with a ribbon, matching ShopScreen's hero-card look
+	label("BuyHeader", {
+		Position = UDim2.fromOffset(14, 134),
+		Size = UDim2.fromOffset(300, 18),
+		Text = "Buy more",
+		TextSize = 13,
+		ZIndex = 11,
+	}, sheet)
+	local skuRow = new("Frame", {
+		Name = "SkuRow",
+		Position = UDim2.fromOffset(14, 156),
+		Size = UDim2.new(1, -28, 0, 190),
+		BackgroundTransparency = 1,
+		ZIndex = 11,
+	}, sheet)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, skuRow)
+
+	local skuCard = new("Frame", {
+		Name = "SkuCard",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(170, 190),
+		Visible = false,
+		ZIndex = 11,
+	}, skuRow)
+	corner(skuCard, 8)
+	stroke(skuCard, C.Stroke, 1.5)
+	local ribbon = new("Frame", {
+		Name = "Ribbon",
+		BackgroundColor3 = C.Gold,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(1, 0, 0, 20),
+		Visible = false,
+		ZIndex = 12,
+	}, skuCard)
+	label("RibbonText", {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = "BEST VALUE",
+		TextSize = 11,
+		TextColor3 = C.Bg,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 13,
+	}, ribbon)
+	label("NameLabel", {
+		Position = UDim2.fromOffset(10, 26),
+		Size = UDim2.new(1, -20, 0, 18),
+		Text = "Boost 24 hours",
+		TextSize = 13,
+		ZIndex = 12,
+	}, skuCard)
+	label("BlurbLabel", {
+		Position = UDim2.fromOffset(10, 46),
+		Size = UDim2.new(1, -20, 0, 70),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextColor3 = C.TextDim,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 12,
+	}, skuCard)
+	label("NoSlotsLabel", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 118),
+		Size = UDim2.new(1, -20, 0, 16),
+		Text = "NO SLOTS FREE",
+		TextSize = 11,
+		TextColor3 = C.Bad,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+		ZIndex = 12,
+	}, skuCard)
+	local buyButton = button("BuyButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -10),
+		Size = UDim2.fromOffset(150, 32),
+		Text = "25 R$",
+		TextSize = 13,
+		BackgroundColor3 = C.Good,
+		ZIndex = 12,
+	}, skuCard)
+
+	-- auto-renew: featured-only, shown beside the featured (high-shelf) card
+	local autoRenew = new("Frame", {
+		Name = "AutoRenew",
+		Position = UDim2.fromOffset(14, 356),
+		Size = UDim2.new(1, -28, 0, 26),
+		BackgroundTransparency = 1,
+		ZIndex = 11,
+	}, sheet)
+	local autoRenewBox = new("TextButton", {
+		Name = "Checkbox",
+		Size = UDim2.fromOffset(22, 22),
+		Text = "",
+		BackgroundColor3 = C.BgLight,
+		AutoButtonColor = true,
+		ZIndex = 12,
+	}, autoRenew)
+	corner(autoRenewBox, 4)
+	label("Label", {
+		Position = UDim2.fromOffset(30, 0),
+		Size = UDim2.fromOffset(300, 22),
+		Text = "Auto-renew Featured when it expires",
+		TextSize = 12,
+		ZIndex = 11,
+	}, autoRenew)
 
 	return boardPanel
 end
