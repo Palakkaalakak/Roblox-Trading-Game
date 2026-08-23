@@ -912,11 +912,16 @@ local function buildBoardPanel(parent: Instance)
 		Name = "BoostSlotRow",
 		AnchorPoint = Vector2.new(1, 0),
 		Position = UDim2.new(1, -12, 0, 72),
-		Size = UDim2.fromOffset(620, 76),
+		-- Hugs its slots instead of reserving a fixed 620px shell: with one or
+		-- two 62px tiles owned, that shell was ~90% empty box, which reads as a
+		-- broken panel rather than as an inventory.
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.fromOffset(0, 76),
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
 	}, boardPanel)
 	corner(boostStrip, 8)
+	stroke(boostStrip, C.Stroke, 1)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		Padding = UDim.new(0, 8),
@@ -1029,8 +1034,11 @@ local function buildBoardPanel(parent: Instance)
 	local featuredStrip = new("ScrollingFrame", {
 		Name = "FeaturedStrip",
 		Position = UDim2.fromOffset(12, 172),
-		Size = UDim2.fromOffset(976, 138),
-		BackgroundColor3 = C.Bg,
+		Size = UDim2.fromOffset(976, 146),
+		-- The rail itself is invisible. A bordered container around already
+		-- bordered cards is a box inside a box: it fought the gold it was
+		-- supposed to be framing and flattened the whole band.
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
 		ScrollingDirection = Enum.ScrollingDirection.X,
@@ -1038,10 +1046,6 @@ local function buildBoardPanel(parent: Instance)
 		CanvasSize = UDim2.new(),
 		Visible = false,
 	}, boardPanel)
-	corner(featuredStrip, 8)
-	-- Container stays plain: the gold lives on the CARDS. Two nested gold
-	-- strokes read as a double frame and made neither one feel special.
-	stroke(featuredStrip, C.Stroke, 1)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		Padding = UDim.new(0, 10),
@@ -1049,9 +1053,12 @@ local function buildBoardPanel(parent: Instance)
 		VerticalAlignment = Enum.VerticalAlignment.Top,
 	}, featuredStrip)
 	new("UIPadding", {
-		PaddingLeft = UDim.new(0, 10),
+		-- no left inset: featured cards line up with the feed rows below them,
+		-- so the paid band reads as the top of one list rather than as a
+		-- separate inset widget
+		PaddingLeft = UDim.new(0, 0),
 		PaddingRight = UDim.new(0, 10),
-		PaddingTop = UDim.new(0, 8),
+		PaddingTop = UDim.new(0, 2),
 		PaddingBottom = UDim.new(0, 14), -- clears the horizontal scrollbar
 	}, featuredStrip)
 
@@ -1065,19 +1072,29 @@ local function buildBoardPanel(parent: Instance)
 	--
 	-- 300 x 3 + 10px gaps fills the 976px strip, with a sliver of a 4th card
 	-- showing so the horizontal scroll is discoverable on mobile.
+	-- Warm base derived from the Theme gold rather than a new hardcoded colour:
+	-- the free rows below are the neutral blue-grey BgLight, so a card that is
+	-- visibly WARM is separated by hue, not just by a border. Hue reads
+	-- instantly at a glance; a 2px stroke does not.
+	local GOLD_TINT = C.Gold:Lerp(C.BgLight, 0.62)
+	local GOLD_TINT_DEEP = C.Gold:Lerp(C.Bg, 0.80)
+
 	local featuredCard = new("Frame", {
 		Name = "FeaturedCard",
-		-- Solid lifted colour, no gradient: at this size the amber wash did not
-		-- read at all on screen (the card looked flat black with a gold edge),
-		-- and an effect nobody can see is just risk. Lift + gold accent does
-		-- the same separation job and actually shows.
-		BackgroundColor3 = C.BgLight,
+		BackgroundColor3 = GOLD_TINT,
 		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(300, 116),
+		Size = UDim2.fromOffset(314, 126),
 		Visible = false,
 	}, featuredStrip)
-	corner(featuredCard, 10)
+	corner(featuredCard, 12)
 	stroke(featuredCard, C.Gold, 2)
+	-- top-lit wash: the warm tint is strongest at the header and settles into
+	-- the neutral base by the verdict line, so the card has depth instead of
+	-- being one flat swatch
+	new("UIGradient", {
+		Color = ColorSequence.new(GOLD_TINT, GOLD_TINT_DEEP),
+		Rotation = 90,
+	}, featuredCard)
 	-- gold spine: reads as "paid placement" at a glance even in a screenshot
 	local featuredSpine = new("Frame", {
 		Name = "AccentBar",
@@ -1091,22 +1108,22 @@ local function buildBoardPanel(parent: Instance)
 	-- Line 1: who + how long left. Both small and dim -- context, not the
 	-- decision, and they used to compete with the art for attention.
 	label("PosterLabel", {
-		Position = UDim2.fromOffset(12, 5),
-		Size = UDim2.fromOffset(180, 13),
+		Position = UDim2.fromOffset(14, 8),
+		Size = UDim2.fromOffset(178, 14),
 		Text = "PosterName",
 		Font = FONT_LIGHT,
-		TextSize = 10,
+		TextSize = 11,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextColor3 = C.TextDim,
 	}, featuredCard)
 	label("TierLabel", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -10, 0, 5),
-		Size = UDim2.fromOffset(84, 13),
+		Position = UDim2.new(1, -12, 0, 8),
+		Size = UDim2.fromOffset(90, 14),
 		Text = "2d left",
 		Font = FONT_LIGHT,
-		TextSize = 10,
-		TextColor3 = C.TextDim,
+		TextSize = 11,
+		TextColor3 = C.Gold,
 		TextXAlignment = Enum.TextXAlignment.Right,
 	}, featuredCard)
 
@@ -1114,16 +1131,16 @@ local function buildBoardPanel(parent: Instance)
 	local featGive = new("Frame", {
 		Name = "GiveHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 20),
-		Size = UDim2.fromOffset(124, 68),
+		Position = UDim2.fromOffset(12, 26),
+		Size = UDim2.fromOffset(132, 74),
 	}, featuredCard)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Vertical,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, featGive)
 	label("ArrowLabel", {
-		Position = UDim2.fromOffset(140, 40),
-		Size = UDim2.fromOffset(20, 22),
+		Position = UDim2.fromOffset(146, 48),
+		Size = UDim2.fromOffset(22, 24),
 		Text = "⇄",
 		TextSize = 20,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -1132,8 +1149,8 @@ local function buildBoardPanel(parent: Instance)
 	local featWant = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(164, 20),
-		Size = UDim2.fromOffset(124, 68),
+		Position = UDim2.fromOffset(170, 26),
+		Size = UDim2.fromOffset(132, 74),
 	}, featuredCard)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Vertical,
@@ -1145,32 +1162,36 @@ local function buildBoardPanel(parent: Instance)
 	local miniChip = new("Frame", {
 		Name = "MiniChip",
 		BackgroundTransparency = 1,
-		Size = UDim2.fromOffset(124, 66),
+		Size = UDim2.fromOffset(132, 72),
 		Visible = false,
 	}, featGive)
+	-- The art sits in a recessed dark well rather than floating on the card.
+	-- A well gives the icon an edge to read against on a warm background and
+	-- makes the item feel like an object you could pick up.
 	local miniIcon = new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundColor3 = C.Bg,
-		Position = UDim2.new(0.5, -20, 0, 0),
-		Size = UDim2.fromOffset(40, 40),
+		Position = UDim2.new(0.5, -22, 0, 0),
+		Size = UDim2.fromOffset(44, 44),
 		ScaleType = Enum.ScaleType.Fit,
 	}, miniChip)
-	corner(miniIcon, 8)
+	corner(miniIcon, 10)
+	stroke(miniIcon, C.Gold:Lerp(C.Bg, 0.55), 1)
 	label("NameLabel", {
-		Position = UDim2.fromOffset(0, 42),
-		Size = UDim2.new(1, 0, 0, 13),
+		Position = UDim2.fromOffset(0, 46),
+		Size = UDim2.new(1, 0, 0, 14),
 		Text = "Item Name",
-		TextSize = 11,
+		TextSize = 12,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, miniChip)
 	label("CountLabel", {
-		Position = UDim2.fromOffset(0, 54),
-		Size = UDim2.new(1, 0, 0, 12),
+		Position = UDim2.fromOffset(0, 60),
+		Size = UDim2.new(1, 0, 0, 13),
 		Text = "x1",
 		Font = FONT_LIGHT,
-		TextSize = 10,
+		TextSize = 11,
 		TextColor3 = C.Gem,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, miniChip)
@@ -1194,8 +1215,8 @@ local function buildBoardPanel(parent: Instance)
 	-- Line 3: the verdict, same wording and colouring the feed rows use, so a
 	-- trader reads one line and knows whether to care.
 	label("VerdictLabel", {
-		Position = UDim2.fromOffset(12, 92),
-		Size = UDim2.fromOffset(276, 20),
+		Position = UDim2.fromOffset(12, 102),
+		Size = UDim2.fromOffset(290, 18),
 		Text = "Fair",
 		TextSize = 13,
 		TextScaled = true,
@@ -1214,7 +1235,7 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Gold,
 		BackgroundTransparency = 0.55,
 		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(12, 314),
+		Position = UDim2.fromOffset(12, 322),
 		Size = UDim2.fromOffset(976, 2),
 		Visible = false,
 	}, boardPanel)
@@ -1241,28 +1262,51 @@ local function buildBoardPanel(parent: Instance)
 		Visible = false,
 	}, boardPanel)
 
-	-- listing row template (tall enough for chips + a multi-line stats/payout block)
+	-- One listing row. The whole row is a fixed 108px card laid out in four
+	-- fixed COLUMNS -- identity / give / want / verdict / controls -- so that
+	-- scanning a feed means reading straight down a column instead of hunting
+	-- across a differently-shaped block each time.
+	--
+	-- It used to be 156px with a ~60px dead zone above a floating button,
+	-- which fit barely three ads on screen and gave a scanner nothing to
+	-- track vertically.
 	local row = new("Frame", {
 		Name = "ListingRow",
-		BackgroundColor3 = C.Bg,
+		-- LIGHTER than the panel behind it: rows are objects sitting ON the
+		-- board. They used to be darker than their own container, which made
+		-- the feed read as holes cut in a sheet rather than as a stack of cards.
+		BackgroundColor3 = C.BgLight,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, -8, 0, 156),
+		Size = UDim2.new(1, -8, 0, 108),
 		Visible = false,
 	}, list)
-	corner(row, 6)
+	corner(row, 8)
 	stroke(row, C.Stroke, 1)
 
+	-- Verdict spine. BoardScreen paints this with the same colour it gives the
+	-- verdict text, so "is this trade good for me" is answerable from the left
+	-- edge of the feed alone, before reading a single word.
+	local rowSpine = new("Frame", {
+		Name = "AccentBar",
+		BackgroundColor3 = C.Stroke,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(0, 4, 1, 0),
+	}, row)
+	corner(rowSpine, 2)
+
 	label("PosterLabel", {
-		Position = UDim2.fromOffset(10, 4),
-		Size = UDim2.fromOffset(240, 16),
+		Position = UDim2.fromOffset(14, 7),
+		Size = UDim2.fromOffset(200, 16),
 		Text = "PosterName",
 		Font = FONT_LIGHT,
-		TextSize = 11,
+		TextSize = 12,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextColor3 = C.TextDim,
 	}, row)
 	label("Badge", {
-		Position = UDim2.fromOffset(250, 4),
-		Size = UDim2.fromOffset(120, 16),
+		Position = UDim2.fromOffset(220, 7),
+		Size = UDim2.fromOffset(100, 16),
 		Text = "AUTO",
 		TextSize = 11,
 		TextColor3 = C.Warn,
@@ -1272,8 +1316,8 @@ local function buildBoardPanel(parent: Instance)
 	-- evidence of a purchase was the ad's position, which a player cannot read
 	-- as "my boost is live". Counts the boost's own clock down, not the ad's.
 	label("BoostBadge", {
-		Position = UDim2.fromOffset(376, 4),
-		Size = UDim2.fromOffset(180, 16),
+		Position = UDim2.fromOffset(326, 7),
+		Size = UDim2.fromOffset(190, 16),
 		Text = "⚡ BOOSTED · 23h left",
 		TextSize = 11,
 		TextColor3 = C.Gold,
@@ -1283,22 +1327,22 @@ local function buildBoardPanel(parent: Instance)
 	local giveHolder = new("Frame", {
 		Name = "GiveHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(10, 24),
-		Size = UDim2.fromOffset(200, 64),
+		Position = UDim2.fromOffset(14, 28),
+		Size = UDim2.fromOffset(282, 62),
 	}, row)
 	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
 	new("ImageLabel", {
 		Name = "GiveGemsIcon",
 		Image = ICONS.Gem,
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(10, 88),
+		Position = UDim2.fromOffset(14, 90),
 		Size = UDim2.fromOffset(14, 14),
 		ScaleType = Enum.ScaleType.Fit,
 		Visible = false,
 	}, row)
 	label("GiveGemsLabel", {
-		Position = UDim2.fromOffset(28, 88),
-		Size = UDim2.fromOffset(182, 14),
+		Position = UDim2.fromOffset(32, 90),
+		Size = UDim2.fromOffset(264, 14),
 		Text = "",
 		TextSize = 12,
 		TextColor3 = C.Gem,
@@ -1317,43 +1361,47 @@ local function buildBoardPanel(parent: Instance)
 	-- board shows per item. Cloned into both holders by BoardScreen.
 	local chip = new("Frame", {
 		Name = "Chip",
-		BackgroundColor3 = C.BgLight,
+		-- Recessed relative to the row that holds it (row is BgLight, the item
+		-- well is the darker Bg): the item reads as something set INTO the
+		-- card, which is how every inventory grid in the genre reads.
+		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(196, 44),
+		Size = UDim2.fromOffset(282, 46),
 		Visible = false,
 	}, giveHolder)
-	corner(chip, 6)
+	corner(chip, 8)
+	stroke(chip, C.Stroke, 1)
 	local chipIcon = new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(5, 4),
-		Size = UDim2.fromOffset(36, 36),
+		Size = UDim2.fromOffset(38, 38),
 		ScaleType = Enum.ScaleType.Fit,
 	}, chip)
 	corner(chipIcon, 6)
 	label("NameLabel", {
-		Position = UDim2.fromOffset(46, 4),
-		Size = UDim2.fromOffset(146, 16),
+		Position = UDim2.fromOffset(50, 5),
+		Size = UDim2.fromOffset(226, 17),
 		Text = "Item Name",
-		TextSize = 12,
+		TextSize = 13,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	}, chip)
 	-- count and value on one line: "x2 · 1.2k". Gem-coloured because value is
 	-- denominated in the same currency the rest of the UI prices things in.
 	label("CountLabel", {
-		Position = UDim2.fromOffset(46, 22),
-		Size = UDim2.fromOffset(146, 16),
+		Position = UDim2.fromOffset(50, 24),
+		Size = UDim2.fromOffset(226, 16),
 		Text = "x1",
 		Font = FONT_LIGHT,
-		TextSize = 11,
+		TextSize = 12,
 		TextColor3 = C.Gem,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	}, chip)
 	-- "+2 more" when a side holds items the single chip cannot show
 	label("MoreLabel", {
 		Name = "MoreLabel",
-		Size = UDim2.fromOffset(196, 14),
+		Size = UDim2.fromOffset(282, 14),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 10,
@@ -1363,8 +1411,8 @@ local function buildBoardPanel(parent: Instance)
 	}, giveHolder)
 
 	label("ArrowLabel", {
-		Position = UDim2.fromOffset(216, 40),
-		Size = UDim2.fromOffset(26, 26),
+		Position = UDim2.fromOffset(302, 40),
+		Size = UDim2.fromOffset(24, 24),
 		Text = "⇄",
 		TextSize = 20,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -1374,21 +1422,21 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(248, 24),
-		Size = UDim2.fromOffset(200, 64),
+		Position = UDim2.fromOffset(334, 28),
+		Size = UDim2.fromOffset(282, 62),
 	}, row)
 	new("ImageLabel", {
 		Name = "WantGemsIcon",
 		Image = ICONS.Gem,
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(248, 88),
+		Position = UDim2.fromOffset(334, 90),
 		Size = UDim2.fromOffset(14, 14),
 		ScaleType = Enum.ScaleType.Fit,
 		Visible = false,
 	}, row)
 	label("WantGemsLabel", {
-		Position = UDim2.fromOffset(266, 88),
-		Size = UDim2.fromOffset(182, 14),
+		Position = UDim2.fromOffset(352, 90),
+		Size = UDim2.fromOffset(264, 14),
 		Text = "",
 		TextSize = 12,
 		TextColor3 = C.Gem,
@@ -1401,7 +1449,7 @@ local function buildBoardPanel(parent: Instance)
 	}, wantHolder)
 	label("MoreLabel", {
 		Name = "MoreLabel",
-		Size = UDim2.fromOffset(196, 14),
+		Size = UDim2.fromOffset(282, 14),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 10,
@@ -1410,17 +1458,17 @@ local function buildBoardPanel(parent: Instance)
 		Visible = false,
 	}, wantHolder)
 
-	-- stats/payout block: per-unit + total Value/RAP/Store Cost for bulk rows,
-	-- "Interested: ..." for ask-first swap rows the poster owns. Sits below
-	-- the chips, full width minus the bottom-right controls' reserved column.
+	-- "Interested: ..." on ask-first swap rows the poster owns. One truncated
+	-- line under the verdict rather than a 44px wrapped block: it is the least
+	-- important thing in the row and used to reserve the most space.
 	label("InfoLabel", {
-		Position = UDim2.fromOffset(10, 104),
-		Size = UDim2.new(1, -178, 0, 44),
+		Position = UDim2.fromOffset(632, 64),
+		Size = UDim2.new(1, -804, 0, 16),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 11,
 		TextColor3 = C.TextDim,
-		TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextYAlignment = Enum.TextYAlignment.Top,
 	}, row)
 
@@ -1429,7 +1477,7 @@ local function buildBoardPanel(parent: Instance)
 	local countBox = new("TextBox", {
 		Name = "CountBox",
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -136, 1, -8),
+		Position = UDim2.new(1, -290, 1, -10),
 		Size = UDim2.fromOffset(52, 30),
 		BackgroundColor3 = C.BgLight,
 		BorderSizePixel = 0,
@@ -1442,12 +1490,15 @@ local function buildBoardPanel(parent: Instance)
 	}, row)
 	corner(countBox, 6)
 
+	-- Primary action is vertically CENTRED in the row and always in the same
+	-- place. Pinned to the bottom edge it used to sit under ~60px of empty
+	-- card, which is what made every row feel padded out with nothing.
 	button("ActionButton", {
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -10, 1, -8),
-		Size = UDim2.fromOffset(118, 36),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -14, 0.5, 6),
+		Size = UDim2.fromOffset(134, 40),
 		Text = "Accept",
-		TextSize = 13,
+		TextSize = 14,
 		BackgroundColor3 = C.Good,
 	}, row)
 
@@ -1459,37 +1510,48 @@ local function buildBoardPanel(parent: Instance)
 	-- trade it judges. Anchored to the row's right edge it floated ~500px away
 	-- from the items and read as unrelated chrome.
 	label("ValueChip", {
-		Position = UDim2.fromOffset(460, 32),
-		Size = UDim2.fromOffset(190, 22),
+		-- 164 wide, not 186: the feed reserves a 134px action column plus its
+		-- gutter, and the scrollbar takes another 12 off the row. At 186 a long
+		-- verdict ("You're asking 120% more") ran under the button.
+		Position = UDim2.fromOffset(632, 38),
+		Size = UDim2.fromOffset(164, 24),
 		Text = "Fair",
-		TextSize = 13,
+		TextSize = 15,
 		TextScaled = true,
 		TextColor3 = C.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, row)
-	new("UITextSizeConstraint", { MaxTextSize = 13 }, row.ValueChip)
+	-- The verdict is the single most decision-relevant string in the row, so
+	-- it is the largest text in it. Everything else is context.
+	new("UITextSizeConstraint", { MaxTextSize = 15 }, row.ValueChip)
 
 	-- time-left pill: makes the presence-tied lifetime mechanic visible —
 	-- "Live · you're in game" while the poster is present, else a countdown
+	-- Lifetime is metadata, so it rides the header line with the poster and the
+	-- badges rather than taking a slot in the action column.
 	label("TimePill", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -136, 0, 48),
-		Size = UDim2.fromOffset(140, 20),
+		Position = UDim2.new(1, -14, 0, 7),
+		Size = UDim2.fromOffset(220, 16),
 		Text = "2h left",
 		TextSize = 12,
 		TextScaled = true,
 		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Center,
+		TextXAlignment = Enum.TextXAlignment.Right,
 	}, row)
 	new("UITextSizeConstraint", { MaxTextSize = 12 }, row.TimePill)
 
-	-- opens the boost sheet; visible only on the poster's own listing
+	-- Opens the boost sheet; visible only on the poster's own listing, so it
+	-- STACKS above the primary action rather than sitting beside it. Placed
+	-- side by side it ate the verdict column, which every row has, to make room
+	-- for a button that only your own handful of ads ever show.
+	-- BoardScreen drops ActionButton into the lower slot when this is shown.
 	button("BoostButton", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -136, 0, 74),
-		Size = UDim2.fromOffset(140, 28),
+		Position = UDim2.new(1, -14, 0, 26),
+		Size = UDim2.fromOffset(134, 34),
 		Text = "⏱ Boost",
-		TextSize = 12,
+		TextSize = 13,
 		BackgroundColor3 = C.Gold,
 		Visible = false,
 	}, row)

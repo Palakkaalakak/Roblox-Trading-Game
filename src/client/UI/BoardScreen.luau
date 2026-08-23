@@ -52,8 +52,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local FEED_W = 976 -- reclaimed from the old 220px boost rail
 	-- the tab row, scope filter and boost slot row occupy 40..148
 	local LIST_Y_NO_FEATURED = 152
-	-- header (152..168) + strip (172..310) + divider (314..316), then a gutter
-	local LIST_Y_WITH_FEATURED = 322
+	-- header (152..168) + strip (172..318) + divider (322..324), then a gutter
+	local LIST_Y_WITH_FEATURED = 332
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.
@@ -199,7 +199,6 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			return ("You gain %d%%"):format(listing.valueDelta), Theme.Good
 		end
 		return ("You lose %d%%"):format(-listing.valueDelta), Theme.Bad
-	end
 	end
 
 	local function invokeAction(fn: () -> any): any
@@ -586,6 +585,12 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 
 		-- the verdict, right after the want side so it reads as part of the trade
 		valueChip.Text, valueChip.TextColor3 = verdictFor(listing)
+		-- Same colour on the row's left spine: a player scanning the feed gets
+		-- the good/bad signal from the edge of the list without reading words.
+		local spine = row:FindFirstChild("AccentBar")
+		if spine and spine:IsA("Frame") then
+			spine.BackgroundColor3 = valueChip.TextColor3
+		end
 
 		-- time-left pill: surfaces the presence-tied lifetime — otherwise
 		-- invisible — so players learn staying online keeps an ad alive
@@ -615,8 +620,16 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			boostBadge.TextColor3 = tier >= TradeAdConfig.BoostTier.Featured and Theme.Gold or Theme.Warn
 		end
 
-		-- boost button: only the poster can push their own ad
+		-- boost button: only the poster can push their own ad. Two buttons stack
+		-- in the action column; a lone button centres in it. Doing this here
+		-- rather than in the template keeps the common one-button row visually
+		-- balanced instead of top-heavy.
 		boostBtn.Visible = listing.mine
+		if listing.mine then
+			action.AnchorPoint = Vector2.new(1, 0)
+			action.Position = UDim2.new(1, -14, 0, 64)
+			action.Size = UDim2.fromOffset(134, 34)
+		end
 		if listing.mine then
 			boostBtn.Activated:Connect(function()
 				openBoostSheet(listing.scope, listing.id)
