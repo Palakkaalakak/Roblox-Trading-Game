@@ -22,8 +22,8 @@ return {
 	name = "TradeAds",
 	tests = {
 		-- Every SKU has to name a scope that exists, cost something, and do
-		-- something. A SKU that grants no tier, no bump and no time is a paid
-		-- no-op -- real money for nothing.
+		-- something. A SKU that grants no tier and no time is a paid no-op --
+		-- real money for nothing.
 		["config: every SKU is well-formed and actually does something"] = function()
 			truthy(#TradeAdConfig.Skus > 0, "no SKUs configured")
 			local seen: { [string]: boolean } = {}
@@ -36,9 +36,43 @@ return {
 				)
 				truthy(sku.robux > 0, sku.id .. ": costs nothing")
 				truthy(
-					sku.tier > TradeAdConfig.BoostTier.None or sku.bump or sku.seconds > 0,
+					sku.tier > TradeAdConfig.BoostTier.None and sku.seconds > 0,
 					sku.id .. ": grants nothing"
 				)
+				truthy(
+					sku.shelf == "low" or sku.shelf == "best" or sku.shelf == "high",
+					sku.id .. ": bad shelf " .. tostring(sku.shelf)
+				)
+			end
+		end,
+
+		-- One product id per SKU is what lets the receipt handler identify a
+		-- purchase from the receipt alone. Two SKUs sharing an id would make
+		-- the cheap one indistinguishable from the expensive one at grant time
+		-- -- which is exactly how you end up paying Boost's price for Featured.
+		["config: every live SKU owns a distinct product id"] = function()
+			local seenProduct: { [number]: string } = {}
+			for _, sku in TradeAdConfig.liveSkus() do
+				truthy(sku.productId > 0, sku.id .. ": live SKU with no product id")
+				local clash = seenProduct[sku.productId]
+				truthy(clash == nil, ("%s shares product id %d with %s"):format(sku.id, sku.productId, tostring(clash)))
+				seenProduct[sku.productId] = sku.id
+				eq(TradeAdConfig.skuByProductId(sku.productId), sku, sku.id .. ": receipt lookup round-trip")
+			end
+		end,
+
+		-- The shop shows three cards per scope: low / best / high. Exactly one
+		-- "best" per scope, or the layout that makes the middle tier obvious
+		-- silently stops being a layout.
+		["config: each scope has exactly one best-value shelf"] = function()
+			for _, scope in { TradeAdConfig.Scopes.Server, TradeAdConfig.Scopes.Global } do
+				local best = 0
+				for _, sku in TradeAdConfig.skusForScope(scope) do
+					if sku.shelf == "best" then
+						best += 1
+					end
+				end
+				eq(best, 1, scope .. ": expected exactly one best-value SKU")
 			end
 		end,
 
@@ -46,12 +80,12 @@ return {
 		-- cheaper than its server twin, nobody would buy the server one.
 		["config: global SKUs cost more than their server twins"] = function()
 			for _, server in TradeAdConfig.skusForScope(TradeAdConfig.Scopes.Server) do
-				-- Count matches so a broken pairing (bump flipped, tier added
-				-- without a twin, etc.) fails loudly instead of the loop just
-				-- quietly asserting nothing and reporting PASS.
+				-- Count matches so a broken pairing (a tier added without a twin,
+				-- a duration changed on one side, etc.) fails loudly instead of
+				-- the loop just quietly asserting nothing and reporting PASS.
 				local matches = 0
 				for _, global in TradeAdConfig.skusForScope(TradeAdConfig.Scopes.Global) do
-					if server.tier == global.tier and server.bump == global.bump and server.seconds == global.seconds then
+					if server.tier == global.tier and server.seconds == global.seconds then
 						matches += 1
 						truthy(
 							global.robux > server.robux,
@@ -67,7 +101,7 @@ return {
 		-- would let one player hold the whole pool forever, so no SKU that is
 		-- a pass may carry the featured tier.
 		["config: featured is per-ad only, never a permanent perk"] = function()
-			eq(TradeAdConfig.FeaturedSlotsPerScope, 3, "featured slots per scope")
+			eq(TradeAdConfig.FeaturedSlotsPerScope, 6, "featured slots per scope")
 			for _, sku in TradeAdConfig.Skus do
 				if sku.tier == TradeAdConfig.BoostTier.Featured then
 					truthy(sku.seconds > 0, sku.id .. ": featured must be time-boxed, never permanent")
@@ -404,7 +438,7 @@ return {
 		-- not block it.
 		["boost: priority and bump ignore the featured pool"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
-			local priority = TradeAdConfig.skuById("ad_priority_global_1d")
+			local priority = TradeAdConfig.skuById("ad_boost_global_1d")
 			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
 			local liveAd = { status = "open", scope = "global" }
 			eq(TradeBoardService.resolveBoost(profile, liveAd, priority, 0), "apply", "pool full is irrelevant")
@@ -414,7 +448,7 @@ return {
 		-- whole-game reach at the server price.
 		["boost: a SKU only applies to an ad in its own scope"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
-			local serverSku = TradeAdConfig.skuById("ad_priority_server_1d")
+			local serverSku = TradeAdConfig.skuById("ad_boost_server_1d")
 			local profile = { TradeAds = { extraSlots = 0, credits = {} } }
 			local globalAd = { status = "open", scope = "global" }
 			eq(TradeBoardService.resolveBoost(profile, globalAd, serverSku, 3), "credit", "wrong scope -> credit")

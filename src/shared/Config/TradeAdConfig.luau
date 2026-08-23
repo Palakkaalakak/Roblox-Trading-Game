@@ -38,111 +38,155 @@ local TradeAdConfig = {
 
 	-- Scarce on purpose: scarcity is what makes the strip worth buying, and
 	-- what stops it becoming a second feed.
-	FeaturedSlotsPerScope = 3,
+	FeaturedSlotsPerScope = 6,
 
 	BoostTier = {
 		None = 0,
-		Priority = 1,
+		Boosted = 1,
 		Featured = 2,
 	},
 }
 
+-- `productId` is the real Roblox dev product. Each SKU owns its OWN id, which
+-- is what lets the receipt handler identify what was bought from the receipt
+-- alone -- no recorded intent to trust, and therefore nothing to swap.
+--
+-- `shelf` drives the shop layout: every scope shows exactly three cards, low /
+-- best / high, with the middle one flagged. The middle is where we want players
+-- to land, and the ladder does that work by itself -- Boost 24h is 24x the time
+-- of Boost 1h for 2.5x the price, so the comparison sells it.
 export type Sku = {
 	id: string,
 	scope: string,
 	name: string,
 	blurb: string,
 	tier: number,
-	bump: boolean,
 	seconds: number,
 	robux: number,
+	productId: number,
+	shelf: string, -- "low" | "best" | "high"
 }
 
 local DAY = 24 * 3600
 
+-- Not yet created in the Roblox dashboard. Registering a handler on 0 is a
+-- no-op (see ProductService.registerDevProduct), so an uncreated SKU simply
+-- cannot be bought rather than paying out the wrong thing.
+local TODO_PRODUCT_ID = 0
+
 TradeAdConfig.Skus = {
 	-- Server scope: cheap, because the audience is one server.
 	{
-		id = "ad_bump_server",
+		id = "ad_boost_server_1h",
 		scope = "server",
-		name = "Bump",
-		blurb = "Jump to the top of this server's feed now. Sinks normally after.",
-		tier = 0,
-		bump = true,
-		seconds = 0,
+		name = "Boost 1 hour",
+		blurb = "Your ad jumps above all free ads on this server for 1 hour.",
+		tier = 1,
+		seconds = 3600,
 		robux = 10,
+		productId = 3709440377,
+		shelf = "low",
 	},
 	{
-		id = "ad_priority_server_1d",
+		id = "ad_boost_server_1d",
 		scope = "server",
-		name = "Priority 24h",
-		blurb = "Sits above every free ad on this server for 24 hours, even after you leave.",
+		name = "Boost 24 hours",
+		blurb = "Your ad jumps above all free ads on this server for a full day, even after you leave.",
 		tier = 1,
-		bump = true,
 		seconds = DAY,
 		robux = 25,
+		productId = 3709438279,
+		shelf = "best",
 	},
 	{
 		id = "ad_featured_server_1d",
 		scope = "server",
-		name = "Featured 24h",
-		blurb = "Pinned to this server's Featured strip for 24 hours. Only 3 slots.",
+		name = "Featured 24 hours",
+		blurb = "Pinned to this server's Featured strip for 24 hours. Only 6 slots exist.",
 		tier = 2,
-		bump = true,
 		seconds = DAY,
 		robux = 49,
+		productId = 3709438338,
+		shelf = "high",
 	},
 
 	-- Global scope: same perks, whole-game reach, priced accordingly.
 	{
-		id = "ad_bump_global",
+		id = "ad_boost_global_1h",
 		scope = "global",
-		name = "Bump",
-		blurb = "Jump to the top of the global feed now. Sinks normally after.",
-		tier = 0,
-		bump = true,
-		seconds = 0,
+		name = "Boost 1 hour",
+		blurb = "Your ad jumps above all free ads game-wide for 1 hour.",
+		tier = 1,
+		seconds = 3600,
 		robux = 25,
+		productId = 3709440418,
+		shelf = "low",
 	},
 	{
-		id = "ad_priority_global_1d",
+		id = "ad_boost_global_1d",
 		scope = "global",
-		name = "Priority 24h",
-		blurb = "Sits above every free ad game-wide for 24 hours, even after you leave.",
+		name = "Boost 24 hours",
+		blurb = "Your ad jumps above all free ads game-wide for a full day, even after you leave.",
 		tier = 1,
-		bump = true,
 		seconds = DAY,
 		robux = 49,
+		productId = 3709438385,
+		shelf = "best",
 	},
 	{
 		id = "ad_featured_global_1d",
 		scope = "global",
-		name = "Featured 24h",
-		blurb = "Pinned to the global Featured strip for 24 hours. Only 3 slots.",
+		name = "Featured 24 hours",
+		blurb = "Pinned to the global Featured strip for 24 hours. Only 6 slots exist.",
 		tier = 2,
-		bump = true,
 		seconds = DAY,
 		robux = 99,
+		productId = 3709438424,
+		shelf = "high",
 	},
 	{
 		id = "ad_featured_global_3d",
 		scope = "global",
 		name = "Featured 3 days",
-		blurb = "Pinned to the global Featured strip for 3 days. Only 3 slots.",
+		blurb = "Pinned to the global Featured strip for 3 days. Only 6 slots exist.",
 		tier = 2,
-		bump = true,
 		seconds = 3 * DAY,
 		robux = 199,
+		productId = 3709438460,
+		shelf = "high",
 	},
 } :: { Sku }
 
 local byId: { [string]: Sku } = {}
+local byProductId: { [number]: Sku } = {}
 for _, sku in TradeAdConfig.Skus do
 	byId[sku.id] = sku
+	if sku.productId ~= TODO_PRODUCT_ID then
+		byProductId[sku.productId] = sku
+	end
 end
 
 function TradeAdConfig.skuById(id: string): Sku?
 	return byId[id]
+end
+
+-- Resolve a purchase from the RECEIPT rather than from anything the client
+-- said. With one product id per SKU, the receipt alone proves what was bought,
+-- so a client cannot ask for one thing and pay for another.
+function TradeAdConfig.skuByProductId(productId: number): Sku?
+	return byProductId[productId]
+end
+
+-- Every SKU that has a real product id behind it. A SKU still on
+-- TODO_PRODUCT_ID is hidden from the shop rather than shown as unbuyable.
+function TradeAdConfig.liveSkus(): { Sku }
+	local out: { Sku } = {}
+	for _, sku in TradeAdConfig.Skus do
+		if sku.productId ~= TODO_PRODUCT_ID then
+			table.insert(out, sku)
+		end
+	end
+	return out
 end
 
 function TradeAdConfig.skusForScope(scope: string): { Sku }

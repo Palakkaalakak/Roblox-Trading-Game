@@ -53,8 +53,8 @@ end
 function TradeAdRules.effectiveTier(listing: any): number
 	local tier = listing.boostTier or TradeAdConfig.BoostTier.None
 	local perks = listing.perks
-	if perks and perks.priority and tier < TradeAdConfig.BoostTier.Priority then
-		tier = TradeAdConfig.BoostTier.Priority
+	if perks and perks.priority and tier < TradeAdConfig.BoostTier.Boosted then
+		tier = TradeAdConfig.BoostTier.Boosted
 	end
 	return tier
 end
