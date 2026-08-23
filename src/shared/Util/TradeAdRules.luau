@@ -50,8 +50,22 @@ end
 
 -- A gamepass lifts every ad its owner holds; a purchased tier lifts one ad.
 -- Take the higher so buying a one-off never downgrades a pass holder.
-function TradeAdRules.effectiveTier(listing: any): number
+--
+-- The purchased tier runs on its OWN clock (boostExpiresAt), separate from the
+-- ad's life clock (expiresAt). They have to be separate because the presence
+-- sweep extends expiresAt for free while the poster is online -- if placement
+-- rode that same field, one 10 R$ purchase would buy permanent rank one and
+-- the advertised duration would mean nothing. A nil boostExpiresAt is a
+-- listing that predates the field, and reads as "no clock", not "expired".
+--
+-- `now` is optional only so existing pure callers keep working; production
+-- call sites all pass it.
+function TradeAdRules.effectiveTier(listing: any, now: number?): number
 	local tier = listing.boostTier or TradeAdConfig.BoostTier.None
+	local boostExpiresAt = listing.boostExpiresAt
+	if boostExpiresAt ~= nil and (now or os.time()) > boostExpiresAt then
+		tier = TradeAdConfig.BoostTier.None
+	end
 	local perks = listing.perks
 	if perks and perks.priority and tier < TradeAdConfig.BoostTier.Boosted then
 		tier = TradeAdConfig.BoostTier.Boosted
@@ -60,13 +74,15 @@ function TradeAdRules.effectiveTier(listing: any): number
 end
 
 -- How many featured slots are still buyable in this scope. Expired ads free
--- their slot automatically, so nothing has to be reclaimed on a timer.
+-- their slot automatically, and so does an ad whose paid featured window ran
+-- out while the ad itself lives on -- both go through effectiveTier so the
+-- pool and the sort can never disagree about who is featured.
 function TradeAdRules.featuredOpenSlots(listings: { any }, scope: string, now: number): number
 	local used = 0
 	for _, l in listings do
 		if
 			l.scope == scope
-			and (l.boostTier or 0) >= TradeAdConfig.BoostTier.Featured
+			and TradeAdRules.effectiveTier(l, now) >= TradeAdConfig.BoostTier.Featured
 			and (l.expiresAt == nil or l.expiresAt > now)
 		then
 			used += 1
@@ -76,9 +92,12 @@ function TradeAdRules.featuredOpenSlots(listings: { any }, scope: string, now: n
 end
 
 -- Feed order: paid tier first, then most recently bumped, then id (ids are
--- time-prefixed, so id order is creation order and the sort is total).
-function TradeAdRules.order(a: any, b: any): boolean
-	local aTier, bTier = TradeAdRules.effectiveTier(a), TradeAdRules.effectiveTier(b)
+-- time-prefixed, so id order is creation order and the sort is total). This is
+-- the ONE ordering rule -- TradeBoardService.listingOrder delegates here so a
+-- second comparator can never quietly drop perks or boost expiry on the floor.
+function TradeAdRules.order(a: any, b: any, now: number?): boolean
+	local at = now or os.time()
+	local aTier, bTier = TradeAdRules.effectiveTier(a, at), TradeAdRules.effectiveTier(b, at)
 	if aTier ~= bTier then
 		return aTier > bTier
 	end

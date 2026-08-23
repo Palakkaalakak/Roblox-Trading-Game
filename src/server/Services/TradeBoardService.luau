@@ -592,7 +592,9 @@ local function describe(listing: any, viewerId: number): any
 		posterName = listing.posterName,
 		mine = listing.posterId == viewerId,
 		expiresAt = listing.expiresAt,
-		boostTier = listing.boostTier or 0,
+		-- The tier IN FORCE right now, not the one on the record: a paid
+		-- window that has run out must stop showing a Featured pill.
+		boostTier = TradeAdRules.effectiveTier(listing, os.time()),
 		scope = listing.scope or TradeAdConfig.Scopes.Global, -- legacy listings predate the field
 		-- poster present on THIS server right now -- drives the scope filter and
 		-- the "Live" pill: an ad from someone present settles immediately.
@@ -644,19 +646,12 @@ end
 local CLIENT_PAGE = 200 -- newest listings sent to a client per fetch
 local CLIENT_OWN_EXTRA = 50 -- viewer's own listings ride along even when older
 
--- Display order: boosted listings first (perk scaffolding — all 0 today),
--- then most recently bumped/created. Ids are time-prefixed so id order is
--- creation order.
+-- Display order is TradeAdRules.order and nothing else. It used to be a
+-- second comparator living here, which silently ignored perks.priority and
+-- boost expiry -- a gamepass players had paid for did nothing they could
+-- see. One rule, one place, so that cannot recur.
 local function listingOrder(a: any, b: any): boolean
-	local aBoost, bBoost = a.boostTier or 0, b.boostTier or 0
-	if aBoost ~= bBoost then
-		return aBoost > bBoost
-	end
-	local aBump, bBump = a.bumpedAt or a.createdAt or 0, b.bumpedAt or b.createdAt or 0
-	if aBump ~= bBump then
-		return aBump > bBump
-	end
-	return a.id > b.id
+	return TradeAdRules.order(a, b, os.time())
 end
 TradeBoardService.listingOrder = listingOrder
 
@@ -1696,19 +1691,30 @@ local function cancelCore(userId: number, id: any)
 	return { ok = true }
 end
 
--- Perk scaffold (no purchase flow yet): promote a listing — higher boostTier
--- sorts first (see listingOrder), extendSeconds buys extra uptime, and the
--- bump refreshes recency. A future paid-perk flow validates payment and calls
--- this; nothing in the game calls it today.
+-- The paid apply path: this is what ApplyAdBoost and auto-renew both land on.
+-- Higher boostTier sorts first (see TradeAdRules.order), extendSeconds buys
+-- both extra uptime AND the placement window, and the bump refreshes recency.
+--
+-- Placement gets its OWN clock. expiresAt is how long the ad lives and the
+-- presence sweep may extend it for free; boostExpiresAt is how long the buyer
+-- paid to sit on top and NOTHING extends it but another purchase. Extending an
+-- unexpired window adds to it rather than restarting it, so stacking two
+-- purchases gives the buyer the time they paid for.
 function TradeBoardService.boostListing(id: string, tier: number, extendSeconds: number?)
 	local committed = mutate(id, function(l)
 		if l.status ~= "open" then
 			return nil, "gone"
 		end
+		local now = os.time()
 		l.boostTier = math.max(l.boostTier or 0, tier)
-		l.bumpedAt = os.time()
+		l.bumpedAt = now
 		if extendSeconds and extendSeconds > 0 then
-			l.expiresAt = (l.expiresAt or os.time()) + extendSeconds
+			l.expiresAt = (l.expiresAt or now) + extendSeconds
+			local boostFrom = l.boostExpiresAt
+			if boostFrom == nil or boostFrom < now then
+				boostFrom = now
+			end
+			l.boostExpiresAt = boostFrom + extendSeconds
 		end
 		l.v += 1
 		return l
@@ -1761,6 +1767,10 @@ end
 -- the poster's dime only when every one of these holds. `credits` is the
 -- caller's already-loaded credit table for the SKU that matches this scope's
 -- featured tier, kept pure by taking the count directly rather than a profile.
+--
+-- `openFeatured` must EXCLUDE this listing's own slot. A featured ad occupies
+-- a slot by definition, so counting itself made the pool read as full in the
+-- only situation renewal exists for -- a full strip -- and renewal never fired.
 function TradeBoardService.shouldAutoRenew(
 	listing: any,
 	credits: number,
@@ -1780,7 +1790,9 @@ function TradeBoardService.shouldAutoRenew(
 	if listing.status ~= "open" then
 		return false
 	end
-	if (listing.boostTier or 0) < TradeAdConfig.BoostTier.Featured then
+	-- effectiveTier, not the raw field: an ad whose paid window already lapsed
+	-- is not featured any more and must re-buy rather than auto-renew.
+	if TradeAdRules.effectiveTier(listing, now) < TradeAdConfig.BoostTier.Featured then
 		return false
 	end
 	return TradeAdRules.shouldRefresh(listing, now)
@@ -1823,7 +1835,9 @@ end
 --
 -- This deliberately assigns expiresAt and NOTHING else. Moving bumpedAt here
 -- would hand an AFK player permanent rank one for free and make every paid
--- placement worthless -- the invariant is covered by a test for that reason.
+-- placement worthless; writing boostExpiresAt here would do the same to the
+-- purchased placement window, turning one 10 R$ boost into a permanent one.
+-- Both invariants are covered by tests for that reason.
 function TradeBoardService.applyPresenceRefresh(listing: any, now: number): boolean
 	if listing.status ~= "open" then
 		return false
@@ -1871,11 +1885,17 @@ function TradeBoardService.refreshPresenceExpiry()
 	}
 	for _, l in open do
 		if TradeBoardService.shouldPresenceRefresh(l, now, isPlayerOnline) then
+			-- Decided inside the transform, spent outside it. UpdateAsync re-runs
+			-- its callback on a CAS conflict, so a decrement written inside would
+			-- bill the player once per retry; and a store error after an inside
+			-- decrement would take the credit with nothing granted.
+			local renewedSku: any = nil
 			-- Re-check inside mutate against the freshly-read live record: it
 			-- may have changed between this scan and the write (another
 			-- server/action touched it), and a nil return here intentionally
 			-- skips the store write rather than spending one on a stale check.
-			mutate(l.id, function(live)
+			local committed = mutate(l.id, function(live)
+				renewedSku = nil -- this callback can re-run; never carry a stale decision
 				if not TradeBoardService.applyPresenceRefresh(live, now) then
 					return nil
 				end
@@ -1890,30 +1910,60 @@ function TradeBoardService.refreshPresenceExpiry()
 					live.perks = TradeBoardService.perksFor(prof)
 					-- Auto-renew rides this same write -- no second store write
 					-- path and no second sweep (a throttling incident already
-					-- taught us that cost). Spend the credit BEFORE extending so
-					-- a crash between the two can never grant a free extension.
+					-- taught us that cost).
 					local scope = live.scope or TradeAdConfig.Scopes.Global
 					local sku = heldFeaturedSku(prof, scope)
 					if sku then
-						local credits = prof.TradeAds.credits
+						-- This ad already holds one of the scope's slots, so it must
+						-- not be counted against itself: renewal only ever matters
+						-- when the strip is full, and that is precisely the case a
+						-- self-inclusive count rejected.
+						local pool = openFeaturedByScope[scope] or 0
+						if TradeAdRules.effectiveTier(live, now) >= TradeAdConfig.BoostTier.Featured then
+							pool += 1
+						end
 						if
 							TradeBoardService.shouldAutoRenew(
 								live,
-								credits[sku.id] or 0,
+								(prof.TradeAds.credits[sku.id] or 0),
 								autoRenewEnabled(prof, scope),
-								openFeaturedByScope[scope] or 0,
+								pool,
 								now
 							)
 						then
-							credits[sku.id] -= 1
 							live.expiresAt = (live.expiresAt or now) + sku.seconds
-							AnalyticsService.log("ad_boost_auto_renewed", { userId = live.posterId, sku = sku.id })
+							-- Renew the PLACEMENT window too, not just the life clock:
+							-- renewing a featured ad that has dropped off the strip is
+							-- not what the buyer is paying for.
+							local boostFrom = live.boostExpiresAt
+							if boostFrom == nil or boostFrom < now then
+								boostFrom = now
+							end
+							live.boostExpiresAt = boostFrom + sku.seconds
+							renewedSku = sku
 						end
 					end
 				end
 				live.v += 1
 				return live
 			end)
+			if renewedSku ~= nil then
+				local posterHere = Players:GetPlayerByUserId(l.posterId)
+				local prof = posterHere and DataService.getProfile(posterHere) or nil
+				if committed ~= nil and prof then
+					-- Charged only once the extension is actually committed.
+					local credits = prof.TradeAds.credits
+					credits[renewedSku.id] = math.max(0, (credits[renewedSku.id] or 0) - 1)
+					-- No pool decrement here on purpose. A renewal is only ever
+					-- granted to an ad that is featured RIGHT NOW, which means
+					-- featuredOpenSlots already counted its slot as used before the
+					-- sweep started -- renewing takes no new slot. Decrementing
+					-- would double-count it and block the next ad from keeping the
+					-- slot it already owns. The +1 self-exclusion above is what
+					-- keeps each candidate scored against its own slot only.
+					AnalyticsService.log("ad_boost_auto_renewed", { userId = l.posterId, sku = renewedSku.id })
+				end
+			end
 		end
 	end
 end
@@ -2124,8 +2174,14 @@ function TradeBoardService.Start()
 		if (credits[skuId] or 0) <= 0 then
 			return { ok = false, err = "no_credit" }
 		end
-		local openFeatured =
-			TradeAdRules.featuredOpenSlots(TradeBoardService.rawOpenListings(), listing.scope, os.time())
+		local now = os.time()
+		local openFeatured = TradeAdRules.featuredOpenSlots(TradeBoardService.rawOpenListings(), listing.scope, now)
+		-- An ad that already holds a featured slot must not be counted against
+		-- itself when it buys more time in that same slot, or extending a
+		-- Featured ad would be impossible exactly while the strip is full.
+		if TradeAdRules.effectiveTier(listing, now) >= TradeAdConfig.BoostTier.Featured then
+			openFeatured += 1
+		end
 		if not TradeBoardService.canApplySku(listing, sku, openFeatured, player.UserId) then
 			return { ok = false, err = "cannot_apply" }
 		end

@@ -51,9 +51,15 @@ return {
 		-- the cheap one indistinguishable from the expensive one at grant time
 		-- -- which is exactly how you end up paying Boost's price for Featured.
 		["config: every live SKU owns a distinct product id"] = function()
+			-- Over Skus, not liveSkus(): liveSkus() filters on productId ~= 0, so
+			-- asserting productId > 0 inside that loop can never fail. Every
+			-- shipped SKU is meant to be buyable, and one left on the placeholder
+			-- id is a shop card that silently does nothing.
+			for _, sku in TradeAdConfig.Skus do
+				truthy(sku.productId > 0, sku.id .. ": no real product id -- unbuyable")
+			end
 			local seenProduct: { [number]: string } = {}
 			for _, sku in TradeAdConfig.liveSkus() do
-				truthy(sku.productId > 0, sku.id .. ": live SKU with no product id")
 				local clash = seenProduct[sku.productId]
 				truthy(clash == nil, ("%s shares product id %d with %s"):format(sku.id, sku.productId, tostring(clash)))
 				seenProduct[sku.productId] = sku.id
@@ -61,18 +67,21 @@ return {
 			end
 		end,
 
-		-- The shop shows three cards per scope: low / best / high. Exactly one
-		-- "best" per scope, or the layout that makes the middle tier obvious
-		-- silently stops being a layout.
-		["config: each scope has exactly one best-value shelf"] = function()
+		-- The shop shows three CARDS per scope: low / best / high. BoardScreen
+		-- groups SKUs by shelf and puts a duration button per SKU inside the
+		-- card, so "high" is allowed to hold several durations (Featured 24h +
+		-- Featured 3d). What must stay singular is "low" and "best": two cards
+		-- both flagged as the pick is not a ladder, and the ribbon that makes
+		-- the middle tier obvious silently stops being a layout.
+		["config: each scope has exactly one low and one best shelf"] = function()
 			for _, scope in { TradeAdConfig.Scopes.Server, TradeAdConfig.Scopes.Global } do
-				local best = 0
+				local counts = { low = 0, best = 0, high = 0 }
 				for _, sku in TradeAdConfig.skusForScope(scope) do
-					if sku.shelf == "best" then
-						best += 1
-					end
+					counts[sku.shelf] += 1
 				end
-				eq(best, 1, scope .. ": expected exactly one best-value SKU")
+				eq(counts.low, 1, scope .. ": expected exactly one low shelf SKU")
+				eq(counts.best, 1, scope .. ": expected exactly one best-value SKU")
+				truthy(counts.high >= 1, scope .. ": expected at least one high shelf SKU")
 			end
 		end,
 
@@ -573,6 +582,126 @@ return {
 		["valueDelta: empty want side (make-me-an-offer) does not error"] = function()
 			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
 			eq(TradeBoardService.valueDelta(100, 0), 0, "want side empty -> 0, not an error")
+		end,
+
+		-- Placement is what the player paid for, and it runs on its own clock.
+		-- Without boostExpiresAt the purchased tier never lapsed, so 10 R$ bought
+		-- rank one forever and the advertised duration was fiction.
+		["boost clock: an expired boost falls back to tier None"] = function()
+			local now = 5000
+			eq(TradeAdRules.effectiveTier({ boostTier = 2, boostExpiresAt = now + 10 }, now), 2, "inside the window")
+			eq(TradeAdRules.effectiveTier({ boostTier = 2, boostExpiresAt = now - 1 }, now), 0, "past the window")
+			-- A listing that predates the field has no clock, not a dead one.
+			eq(TradeAdRules.effectiveTier({ boostTier = 2 }, now), 2, "legacy listing keeps its tier")
+		end,
+
+		["boost clock: an expired boost stops outranking a free ad"] = function()
+			local now = 5000
+			local lapsed = { boostTier = 2, boostExpiresAt = now - 1, bumpedAt = 100, id = "a" }
+			local free = { boostTier = 0, bumpedAt = 200, id = "b" }
+			eq(TradeAdRules.order(lapsed, free, now), false, "a lapsed boost sorts below a newer free ad")
+			truthy(TradeAdRules.order(free, lapsed, now), "and the free ad sorts above it")
+		end,
+
+		-- The paid clock must not be extendable for free. The presence sweep runs
+		-- while the poster is online and pushes expiresAt; if it touched
+		-- boostExpiresAt as well, staying in game would renew a purchase forever.
+		["sweep: presence refresh extends life but never the paid boost clock"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = os.time()
+			local listing = {
+				id = "paid",
+				scope = "global",
+				status = "open",
+				bumpedAt = now - 9000,
+				expiresAt = now + 60,
+				boostTier = 2,
+				boostExpiresAt = now + 120,
+			}
+			truthy(TradeBoardService.applyPresenceRefresh(listing, now), "an ad near expiry gets refreshed")
+			truthy(listing.expiresAt > now + 3600, "life extended")
+			eq(listing.boostExpiresAt, now + 120, "the PAID clock MUST be untouched by a free refresh")
+			eq(listing.bumpedAt, now - 9000, "rank still untouched")
+		end,
+
+		-- The strip is scarce on purpose, so a squatter whose paid window ran out
+		-- has to release the slot even while their ad is still alive.
+		["featured: a lapsed featured boost frees its pool slot"] = function()
+			local now = 1000
+			local listings = {
+				{ scope = "global", boostTier = 2, expiresAt = now + 9999, boostExpiresAt = now + 100 },
+				{ scope = "global", boostTier = 2, expiresAt = now + 9999, boostExpiresAt = now - 1 },
+			}
+			eq(
+				TradeAdRules.featuredOpenSlots(listings, "global", now),
+				TradeAdConfig.FeaturedSlotsPerScope - 1,
+				"only the ad inside its paid window holds a slot"
+			)
+		end,
+
+		-- The live feed's sort used to be a second comparator that read boostTier
+		-- raw and ignored perks entirely, so the Always Boosted pass did nothing
+		-- any player could see. listingOrder now delegates to TradeAdRules.order.
+		["order: listingOrder is the rules comparator, perks and all"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local passHolder = { boostTier = 0, perks = { priority = true }, bumpedAt = 50, id = "pass" }
+			local free = { boostTier = 0, bumpedAt = 100, id = "free" }
+			truthy(TradeBoardService.listingOrder(passHolder, free), "the pass lifts the ad in the LIVE feed sort")
+			eq(TradeBoardService.listingOrder(free, passHolder), false, "and the free ad sorts below it")
+		end,
+
+		-- Renewal only matters when the strip is full, and the ad being renewed is
+		-- itself one of the ads filling it. Counting it against its own renewal
+		-- meant auto-renew could never fire in the only case it exists for -- so
+		-- the caller excludes the candidate's own slot before asking.
+		["boost: auto-renew fires when the ad itself holds the last slot"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local scope = TradeAdConfig.Scopes.Global
+			local candidate = {
+				id = "mine",
+				scope = scope,
+				status = "open",
+				boostTier = TradeAdConfig.BoostTier.Featured,
+				boostExpiresAt = now + 60,
+				expiresAt = now + 60,
+			}
+			local listings = { candidate }
+			for i = 2, TradeAdConfig.FeaturedSlotsPerScope do
+				table.insert(listings, {
+					id = "other" .. i,
+					scope = scope,
+					status = "open",
+					boostTier = TradeAdConfig.BoostTier.Featured,
+					boostExpiresAt = now + 9999,
+					expiresAt = now + 9999,
+				})
+			end
+			local pool = TradeAdRules.featuredOpenSlots(listings, scope, now)
+			eq(pool, 0, "the strip is full")
+			eq(
+				TradeBoardService.shouldAutoRenew(candidate, 1, true, pool, now),
+				false,
+				"counting its own slot refuses -- the bug the caller must avoid"
+			)
+			truthy(
+				TradeBoardService.shouldAutoRenew(candidate, 1, true, pool + 1, now),
+				"excluding the candidate own slot lets its renewal through"
+			)
+		end,
+
+		-- A featured ad whose paid window already lapsed is not featured any more:
+		-- it has to be re-bought, not auto-renewed into a slot it no longer holds.
+		["boost: auto-renew refuses an ad whose paid window already lapsed"] = function()
+			local TradeBoardService = require(script.Parent.Parent.Services.TradeBoardService)
+			local now = 1000
+			local lapsed = {
+				status = "open",
+				boostTier = TradeAdConfig.BoostTier.Featured,
+				boostExpiresAt = now - 1,
+				expiresAt = now,
+			}
+			eq(TradeBoardService.shouldAutoRenew(lapsed, 1, true, 3, now), false, "lapsed boost is not featured")
 		end,
 	},
 }

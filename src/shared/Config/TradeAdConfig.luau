@@ -51,10 +51,16 @@ local TradeAdConfig = {
 -- is what lets the receipt handler identify what was bought from the receipt
 -- alone -- no recorded intent to trust, and therefore nothing to swap.
 --
--- `shelf` drives the shop layout: every scope shows exactly three cards, low /
+-- `shelf` drives the shop layout: every scope shows exactly three CARDS, low /
 -- best / high, with the middle one flagged. The middle is where we want players
 -- to land, and the ladder does that work by itself -- Boost 24h is 24x the time
 -- of Boost 1h for 2.5x the price, so the comparison sells it.
+--
+-- Three cards is not three SKUs. BoardScreen groups SKUs by shelf and renders a
+-- duration button per SKU inside the card, so a shelf may hold more than one
+-- (global "high" holds Featured 24h and Featured 3d today). What the layout
+-- actually requires is exactly one "low" and exactly one "best" per scope --
+-- a second "best" would leave two cards both claiming to be the pick.
 export type Sku = {
 	id: string,
 	scope: string,
