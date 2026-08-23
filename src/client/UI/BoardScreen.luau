@@ -46,30 +46,32 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local featuredHeader = panel:WaitForChild("FeaturedHeader") :: TextLabel
 	local featuredCardTemplate = featuredStrip:WaitForChild("FeaturedCard") :: Frame
 	local featuredMiniChip = (featuredCardTemplate:WaitForChild("GiveHolder") :: Frame):WaitForChild("MiniChip") :: Frame
+	local featuredDivider = panel:WaitForChild("FeaturedDivider") :: Frame
 	local featuredSpawned: { Instance } = {}
+	local FEED_W = 976 -- reclaimed from the old 220px boost rail
 	local LIST_Y_NO_FEATURED = 112
-	-- header (106..122) + strip (126..228), then the usual 8px gutter
-	local LIST_Y_WITH_FEATURED = 236
+	-- header (106..122) + strip (126..278) + divider (282..284), then a gutter
+	local LIST_Y_WITH_FEATURED = 290
 
-	-- Header and strip live and die together: half of a collapsed strip is a
-	-- gold word floating over nothing.
+	-- Header, band and divider live and die together: half of a collapsed strip
+	-- is a gold word floating over nothing.
 	local function setFeaturedVisible(visible: boolean)
 		featuredStrip.Visible = visible
 		featuredHeader.Visible = visible
+		featuredDivider.Visible = visible
 		local listY = visible and LIST_Y_WITH_FEATURED or LIST_Y_NO_FEATURED
 		list.Position = UDim2.fromOffset(12, listY)
-		list.Size = UDim2.new(0, 744, 1, -(listY + 12))
+		list.Size = UDim2.new(0, FEED_W, 1, -(listY + 12))
 		emptyLabel.Position = UDim2.fromOffset(12, listY + 38)
 	end
 	setFeaturedVisible(false)
 
-	-- boost inventory (banked, unspent credits)
-	local boostInv = panel:WaitForChild("BoostInventoryPanel") :: Frame
-	local creditsList = boostInv:WaitForChild("CreditsList") :: ScrollingFrame
-	local creditRowTemplate = creditsList:WaitForChild("BoostCreditRow") :: Frame
-	local boostInvEmpty = boostInv:WaitForChild("EmptyLabel") :: TextLabel
-	local boostInvGetButton = boostInv:WaitForChild("GetBoostsButton") :: TextButton
-	local boostInvSpawned: { Instance } = {}
+	-- Banked credits, as one slim line above the feed. The old right rail held
+	-- the same data in ~23% of the panel; this is layout only, same source and
+	-- same click target.
+	local boostStrip = panel:WaitForChild("BoostStrip") :: Frame
+	local boostStripSummary = boostStrip:WaitForChild("SummaryLabel") :: TextLabel
+	local boostStripAdd = boostStrip:WaitForChild("AddButton") :: TextButton
 	local lastBoostState: any = nil
 
 	-- boost sheet (spend a banked credit, or buy one, for one ad)
@@ -409,46 +411,35 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		sheetAutoRenewLabel.TextColor3 = sheetAutoRenewInteractable and Theme.TextPrimary or Theme.TextDim
 	end
 
-	-- scope-prefixed short label: "Boost 24 hours" (global) -> "Global Boost 24h"
-	local function shortSkuLabel(sku: any): string
-		local scopeName = sku.scope == TradeAdConfig.Scopes.Global and "Global" or "Server"
-		local shortName = sku.name:gsub(" hours", "h"):gsub(" hour", "h")
-		return scopeName .. " " .. shortName
-	end
-
-	local function clearBoostInv()
-		for _, inst in boostInvSpawned do
-			inst:Destroy()
-		end
-		table.clear(boostInvSpawned)
-	end
-
+	-- Per-scope totals rather than a row per SKU: the line is a status readout,
+	-- not an inventory screen. Which SKU a credit is stays visible where it
+	-- matters — the boost sheet and the post-time picker both name them.
 	local function renderBoostInventory(boostState: any)
-		clearBoostInv()
-		local order = 0
+		local totals: { [string]: number } = {}
 		for _, sku in TradeAdConfig.liveSkus() do
 			local count = boostState.credits[sku.id] or 0
 			if count > 0 then
-				order += 1
-				local row = creditRowTemplate:Clone()
-				row.Name = "credit_" .. sku.id
-				row.Visible = true
-				row.LayoutOrder = order
-				;(row:WaitForChild("Label") :: TextLabel).Text = ("%s: %d"):format(shortSkuLabel(sku), count)
-				-- "+" means BUY MORE, and buying happens in the one shop
-				;(row:WaitForChild("AddButton") :: TextButton).Activated:Connect(function()
-					openShopAtBoosts(sku.scope)
-				end)
-				row.Parent = creditsList
-				table.insert(boostInvSpawned, row)
+				totals[sku.scope] = (totals[sku.scope] or 0) + count
 			end
 		end
-		-- zero boosts owned is exactly the player who most needs a way to the
-		-- shop, so the empty state gets its own buy button, not just a label
-		boostInvEmpty.Visible = order == 0
-		boostInvGetButton.Visible = order == 0
+		local parts = {}
+		for _, scope in { TradeAdConfig.Scopes.Server, TradeAdConfig.Scopes.Global } do
+			local count = totals[scope]
+			if count then
+				local scopeName = scope == TradeAdConfig.Scopes.Global and "Global" or "Server"
+				table.insert(parts, ("%s %d"):format(scopeName, count))
+			end
+		end
+		-- owning nothing collapses to one quiet line, not a reserved block
+		if #parts == 0 then
+			boostStripSummary.Text = "⚡ No boosts banked"
+			boostStripSummary.TextColor3 = Theme.TextDim
+		else
+			boostStripSummary.Text = "⚡ Boosts:  " .. table.concat(parts, "  ·  ")
+			boostStripSummary.TextColor3 = Theme.TextPrimary
+		end
 	end
-	boostInvGetButton.Activated:Connect(function()
+	boostStripAdd.Activated:Connect(function()
 		openShopAtBoosts(activeScope)
 	end)
 	sheetOpenShopBtn.Activated:Connect(function()
@@ -807,7 +798,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			list.Visible = true
 			postBtn.Visible = true
 			scopeRow.Visible = true
-			boostInv.Visible = true
+			boostStrip.Visible = true
 			if lastListings then
 				renderBoard(lastListings)
 			end
@@ -821,7 +812,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			postBtn.Visible = false
 			scopeRow.Visible = false
 			setFeaturedVisible(false)
-			boostInv.Visible = false
+			boostStrip.Visible = false
 			MarketScreen.show()
 		end
 	end

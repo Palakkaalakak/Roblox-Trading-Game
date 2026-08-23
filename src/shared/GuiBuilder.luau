@@ -880,7 +880,7 @@ local function buildBoardPanel(parent: Instance)
 		Name = "ScopeRow",
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(12, 76),
-		Size = UDim2.fromOffset(744, 26),
+		Size = UDim2.fromOffset(300, 26),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -902,9 +902,43 @@ local function buildBoardPanel(parent: Instance)
 		LayoutOrder = 2,
 	}, scopeRow)
 
+	-- Banked boost credits, as ONE slim line on the scope row rather than the
+	-- 220x548 right rail this replaces. That rail reserved ~23% of the panel
+	-- for at most two one-line rows and squeezed the feed to 744px wide; a
+	-- near-always-empty inventory does not earn a permanent block. The reclaimed
+	-- width goes to the feed and the featured strip.
+	local boostStrip = new("Frame", {
+		Name = "BoostStrip",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 76),
+		Size = UDim2.fromOffset(620, 26),
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+	}, boardPanel)
+	corner(boostStrip, 6)
+	label("SummaryLabel", {
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(1, -46, 1, 0),
+		Text = "⚡ Boosts:  Server 2  ·  Global 1",
+		Font = FONT_LIGHT,
+		TextSize = 11,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, boostStrip)
+	-- same click target as the old rail's "+": straight to the shop's boost
+	-- shelves, never to a second storefront
+	button("AddButton", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -4, 0.5, 0),
+		Size = UDim2.fromOffset(26, 20),
+		Text = "+",
+		TextSize = 14,
+		BackgroundColor3 = C.Gold,
+	}, boostStrip)
+
 	-- Featured placement: a compact gold header above a horizontal rail of
 	-- fixed-height cards. Header rather than a rotated side gutter — the old
-	-- one ate ~180px of a 744px strip to say one word, which made the most
+	-- one ate ~180px of the strip to say one word, which made the most
 	-- expensive placement on the screen the narrowest.
 	--
 	-- Header AND strip collapse together (Visible=false) when the active scope
@@ -921,7 +955,7 @@ local function buildBoardPanel(parent: Instance)
 	local featuredStrip = new("ScrollingFrame", {
 		Name = "FeaturedStrip",
 		Position = UDim2.fromOffset(12, 126),
-		Size = UDim2.fromOffset(744, 102),
+		Size = UDim2.fromOffset(976, 152),
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
@@ -934,17 +968,26 @@ local function buildBoardPanel(parent: Instance)
 	-- Container stays plain: the gold lives on the CARDS. Two nested gold
 	-- strokes read as a double frame and made neither one feel special.
 	stroke(featuredStrip, C.Stroke, 1)
+	-- warm floor behind the cards, so the band reads as a separate shelf rather
+	-- than as the first three rows of the feed
+	new("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, C.Gold:Lerp(C.Bg, 0.86)),
+			ColorSequenceKeypoint.new(1, C.Bg),
+		}),
+		Rotation = 90,
+	}, featuredStrip)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 8),
+		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		VerticalAlignment = Enum.VerticalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
 	}, featuredStrip)
 	new("UIPadding", {
-		PaddingLeft = UDim.new(0, 8),
-		PaddingRight = UDim.new(0, 8),
+		PaddingLeft = UDim.new(0, 10),
+		PaddingRight = UDim.new(0, 10),
 		PaddingTop = UDim.new(0, 8),
-		PaddingBottom = UDim.new(0, 8),
+		PaddingBottom = UDim.new(0, 14), -- clears the horizontal scrollbar
 	}, featuredStrip)
 
 	-- One featured card. FIXED height and no wrapping text anywhere: the old
@@ -952,108 +995,128 @@ local function buildBoardPanel(parent: Instance)
 	-- jittered card heights and misaligned the whole rail. The trade reads as
 	-- item icons ⇄ item icons instead, the same chips the free rows below use,
 	-- so the paid placement no longer looks cheaper than what it outranks.
-	-- 236 x 3 + gaps fills the 744px strip almost exactly.
+	-- 300 x 3 + 10px gaps fills the 976px strip, with a sliver of a 4th card
+	-- showing so the horizontal scroll is discoverable on mobile.
 	local featuredCard = new("Frame", {
 		Name = "FeaturedCard",
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(236, 86),
+		Size = UDim2.fromOffset(300, 130),
 		Visible = false,
 	}, featuredStrip)
-	corner(featuredCard, 8)
+	corner(featuredCard, 10)
 	stroke(featuredCard, C.Gold, 2)
+	-- Warm amber wash, not just an outline. At this size a stroke alone reads
+	-- as "a slightly nicer list row"; the fill is what makes the card a
+	-- different KIND of thing from the free rows beneath it. Amber is Theme's
+	-- gold pulled down toward the card's own base, so no new palette entry.
+	new("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, C.Gold:Lerp(C.Bg, 0.7)),
+			ColorSequenceKeypoint.new(0.55, C.Bg),
+			ColorSequenceKeypoint.new(1, C.Bg),
+		}),
+		Rotation = 35,
+	}, featuredCard)
 	-- gold spine: reads as "paid placement" at a glance even in a screenshot
 	local featuredSpine = new("Frame", {
 		Name = "AccentBar",
 		BackgroundColor3 = C.Gold,
 		BorderSizePixel = 0,
 		Position = UDim2.fromOffset(0, 0),
-		Size = UDim2.new(0, 4, 1, 0),
+		Size = UDim2.new(0, 5, 1, 0),
 	}, featuredCard)
 	corner(featuredSpine, 2)
+
+	-- Hierarchy, top to bottom: item ART (dominant), trade direction, poster
+	-- name (small, dim), countdown (smallest). The word FEATURED is gone from
+	-- the card — the strip header says it once, and repeating it on every card
+	-- was noise competing with the art.
+	local featGive = new("Frame", {
+		Name = "GiveHolder",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(16, 12),
+		Size = UDim2.fromOffset(116, 78),
+	}, featuredCard)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+	}, featGive)
+	label("ArrowLabel", {
+		Position = UDim2.fromOffset(136, 40),
+		Size = UDim2.fromOffset(32, 24),
+		Text = "⇄",
+		TextSize = 22,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gold,
+	}, featuredCard)
+	local featWant = new("Frame", {
+		Name = "WantHolder",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(172, 12),
+		Size = UDim2.fromOffset(116, 78),
+	}, featuredCard)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+	}, featWant)
+
+	-- Deliberately BIGGER than ListingRow's 46x62 chip: the art is the reason
+	-- this placement costs the most, so it has to out-weigh a free row's art.
+	-- Lives under GiveHolder; BoardScreen clones it into both sides.
+	local miniChip = new("Frame", {
+		Name = "MiniChip",
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		Size = UDim2.fromOffset(55, 76),
+		Visible = false,
+	}, featGive)
+	corner(miniChip, 8)
+	local miniIcon = new("ImageLabel", {
+		Name = "Icon",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, -24, 0, 6),
+		Size = UDim2.fromOffset(48, 48),
+		ScaleType = Enum.ScaleType.Fit,
+	}, miniChip)
+	corner(miniIcon, 6)
+	label("CountLabel", {
+		Position = UDim2.fromOffset(2, 56),
+		Size = UDim2.new(1, -4, 0, 16),
+		Text = "x1",
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, miniChip)
+
 	label("PosterLabel", {
-		Position = UDim2.fromOffset(12, 5),
-		Size = UDim2.fromOffset(112, 14),
+		Position = UDim2.fromOffset(16, 96),
+		Size = UDim2.fromOffset(180, 16),
 		Text = "PosterName",
 		Font = FONT_LIGHT,
 		TextSize = 11,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextColor3 = C.TextDim,
 	}, featuredCard)
+	-- countdown only, smallest thing on the card
 	label("TierLabel", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -8, 0, 5),
-		Size = UDim2.fromOffset(108, 14),
-		Text = "⭐ 2d left",
+		Position = UDim2.new(1, -12, 0, 96),
+		Size = UDim2.fromOffset(90, 16),
+		Text = "2d left",
 		TextSize = 10,
 		TextColor3 = C.Gold,
 		TextXAlignment = Enum.TextXAlignment.Right,
 	}, featuredCard)
-
-	local featGive = new("Frame", {
-		Name = "GiveHolder",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 22),
-		Size = UDim2.fromOffset(96, 58),
-	}, featuredCard)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 4),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		VerticalAlignment = Enum.VerticalAlignment.Center,
-	}, featGive)
-	label("ArrowLabel", {
-		Position = UDim2.fromOffset(110, 34),
-		Size = UDim2.fromOffset(20, 20),
-		Text = "⇄",
-		TextSize = 16,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = C.TextDim,
-	}, featuredCard)
-	local featWant = new("Frame", {
-		Name = "WantHolder",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(132, 22),
-		Size = UDim2.fromOffset(96, 58),
-	}, featuredCard)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0, 4),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		VerticalAlignment = Enum.VerticalAlignment.Center,
-	}, featWant)
-
-	-- compact chip: same icon-over-count shape as ListingRow's Chip, sized for
-	-- the strip. Lives under GiveHolder; BoardScreen clones it into both sides.
-	local miniChip = new("Frame", {
-		Name = "MiniChip",
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		Size = UDim2.fromOffset(44, 54),
-		Visible = false,
-	}, featGive)
-	corner(miniChip, 6)
-	local miniIcon = new("ImageLabel", {
-		Name = "Icon",
-		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-		BackgroundTransparency = 1,
-		Position = UDim2.new(0.5, -15, 0, 4),
-		Size = UDim2.fromOffset(30, 30),
-		ScaleType = Enum.ScaleType.Fit,
-	}, miniChip)
-	corner(miniIcon, 6)
-	label("CountLabel", {
-		Position = UDim2.fromOffset(2, 36),
-		Size = UDim2.new(1, -4, 0, 14),
-		Text = "x1",
-		TextSize = 10,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, miniChip)
 	-- "+3" overflow marker when a side holds more items than the card can show
 	label("MoreLabel", {
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -6, 1, -3),
-		Size = UDim2.fromOffset(96, 12),
+		Position = UDim2.new(1, -12, 1, -4),
+		Size = UDim2.fromOffset(120, 14),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextSize = 10,
@@ -1066,10 +1129,22 @@ local function buildBoardPanel(parent: Instance)
 	-- Default position/size assume the featured strip is hidden (the common
 	-- case). BoardScreen shifts this down and shrinks it when the strip is
 	-- populated, and restores these values when it empties back out.
+	-- hard edge between the paid band and the free feed, so the two never read
+	-- as one continuous list. Hidden with the strip.
+	new("Frame", {
+		Name = "FeaturedDivider",
+		BackgroundColor3 = C.Gold,
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(12, 282),
+		Size = UDim2.fromOffset(976, 2),
+		Visible = false,
+	}, boardPanel)
+
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
 		Position = UDim2.fromOffset(12, 112),
-		Size = UDim2.new(0, 744, 1, -124),
+		Size = UDim2.new(0, 976, 1, -124),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
@@ -1080,87 +1155,13 @@ local function buildBoardPanel(parent: Instance)
 
 	label("EmptyLabel", {
 		Position = UDim2.fromOffset(12, 150),
-		Size = UDim2.fromOffset(744, 24),
+		Size = UDim2.fromOffset(976, 24),
 		Text = "Nothing here yet — be the first!",
 		TextSize = 14,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.TextDim,
 		Visible = false,
 	}, boardPanel)
-
-	-- boost inventory: banked credits (bought, not yet applied), right rail
-	local boostInv = new("Frame", {
-		Name = "BoostInventoryPanel",
-		Position = UDim2.fromOffset(768, 40),
-		Size = UDim2.new(0, 220, 1, -52),
-		BackgroundColor3 = C.Panel,
-		BorderSizePixel = 0,
-	}, boardPanel)
-	corner(boostInv, 8)
-	stroke(boostInv, C.Stroke, 1)
-	label("Header", {
-		Position = UDim2.fromOffset(10, 6),
-		Size = UDim2.fromOffset(200, 20),
-		Text = "⏱ Your Boosts",
-		TextSize = 13,
-	}, boostInv)
-	local creditsList = new("ScrollingFrame", {
-		Name = "CreditsList",
-		Position = UDim2.fromOffset(6, 30),
-		Size = UDim2.new(1, -12, 1, -36),
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
-		AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		CanvasSize = UDim2.new(),
-	}, boostInv)
-	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, creditsList)
-
-	label("EmptyLabel", {
-		Position = UDim2.fromOffset(6, 30),
-		Size = UDim2.new(1, -12, 0, 40),
-		Text = "No boosts owned yet.",
-		TextSize = 11,
-		TextWrapped = true,
-		TextColor3 = C.TextDim,
-		Visible = false,
-	}, boostInv)
-	-- a new player with zero boosts had no path to the shop from this rail —
-	-- the empty state needs its own buy affordance, not just a label
-	button("GetBoostsButton", {
-		Position = UDim2.fromOffset(6, 72),
-		Size = UDim2.new(1, -12, 0, 32),
-		Text = "+ Get boosts",
-		TextSize = 12,
-		BackgroundColor3 = C.Gold,
-		Visible = false,
-	}, boostInv)
-
-	local creditRow = new("Frame", {
-		Name = "BoostCreditRow",
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 40),
-		Visible = false,
-	}, creditsList)
-	corner(creditRow, 6)
-	label("Label", {
-		Position = UDim2.fromOffset(8, 0),
-		Size = UDim2.new(1, -46, 1, 0),
-		Text = "Global Boost 24h: 2",
-		Font = FONT_LIGHT,
-		TextSize = 11,
-		TextWrapped = true,
-		TextYAlignment = Enum.TextYAlignment.Center,
-	}, creditRow)
-	button("AddButton", {
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -6, 0.5, 0),
-		Size = UDim2.fromOffset(28, 28),
-		Text = "+",
-		TextSize = 16,
-		BackgroundColor3 = C.Good,
-	}, creditRow)
 
 	-- listing row template (tall enough for chips + a multi-line stats/payout block)
 	local row = new("Frame", {
@@ -1340,8 +1341,12 @@ local function buildBoardPanel(parent: Instance)
 	-- ads) or "You're asking +N%" (your own — describes the ad, doesn't judge
 	-- it). Widened to 140 and TextScaled so the longer spelled-out phrasing
 	-- ("You're asking +100%") never clips.
+	-- The row's right-hand column is anchored to the row's RIGHT EDGE, not to a
+	-- fixed x: the feed widened from 744 to 976 when the boost rail went away,
+	-- and fixed offsets would have stranded this column mid-row.
 	label("ValueChip", {
-		Position = UDim2.fromOffset(460, 24),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -136, 0, 24),
 		Size = UDim2.fromOffset(140, 20),
 		Text = "Fair",
 		TextSize = 12,
@@ -1354,7 +1359,8 @@ local function buildBoardPanel(parent: Instance)
 	-- time-left pill: makes the presence-tied lifetime mechanic visible —
 	-- "Live · you're in game" while the poster is present, else a countdown
 	label("TimePill", {
-		Position = UDim2.fromOffset(460, 48),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -136, 0, 48),
 		Size = UDim2.fromOffset(140, 20),
 		Text = "2h left",
 		TextSize = 12,
@@ -1366,7 +1372,8 @@ local function buildBoardPanel(parent: Instance)
 
 	-- opens the boost sheet; visible only on the poster's own listing
 	button("BoostButton", {
-		Position = UDim2.fromOffset(460, 74),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -136, 0, 74),
 		Size = UDim2.fromOffset(140, 28),
 		Text = "⏱ Boost",
 		TextSize = 12,
