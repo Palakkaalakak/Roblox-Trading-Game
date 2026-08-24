@@ -1050,7 +1050,20 @@ function EconomyService.Start()
 		-- budget is shared with profile loads, which must not be starved.
 		local next_ = 1
 		local running = 0
-		local WORKERS = 4
+		local WORKERS = 2
+		-- Roblox's GetAsync budget is about 60 + 10 per player PER MINUTE, shared
+		-- across the whole experience. Four workers looping with no delay issued
+		-- hundreds of reads as fast as latency allowed, blew that budget, and
+		-- every failure retried three times through withRetry -- which tripled
+		-- the load instead of relieving it. The storm starved profile loads and
+		-- saves too, because the budget is experience-wide, not per-store.
+		--
+		-- So pace it: two workers, one read each per PACE_SECONDS, is ~1 read a
+		-- second and stays under budget even on a one-player server. This is a
+		-- BACKGROUND warm -- nothing waits on it, snapshotCached serves nil for
+		-- items not yet cached, and getRecord still reads through on demand. Slow
+		-- and quiet beats fast and throttled.
+		local PACE_SECONDS = 2
 		for _ = 1, WORKERS do
 			running += 1
 			task.spawn(function()
@@ -1058,6 +1071,7 @@ function EconomyService.Start()
 					local itemId = queue[next_]
 					next_ += 1
 					getRecord(itemId)
+					task.wait(PACE_SECONDS)
 				end
 				running -= 1
 			end)

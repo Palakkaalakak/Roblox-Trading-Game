@@ -49,11 +49,16 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local featuredMiniChip = (featuredCardTemplate:WaitForChild("GiveHolder") :: Frame):WaitForChild("MiniChip") :: Frame
 	local featuredDivider = panel:WaitForChild("FeaturedDivider") :: Frame
 	local featuredSpawned: { Instance } = {}
-	local FEED_W = 976 -- reclaimed from the old 220px boost rail
-	-- the tab row, scope filter and boost slot row occupy 40..148
-	local LIST_Y_NO_FEATURED = 152
-	-- header (152..168) + strip (172..318) + divider (322..324), then a gutter
-	local LIST_Y_WITH_FEATURED = 332
+	-- Feed geometry is expressed as FRACTIONS of the panel, not pixels: the
+	-- board is scale-native, so the band the feed occupies has to move in the
+	-- same units the builder laid it out in.
+	local FEED_X = 0.014
+	local FEED_W = 0.972
+	local FEED_BOTTOM_GUTTER = 0.02
+	-- header + scope row + boost slots occupy the band above 0.29
+	local LIST_Y_NO_FEATURED = 0.290
+	-- featured header (0.275) + strip (0.328..0.578) + divider (0.592), gutter
+	local LIST_Y_WITH_FEATURED = 0.615
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.
@@ -62,9 +67,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		featuredHeader.Visible = visible
 		featuredDivider.Visible = visible
 		local listY = visible and LIST_Y_WITH_FEATURED or LIST_Y_NO_FEATURED
-		list.Position = UDim2.fromOffset(12, listY)
-		list.Size = UDim2.new(0, FEED_W, 1, -(listY + 12))
-		emptyLabel.Position = UDim2.fromOffset(12, listY + 38)
+		list.Position = UDim2.fromScale(FEED_X, listY)
+		list.Size = UDim2.fromScale(FEED_W, 1 - listY - FEED_BOTTOM_GUTTER)
+		emptyLabel.Position = UDim2.fromScale(FEED_X, listY + 0.07)
 	end
 	setFeaturedVisible(false)
 
@@ -627,8 +632,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		boostBtn.Visible = listing.mine
 		if listing.mine then
 			action.AnchorPoint = Vector2.new(1, 0)
-			action.Position = UDim2.new(1, -14, 0, 64)
-			action.Size = UDim2.fromOffset(134, 34)
+			action.Position = UDim2.fromScale(0.984, 0.52)
+			action.Size = UDim2.fromScale(0.135, 0.30)
 		end
 		if listing.mine then
 			boostBtn.Activated:Connect(function()
