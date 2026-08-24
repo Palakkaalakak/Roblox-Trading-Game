@@ -823,14 +823,22 @@ local function buildBoardPanel(parent: Instance)
 	local boardPanel = panel("BoardPanel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(0.95, 0.93),
+		-- Sized to match the rest of the game's panels rather than to fill the
+		-- screen. Measured peers: Shop 66% wide, Rolls 70%, Store 53%, Events
+		-- 56%. At 0.95 the board was 95% x 85% -- an obvious outlier that read
+		-- as "something is wrong with this window" even when its contents were
+		-- laid out correctly. Consistency across panels matters more than any
+		-- one panel's internal balance.
+		Size = UDim2.fromScale(0.72, 0.82),
 		Visible = false,
 	}, parent)
-	-- The floor is deliberately wide: Roblox mobile runs landscape, and the
-	-- Market tab under this same panel is still an offset-positioned column
-	-- table that collapses below roughly 760px. The ceiling stops the board
-	-- from ballooning on an ultrawide monitor.
-	new("UISizeConstraint", { MaxSize = Vector2.new(1280, 820), MinSize = Vector2.new(760, 320) }, boardPanel)
+	-- MinSize must never exceed a real phone viewport. The old 760 floor was set
+	-- for the Market tab's offset-positioned column table, but a phone about 640
+	-- wide would then be handed a panel WIDER THAN THE SCREEN -- the board would
+	-- hang off both edges with no way to reach the far side. A panel that cannot
+	-- fit is worse than a table that has to scroll, so the floor comes down and
+	-- the Market table scrolls horizontally on small screens instead.
+	new("UISizeConstraint", { MaxSize = Vector2.new(1100, 780), MinSize = Vector2.new(440, 300) }, boardPanel)
 
 	-- Text grows with its box and stops at a cap, which is what makes the same
 	-- layout readable on a 5" phone and sane on a 27" monitor.
@@ -888,8 +896,8 @@ local function buildBoardPanel(parent: Instance)
 	local tabRow = new("Frame", {
 		Name = "TabRow",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.014, 0.090),
-		Size = UDim2.fromScale(0.972, 0.075),
+		Position = UDim2.fromScale(0.014, 0.088),
+		Size = UDim2.fromScale(0.972, 0.115),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -904,7 +912,9 @@ local function buildBoardPanel(parent: Instance)
 			BackgroundColor3 = C.BgLight,
 			LayoutOrder = order,
 		}, tabRow)
-		minTouch(b, 0, 40)
+		-- The floor has to stay under the band's own height at the smallest
+		-- panel the size constraint allows, or the button spills out of TabRow.
+		minTouch(b, 0, 34)
 		capText(b, 17)
 		return b
 	end
@@ -917,8 +927,8 @@ local function buildBoardPanel(parent: Instance)
 	local scopeRow = new("Frame", {
 		Name = "ScopeRow",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.014, 0.180),
-		Size = UDim2.fromScale(0.34, 0.070),
+		Position = UDim2.fromScale(0.014, 0.215),
+		Size = UDim2.fromScale(0.34, 0.105),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -933,7 +943,7 @@ local function buildBoardPanel(parent: Instance)
 			BackgroundColor3 = colour,
 			LayoutOrder = order,
 		}, scopeRow)
-		minTouch(b, 0, 36)
+		minTouch(b, 0, 30)
 		capText(b, 15)
 	end
 	scopeBtn("ScopeServer", "THIS SERVER", C.Accent, 1)
@@ -947,8 +957,8 @@ local function buildBoardPanel(parent: Instance)
 	local boostStrip = new("Frame", {
 		Name = "BoostSlotRow",
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.986, 0.168),
-		Size = UDim2.fromScale(0.60, 0.115),
+		Position = UDim2.fromScale(0.986, 0.205),
+		Size = UDim2.fromScale(0.60, 0.130),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 	}, boardPanel)
@@ -1059,8 +1069,8 @@ local function buildBoardPanel(parent: Instance)
 	-- Header AND strip collapse together (Visible=false) when the active scope
 	-- has no boostTier>=2 listings, so a quiet board shows no dead rail.
 	local featHeader = label("FeaturedHeader", {
-		Position = UDim2.fromScale(0.014, 0.275),
-		Size = UDim2.fromScale(0.5, 0.046),
+		Position = UDim2.fromScale(0.014, 0.338),
+		Size = UDim2.fromScale(0.5, 0.048),
 		Text = "⭐ FEATURED · PAID PLACEMENT",
 		TextScaled = true,
 		TextColor3 = C.Gold,
@@ -1070,8 +1080,8 @@ local function buildBoardPanel(parent: Instance)
 
 	local featuredStrip = new("ScrollingFrame", {
 		Name = "FeaturedStrip",
-		Position = UDim2.fromScale(0.014, 0.328),
-		Size = UDim2.fromScale(0.972, 0.250),
+		Position = UDim2.fromScale(0.014, 0.394),
+		Size = UDim2.fromScale(0.972, 0.290),
 		-- The rail itself is invisible. A bordered container around already
 		-- bordered cards is a box inside a box: it fought the gold it was
 		-- supposed to be framing and flattened the whole band.
@@ -1117,7 +1127,7 @@ local function buildBoardPanel(parent: Instance)
 		Name = "FeaturedCard",
 		BackgroundColor3 = GOLD_TINT,
 		BorderSizePixel = 0,
-		Size = UDim2.fromScale(0.325, 1),
+		Size = UDim2.fromScale(0.42, 1),
 		Visible = false,
 	}, featuredStrip)
 	corner(featuredCard, 12)
@@ -1273,7 +1283,7 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Gold,
 		BackgroundTransparency = 0.55,
 		BorderSizePixel = 0,
-		Position = UDim2.fromScale(0.014, 0.592),
+		Position = UDim2.fromScale(0.014, 0.696),
 		Size = UDim2.new(0.972, 0, 0, 2),
 		Visible = false,
 	}, boardPanel)
@@ -1283,8 +1293,8 @@ local function buildBoardPanel(parent: Instance)
 	-- when the strip empties back out — see FEED_TOP_* there.
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
-		Position = UDim2.fromScale(0.014, 0.290),
-		Size = UDim2.fromScale(0.972, 0.690),
+		Position = UDim2.fromScale(0.014, 0.350),
+		Size = UDim2.fromScale(0.972, 0.630),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 8,
@@ -1294,7 +1304,7 @@ local function buildBoardPanel(parent: Instance)
 	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
 	local emptyLbl = label("EmptyLabel", {
-		Position = UDim2.fromScale(0.014, 0.36),
+		Position = UDim2.fromScale(0.014, 0.42),
 		Size = UDim2.fromScale(0.972, 0.06),
 		Text = "Nothing here yet — be the first!",
 		TextScaled = true,
@@ -1324,7 +1334,7 @@ local function buildBoardPanel(parent: Instance)
 		Visible = false,
 	}, list)
 	new("UISizeConstraint", {
-		MinSize = Vector2.new(0, 138),
+		MinSize = Vector2.new(0, 118),
 		MaxSize = Vector2.new(math.huge, 210),
 	}, row)
 	corner(row, 10)
@@ -1434,8 +1444,8 @@ local function buildBoardPanel(parent: Instance)
 	square(chipIcon)
 	corner(chipIcon, 6)
 	local chipName = label("NameLabel", {
-		Position = UDim2.fromScale(0.22, 0.09),
-		Size = UDim2.fromScale(0.76, 0.42),
+		Position = UDim2.fromScale(0.30, 0.09),
+		Size = UDim2.fromScale(0.68, 0.42),
 		Text = "Item Name",
 		TextScaled = true,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -1444,8 +1454,8 @@ local function buildBoardPanel(parent: Instance)
 	-- count and value on one line: "x2 · 1.2k". Gem-coloured because value is
 	-- denominated in the same currency the rest of the UI prices things in.
 	local chipCount = label("CountLabel", {
-		Position = UDim2.fromScale(0.22, 0.53),
-		Size = UDim2.fromScale(0.76, 0.36),
+		Position = UDim2.fromScale(0.30, 0.53),
+		Size = UDim2.fromScale(0.68, 0.36),
 		Text = "x1",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1522,8 +1532,11 @@ local function buildBoardPanel(parent: Instance)
 	-- line under the verdict rather than a wrapped block: it is the least
 	-- important thing in the row and used to reserve the most space.
 	local infoLbl = label("InfoLabel", {
+		-- Width stops short of 0.849, where the button column begins. At 0.19 this
+		-- ran to 0.878 and the buttons sat on top of it, truncating the verdict
+		-- mid-word. Nothing escaped its parent, so the bounds scan passed it.
 		Position = UDim2.fromScale(0.688, 0.62),
-		Size = UDim2.fromScale(0.19, 0.14),
+		Size = UDim2.fromScale(0.152, 0.14),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1571,7 +1584,7 @@ local function buildBoardPanel(parent: Instance)
 	-- the single most decision-relevant string in it.
 	local valueChip = label("ValueChip", {
 		Position = UDim2.fromScale(0.688, 0.32),
-		Size = UDim2.fromScale(0.19, 0.24),
+		Size = UDim2.fromScale(0.152, 0.24),
 		Text = "Fair",
 		TextScaled = true,
 		TextColor3 = C.TextDim,
@@ -1601,8 +1614,10 @@ local function buildBoardPanel(parent: Instance)
 	-- BoardScreen drops ActionButton into the lower slot when this is shown.
 	local boostBtn = button("BoostButton", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.984, 0.16),
-		Size = UDim2.fromScale(0.135, 0.30),
+		-- Starts below the header line (which ends at 0.20). At 0.16 it overlapped
+		-- TimePill and clipped "Live · you're in game".
+		Position = UDim2.fromScale(0.984, 0.23),
+		Size = UDim2.fromScale(0.135, 0.28),
 		Text = "⏱ Boost",
 		TextScaled = true,
 		BackgroundColor3 = C.Gold,
