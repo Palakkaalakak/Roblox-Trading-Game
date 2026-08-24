@@ -203,6 +203,23 @@ identical to "my edit did nothing":
 If `screen_capture` times out, stop/start play and retry. A timeout is not a
 passing result and is never a reason to skip the screenshot.
 
+**Destroy ALL matches, not the first one.** `FindFirstChild("Client")` removes
+one instance. If an earlier splice left a duplicate, StarterPlayerScripts ends
+up with two `Client` LocalScripts; both run, and `PlayerScripts.Client`
+resolves to whichever is first. You then debug a module whose `wire()` never
+ran while a second copy quietly drives the working UI — the symptoms are
+"the screen works but my handle is missing functions", which reads exactly
+like a game bug and is not one. Loop over `GetChildren()` and destroy every
+match:
+
+```lua
+for _, c in container:GetChildren() do
+    if c.Name == "Client" then c:Destroy() end
+end
+```
+
+Before trusting any client-side diagnosis, count the copies first.
+
 ## Delegation does not transfer the duty
 
 A subagent without Studio access cannot verify UI. If you dispatch UI work, the

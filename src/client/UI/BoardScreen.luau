@@ -56,9 +56,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local FEED_W = 0.972
 	local FEED_BOTTOM_GUTTER = 0.02
 	-- tabs + scope row + boost slots occupy the band above 0.35
-	local LIST_Y_NO_FEATURED = 0.350
+	local LIST_Y_NO_FEATURED = 0.225
 	-- featured header (0.338) + strip (0.394..0.684) + divider (0.696), gutter
-	local LIST_Y_WITH_FEATURED = 0.720
+	local LIST_Y_WITH_FEATURED = 0.600
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.

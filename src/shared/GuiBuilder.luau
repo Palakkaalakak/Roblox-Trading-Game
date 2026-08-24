@@ -964,9 +964,13 @@ local function buildBoardPanel(parent: Instance)
 	-- inventory shows only the "+" tile with nothing framing it.
 	local boostStrip = new("Frame", {
 		Name = "BoostSlotRow",
+		-- Sits BESIDE the tabs, spanning the same band the tab and scope rows
+		-- occupy on the left. Parked below them it owned a whole strip of its
+		-- own, which left the left half of that strip empty and pushed the feed
+		-- down for nothing -- a visible dead gap between the chrome and the ads.
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.986, 0.205),
-		Size = UDim2.fromScale(0.60, 0.130),
+		Position = UDim2.fromScale(0.986, 0.072),
+		Size = UDim2.fromScale(0.52, 0.134),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 	}, boardPanel)
@@ -1082,8 +1086,8 @@ local function buildBoardPanel(parent: Instance)
 	-- reading as the same UI family as the free rows.
 
 	local featHeader = label("FeaturedHeader", {
-		Position = UDim2.fromScale(0.014, 0.338),
-		Size = UDim2.fromScale(0.5, 0.048),
+		Position = UDim2.fromScale(0.014, 0.222),
+		Size = UDim2.fromScale(0.5, 0.046),
 		Text = "⭐ FEATURED · PAID PLACEMENT",
 		TextScaled = true,
 		TextColor3 = C.Gold,
@@ -1104,7 +1108,7 @@ local function buildBoardPanel(parent: Instance)
 	-- and the feed underneath is what most players came for.
 	local featuredStrip = new("Frame", {
 		Name = "FeaturedStrip",
-		Position = UDim2.fromScale(0.014, 0.394),
+		Position = UDim2.fromScale(0.014, 0.276),
 		Size = UDim2.fromScale(0.972, 0.290),
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
@@ -1296,7 +1300,7 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Gold,
 		BackgroundTransparency = 0.55,
 		BorderSizePixel = 0,
-		Position = UDim2.fromScale(0.014, 0.696),
+		Position = UDim2.fromScale(0.014, 0.580),
 		Size = UDim2.new(0.972, 0, 0, 2),
 		Visible = false,
 	}, boardPanel)
@@ -1306,18 +1310,18 @@ local function buildBoardPanel(parent: Instance)
 	-- when the strip empties back out — see FEED_TOP_* there.
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
-		Position = UDim2.fromScale(0.014, 0.350),
-		Size = UDim2.fromScale(0.972, 0.630),
+		Position = UDim2.fromScale(0.014, 0.225),
+		Size = UDim2.fromScale(0.972, 0.755),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 8,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 	}, boardPanel)
-	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, list)
+	new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
 	local emptyLbl = label("EmptyLabel", {
-		Position = UDim2.fromScale(0.014, 0.42),
+		Position = UDim2.fromScale(0.014, 0.30),
 		Size = UDim2.fromScale(0.972, 0.06),
 		Text = "Nothing here yet — be the first!",
 		TextScaled = true,
@@ -1414,8 +1418,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.016, 0.24),
-		Size = UDim2.fromScale(0.225, 0.48),
+		Position = UDim2.fromScale(0.022, 0.235),
+		Size = UDim2.fromScale(0.215, 0.50),
 	}, row)
 	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
 	local giveGemsIcon = new("ImageLabel", {
@@ -1516,8 +1520,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.300, 0.24),
-		Size = UDim2.fromScale(0.225, 0.48),
+		Position = UDim2.fromScale(0.305, 0.235),
+		Size = UDim2.fromScale(0.215, 0.50),
 	}, row)
 	local wantGemsIcon = new("ImageLabel", {
 		Name = "WantGemsIcon",
