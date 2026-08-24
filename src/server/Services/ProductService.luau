@@ -55,12 +55,52 @@ local function tokenItemId(sku: string): string
 	return "prod_" .. sku
 end
 
+-- userId -> passId -> owned. Ownership only ever changes when the player buys
+-- the pass, and PromptGamePassPurchase's completion clears the entry, so a
+-- cached answer is safe for the session. Without this, every shop open fired
+-- one blocking UserOwnsGamePassAsync per gamepass offer, in series, on the
+-- request path -- the shop got slower with every pass we added.
+local ownedPassCache: { [number]: { [number]: boolean } } = {}
+
+local function ownsGamePass(player: Player, passId: number): boolean
+	local byPass = ownedPassCache[player.UserId]
+	if byPass and byPass[passId] ~= nil then
+		return byPass[passId]
+	end
+	local owns = false
+	pcall(function()
+		owns = MarketplaceService:UserOwnsGamePassAsync(player.UserId, passId)
+	end)
+	byPass = byPass or {}
+	byPass[passId] = owns
+	ownedPassCache[player.UserId] = byPass
+	return owns
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	ownedPassCache[player.UserId] = nil
+end)
+
+-- A cached "does not own" would otherwise outlive the purchase that makes it
+-- false, leaving the shop showing BUY on a pass the player just paid for.
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, wasPurchased)
+	if wasPurchased and ownedPassCache[player.UserId] then
+		ownedPassCache[player.UserId][passId] = nil
+	end
+end)
+
 -- Robux price for an offer, cached. nil if it can't be resolved (no id yet,
 -- not for sale, or the lookup failed).
 local function priceInRobux(offer: any): number?
 	local id = offer.productId
 	if id == 0 then
 		return nil
+	end
+	-- An offer that already carries its own price needs no web call at all. Ad
+	-- boosts come from TradeAdConfig, which is the authority on what they cost.
+	if offer.robux then
+		priceCache[id] = offer.robux
+		return offer.robux
 	end
 	if priceCache[id] ~= nil then
 		return priceCache[id]
@@ -294,6 +334,19 @@ function ProductService.Init()
 end
 
 function ProductService.Start()
+	-- Warm every price BEFORE anyone opens the shop. GetShop resolves prices
+	-- inline, and an uncached price is a blocking GetProductInfo round trip, so
+	-- a cold cache made the first open wait on one web call per offer in series.
+	-- Doing it here, off the request path and spread out, means the shop is
+	-- already warm by the time a player reaches it. Failures are ignored: an
+	-- unresolved price just falls back to the lazy path on demand.
+	task.spawn(function()
+		for _, offer in MonetizationConfig.liveOffers() do
+			priceInRobux(offer)
+			task.wait(0.1) -- spread the calls; nothing is waiting on this
+		end
+	end)
+
 	-- THE single receipt handler for the whole game.
 	MarketplaceService.ProcessReceipt = function(receipt)
 		local handler = devProductHandlers[receipt.ProductId]
@@ -340,9 +393,7 @@ function ProductService.Start()
 			local sellable = offer.productId ~= 0
 			local owned = false
 			if sellable and offer.productType == "gamepass" then
-				pcall(function()
-					owned = MarketplaceService:UserOwnsGamePassAsync(player.UserId, offer.productId)
-				end)
+				owned = ownsGamePass(player, offer.productId)
 			end
 			table.insert(offers, {
 				sellable = sellable,

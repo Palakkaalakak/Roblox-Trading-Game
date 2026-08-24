@@ -254,6 +254,11 @@ function TradeAdConfig.shopOffers(): { any }
 			imageId = isFeatured and FEATURED_ICON or BOOST_ICON,
 			productType = "devproduct",
 			productId = sku.productId,
+			-- The catalogue already knows what this costs, so the shop must never
+			-- pay for a GetProductInfo round trip to rediscover it. Every uncached
+			-- lookup blocks the GetShop response, and seven boost SKUs added seven
+			-- of them to the first open.
+			robux = sku.robux,
 			grants = {},
 			badge = sku.shelf == "best" and "BEST VALUE" or nil,
 			accent = isFeatured and { 253, 179, 30 } or nil, -- Theme.Gold
