@@ -100,6 +100,36 @@ Offsets are for strokes, corner radii and small fixed padding only — never for
 the primary layout of panels, rows, cards or slots. Touch targets must stay
 comfortably tappable at phone size.
 
+## Overlap is not escape — test for it separately
+
+The bounds scan above catches a child leaving its parent. It does **not** catch
+two siblings sitting on top of each other, which is what actually produces
+clipped, half-readable text. Test sibling rectangles pairwise:
+
+```lua
+-- for each pair of visible siblings a, b
+if a.x < b.x + b.w and b.x < a.x + a.w
+    and a.y < b.y + b.h and b.y < a.y + a.h then
+    -- OVERLAP
+end
+```
+
+Real example from this project: a row's info column ran x=587..839 while its
+button column ran x=724..839. Nothing escaped its parent, every test passed, and
+the player saw `You're asking 77% m…` cut off mid-word behind a button. Columns
+must be given non-overlapping ranges, not merely ranges that fit.
+
+Ignore pairs that merely touch at an edge (`a.y + a.h == b.y`) — that is
+stacking, not overlap.
+
+## One screenshot of the whole screen is not enough
+
+A full-screen capture hides small defects. After the wide shot, **zoom into each
+quadrant** of the panel and look again (`screen_capture` supports a `region`).
+Clipped text, a label sitting on a button, a badge half outside its chip — none
+of these are legible at full-screen scale, and every one of them has shipped in
+this project because the wide shot "looked fine".
+
 ## Check size in context, not in isolation
 
 A panel that looks fine alone can be wrong on screen. Always compare it against

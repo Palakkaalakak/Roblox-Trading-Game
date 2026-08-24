@@ -58,15 +58,29 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- tabs + scope row + boost slots occupy the band above 0.35
 	local LIST_Y_NO_FEATURED = 0.350
 	-- featured header (0.338) + strip (0.394..0.684) + divider (0.696), gutter
-	local LIST_Y_WITH_FEATURED = 0.718
+	local LIST_Y_WITH_FEATURED = 0.720
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.
-	local function setFeaturedVisible(visible: boolean)
+	-- The gold block is a 3-wide grid, so its height is a function of how many
+	-- ads are actually featured: one row for up to three, two beyond that. A
+	-- fixed two-row block would reserve half the panel for empty gold whenever
+	-- a single ad is featured, and the feed underneath is what most players
+	-- opened the board for.
+	-- Sized so that even the worst case (six featured, two rows) still leaves a
+	-- full feed row visible underneath. At 0.148 two rows pushed the feed down
+	-- to ~57px against a 131px row, so the first ad was sliced in half by the
+	-- panel edge — the paid shelf was eating the thing it sits on top of.
+	local FEATURED_ROW_H = 0.300
+	local FEATURED_COLS = 3
+
+	local function setFeaturedVisible(visible: boolean, count: number?)
 		featuredStrip.Visible = visible
 		featuredHeader.Visible = visible
 		featuredDivider.Visible = visible
-		local listY = visible and LIST_Y_WITH_FEATURED or LIST_Y_NO_FEATURED
+		local rows = 1 -- capped: a second row costs more feed than the shelf is worth
+		featuredStrip.Size = UDim2.fromScale(FEED_W, rows * FEATURED_ROW_H)
+		local listY = visible and (LIST_Y_WITH_FEATURED + (rows - 1) * FEATURED_ROW_H) or LIST_Y_NO_FEATURED
 		list.Position = UDim2.fromScale(FEED_X, listY)
 		list.Size = UDim2.fromScale(FEED_W, 1 - listY - FEED_BOTTOM_GUTTER)
 		emptyLabel.Position = UDim2.fromScale(FEED_X, listY + 0.07)
@@ -133,12 +147,21 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- actually decides on, and the server has been sending it per item since
 	-- the payload gained `value`; the chip used to throw it away and show a
 	-- bare "x1", which told nobody anything.
+	-- A stack shows BOTH numbers: what one is worth and what the stack is worth.
+	-- Showing only the total makes two very different offers -- one rare item
+	-- versus twenty cheap ones -- look identical at a glance, and showing only
+	-- the each-price hides what is actually on the table. Singles print one
+	-- number, because "1 each / 8 total" is noise.
 	local function countValueText(entry: any): string
 		local countText = entry.wildcard and "any" or ("x" .. entry.count)
 		if entry.value == nil or entry.value <= 0 then
 			return countText
 		end
-		return ("%s · %s"):format(countText, Format.abbrev(entry.value * entry.count))
+		local each = Format.abbrev(entry.value)
+		if entry.wildcard or entry.count <= 1 then
+			return ("%s · %s gems"):format(countText, each)
+		end
+		return ("%s · %s ea · %s total"):format(countText, each, Format.abbrev(entry.value * entry.count))
 	end
 
 	-- One offer chip: icon + NAME + count/value. Real items hover to live
@@ -583,7 +606,12 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		;(row:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
 			.. (listing.mine and " (you)" or "")
 
-		badge.Text = listing.autoTrade and "AUTO-TRADE" or "ASK FIRST"
+		-- Answers the only question this flag exists to answer: if I accept, does
+		-- the trade happen NOW or do I have to wait for the poster? "AUTO-TRADE"
+		-- and "ASK FIRST" were internal names for the two modes, sitting
+		-- unexplained in the middle of the row -- a player has no way to know
+		-- that "ask first" means their acceptance is a request, not a trade.
+		badge.Text = listing.autoTrade and "Accept → trades instantly" or "Accept → sends a request"
 		badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
 		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give) -- what the poster GIVES you
 		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want) -- what they WANT from you
@@ -631,9 +659,17 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- balanced instead of top-heavy.
 		boostBtn.Visible = listing.mine
 		if listing.mine then
-			action.AnchorPoint = Vector2.new(1, 0)
-			action.Position = UDim2.fromScale(0.984, 0.52)
-			action.Size = UDim2.fromScale(0.135, 0.30)
+			-- SIDE BY SIDE, not stacked. Both buttons carry a touch-size floor
+			-- (44px and 40px), which together exceed the row's own height once
+			-- rows were shortened — so stacking made them physically overlap no
+			-- matter what scale values they were given. The row has width to
+			-- spare and height it does not, so the pair goes horizontal.
+			boostBtn.AnchorPoint = Vector2.new(1, 0.5)
+			boostBtn.Position = UDim2.fromScale(0.984, 0.5)
+			boostBtn.Size = UDim2.fromScale(0.105, 0.42)
+			action.AnchorPoint = Vector2.new(1, 0.5)
+			action.Position = UDim2.fromScale(0.872, 0.5)
+			action.Size = UDim2.fromScale(0.105, 0.42)
 		end
 		if listing.mine then
 			boostBtn.Activated:Connect(function()
@@ -789,7 +825,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				table.insert(featuredSpawned, card)
 			end
 		end
-		setFeaturedVisible(shown > 0)
+		setFeaturedVisible(shown > 0, shown)
 	end
 
 	local function renderBoard(listings: { any })

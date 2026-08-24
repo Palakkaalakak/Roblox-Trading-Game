@@ -829,7 +829,11 @@ local function buildBoardPanel(parent: Instance)
 		-- as "something is wrong with this window" even when its contents were
 		-- laid out correctly. Consistency across panels matters more than any
 		-- one panel's internal balance.
-		Size = UDim2.fromScale(0.72, 0.82),
+		-- Taller than its peers on purpose: the board carries a paid shelf AND a
+		-- feed, and at 0.82 there was not enough vertical room for both -- the
+		-- featured cards' labels collapsed to 7px trying to fit. Width still
+		-- matches the family (Shop 66%, Rolls 70%); only height buys the room.
+		Size = UDim2.fromScale(0.68, 0.84),
 		Visible = false,
 	}, parent)
 	-- MinSize must never exceed a real phone viewport. The old 760 floor was set
@@ -838,7 +842,7 @@ local function buildBoardPanel(parent: Instance)
 	-- hang off both edges with no way to reach the far side. A panel that cannot
 	-- fit is worse than a table that has to scroll, so the floor comes down and
 	-- the Market table scrolls horizontally on small screens instead.
-	new("UISizeConstraint", { MaxSize = Vector2.new(1100, 780), MinSize = Vector2.new(440, 300) }, boardPanel)
+	new("UISizeConstraint", { MaxSize = Vector2.new(1100, 860), MinSize = Vector2.new(440, 300) }, boardPanel)
 
 	-- Text grows with its box and stops at a cap, which is what makes the same
 	-- layout readable on a 5" phone and sane on a 27" monitor.
@@ -896,8 +900,12 @@ local function buildBoardPanel(parent: Instance)
 	local tabRow = new("Frame", {
 		Name = "TabRow",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.014, 0.088),
-		Size = UDim2.fromScale(0.972, 0.115),
+		-- Navigation chrome, not content. These were as tall as a listing row's
+		-- item chip, which made the top of the board shout louder than the ads
+		-- it exists to show. Roughly half height, and only as wide as the labels
+		-- need.
+		Position = UDim2.fromScale(0.014, 0.075),
+		Size = UDim2.fromScale(0.972, 0.062),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -918,8 +926,8 @@ local function buildBoardPanel(parent: Instance)
 		capText(b, 17)
 		return b
 	end
-	tab("TabTrades", "🔁 Trade Ads", 1, 0.22)
-	tab("TabMarket", "📈 Market", 2, 0.18)
+	tab("TabTrades", "🔁 Trade Ads", 1, 0.135)
+	tab("TabMarket", "📈 Market", 2, 0.110)
 
 	-- scope filter: server-only vs game-wide feed. Defaults to "server" at
 	-- runtime (BoardScreen) so a low-pop server's first look at the board
@@ -927,8 +935,8 @@ local function buildBoardPanel(parent: Instance)
 	local scopeRow = new("Frame", {
 		Name = "ScopeRow",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.014, 0.215),
-		Size = UDim2.fromScale(0.34, 0.105),
+		Position = UDim2.fromScale(0.014, 0.150),
+		Size = UDim2.fromScale(0.215, 0.056),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -1068,6 +1076,11 @@ local function buildBoardPanel(parent: Instance)
 	-- Featured placement: a gold header above a horizontal rail of cards.
 	-- Header AND strip collapse together (Visible=false) when the active scope
 	-- has no boostTier>=2 listings, so a quiet board shows no dead rail.
+	-- Gold is a BORDER treatment here, not a fill. A warm tinted background
+	-- turned the shelf muddy brown and fought the item art it was meant to
+	-- frame; the stroke alone marks paid placement cleanly and keeps the cards
+	-- reading as the same UI family as the free rows.
+
 	local featHeader = label("FeaturedHeader", {
 		Position = UDim2.fromScale(0.014, 0.338),
 		Size = UDim2.fromScale(0.5, 0.048),
@@ -1078,33 +1091,47 @@ local function buildBoardPanel(parent: Instance)
 	}, boardPanel)
 	capText(featHeader, 16)
 
-	local featuredStrip = new("ScrollingFrame", {
+	-- The featured block is a GOLD-BORDERED RECTANGLE holding up to
+	-- FeaturedSlotsPerScope (6) cards in a 3-wide grid, each card gold-bordered
+	-- in turn. Both borders are deliberate: the outer frame says "this whole
+	-- band is the paid shelf", the inner ones say "each of these is a bought
+	-- placement". It is the same treatment limited/unique content gets, which
+	-- is the association we want a buyer to make.
+	--
+	-- Height is set by BoardScreen from the LIVE count, not fixed: one row when
+	-- three or fewer are featured, two when more. A fixed two-row block would
+	-- reserve half the panel for empty gold on a board with one featured ad,
+	-- and the feed underneath is what most players came for.
+	local featuredStrip = new("Frame", {
 		Name = "FeaturedStrip",
 		Position = UDim2.fromScale(0.014, 0.394),
 		Size = UDim2.fromScale(0.972, 0.290),
-		-- The rail itself is invisible. A bordered container around already
-		-- bordered cards is a box inside a box: it fought the gold it was
-		-- supposed to be framing and flattened the whole band.
-		BackgroundTransparency = 1,
+		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
-		ScrollingDirection = Enum.ScrollingDirection.X,
-		AutomaticCanvasSize = Enum.AutomaticSize.X,
-		CanvasSize = UDim2.new(),
 		Visible = false,
 	}, boardPanel)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0.012, 0),
+	corner(featuredStrip, 14)
+	stroke(featuredStrip, C.Gold, 2)
+	new("UIGridLayout", {
+		-- 3 across; the row count is whatever the card total needs.
+		-- THREE across, one row. Each card has to carry two items with a name and
+		-- a value apiece, and six across gives each only ~146px -- at that width
+		-- the labels resolve to 7px, which is present in the tree and invisible
+		-- on screen. Two rows of three was worse still (47px cards, 4px text) and
+		-- crushed the feed underneath. Three keeps every card readable; the pool
+		-- is still six, so the strip scrolls to reach the rest.
+		CellSize = UDim2.fromScale(0.315, 0.88),
+		CellPadding = UDim2.fromScale(0.018, 0.04),
 		SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
 		VerticalAlignment = Enum.VerticalAlignment.Top,
+		FillDirectionMaxCells = 3,
 	}, featuredStrip)
 	new("UIPadding", {
-		-- no left inset: featured cards line up with the feed rows below them,
-		-- so the paid band reads as the top of one list rather than as a
-		-- separate inset widget
-		PaddingRight = UDim.new(0, 10),
-		PaddingBottom = UDim.new(0, 14), -- clears the horizontal scrollbar
+		PaddingLeft = UDim.new(0.014, 0),
+		PaddingRight = UDim.new(0.014, 0),
+		PaddingTop = UDim.new(0.05, 0),
+		PaddingBottom = UDim.new(0.05, 0),
 	}, featuredStrip)
 
 	-- One featured card. Every pixel of it has to buy INFORMATION: a trader
@@ -1116,29 +1143,15 @@ local function buildBoardPanel(parent: Instance)
 	-- fourth showing, which is what makes the horizontal scroll discoverable
 	-- on a touch screen.
 	--
-	-- Warm base derived from the Theme gold rather than a new hardcoded colour:
-	-- the free rows below are the neutral blue-grey BgLight, so a card that is
-	-- visibly WARM is separated by hue, not just by a border. Hue reads
-	-- instantly at a glance; a 2px stroke does not.
-	local GOLD_TINT = C.Gold:Lerp(C.BgLight, 0.62)
-	local GOLD_TINT_DEEP = C.Gold:Lerp(C.Bg, 0.80)
-
 	local featuredCard = new("Frame", {
 		Name = "FeaturedCard",
-		BackgroundColor3 = GOLD_TINT,
+		BackgroundColor3 = C.BgLight,
 		BorderSizePixel = 0,
 		Size = UDim2.fromScale(0.42, 1),
 		Visible = false,
 	}, featuredStrip)
 	corner(featuredCard, 12)
 	stroke(featuredCard, C.Gold, 2.5)
-	-- top-lit wash: the warm tint is strongest at the header and settles into
-	-- the neutral base by the verdict line, so the card has depth instead of
-	-- being one flat swatch
-	new("UIGradient", {
-		Color = ColorSequence.new(GOLD_TINT, GOLD_TINT_DEEP),
-		Rotation = 90,
-	}, featuredCard)
 	-- gold spine: reads as "paid placement" at a glance even in a screenshot
 	local featuredSpine = new("Frame", {
 		Name = "AccentBar",
@@ -1330,12 +1343,16 @@ local function buildBoardPanel(parent: Instance)
 		-- taller screen gets taller rows rather than more of the same small
 		-- ones. The pixel constraint is a guard rail on both ends — a row is
 		-- never too short to read, never so tall it wastes a phone screen.
-		Size = UDim2.new(1, -12, 0.42, 0),
+		-- 0.42 of the viewport gave 144px rows, so barely two fitted and the
+		-- feed felt crammed rather than scannable. A third of the viewport shows
+		-- three at a time with room between them, which is what makes a feed
+		-- read as a list instead of a stack of slabs.
+		Size = UDim2.new(1, -12, 0.255, 0),
 		Visible = false,
 	}, list)
 	new("UISizeConstraint", {
-		MinSize = Vector2.new(0, 118),
-		MaxSize = Vector2.new(math.huge, 210),
+		MinSize = Vector2.new(0, 84),
+		MaxSize = Vector2.new(math.huge, 132),
 	}, row)
 	corner(row, 10)
 	stroke(row, C.Stroke, 1)
@@ -1363,10 +1380,17 @@ local function buildBoardPanel(parent: Instance)
 	}, row)
 	capText(rowPoster, 16)
 	local rowBadge = label("Badge", {
-		Position = UDim2.fromScale(0.225, 0.05),
-		Size = UDim2.fromScale(0.09, 0.15),
-		Text = "AUTO",
+		-- Sits DIRECTLY UNDER THE ACTION BUTTON, as its caption. This flag
+		-- describes one thing: what pressing that button does. Floating loose in
+		-- the middle of the row it had nothing to attach to -- a reader could not
+		-- tell whether it described the give side, the want side or the whole ad.
+		-- Anchored to the button, it reads as the button's own small print.
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.fromScale(0.984, 0.96),
+		Size = UDim2.fromScale(0.235, 0.17),
+		Text = "Trades instantly",
 		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Right,
 		TextColor3 = C.Warn,
 	}, row)
 	capText(rowBadge, 14)
@@ -1375,7 +1399,7 @@ local function buildBoardPanel(parent: Instance)
 	-- evidence of a purchase was the ad's position, which a player cannot read
 	-- as "my boost is live". Counts the boost's own clock down, not the ad's.
 	local rowBoostBadge = label("BoostBadge", {
-		Position = UDim2.fromScale(0.325, 0.05),
+		Position = UDim2.fromScale(0.240, 0.05),
 		Size = UDim2.fromScale(0.22, 0.15),
 		Text = "⚡ BOOSTED · 23h left",
 		TextScaled = true,
@@ -1387,8 +1411,11 @@ local function buildBoardPanel(parent: Instance)
 	local giveHolder = new("Frame", {
 		Name = "GiveHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.016, 0.20),
-		Size = UDim2.fromScale(0.295, 0.62),
+		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
+		-- plus the verdict filled the row edge to edge with no gutters, which is
+		-- what made the feed feel cramped rather than dense.
+		Position = UDim2.fromScale(0.016, 0.24),
+		Size = UDim2.fromScale(0.225, 0.48),
 	}, row)
 	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
 	local giveGemsIcon = new("ImageLabel", {
@@ -1489,8 +1516,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.378, 0.20),
-		Size = UDim2.fromScale(0.295, 0.62),
+		Position = UDim2.fromScale(0.300, 0.24),
+		Size = UDim2.fromScale(0.225, 0.48),
 	}, row)
 	local wantGemsIcon = new("ImageLabel", {
 		Name = "WantGemsIcon",
@@ -1535,8 +1562,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Width stops short of 0.849, where the button column begins. At 0.19 this
 		-- ran to 0.878 and the buttons sat on top of it, truncating the verdict
 		-- mid-word. Nothing escaped its parent, so the bounds scan passed it.
-		Position = UDim2.fromScale(0.688, 0.62),
-		Size = UDim2.fromScale(0.152, 0.14),
+		Position = UDim2.fromScale(0.545, 0.62),
+		Size = UDim2.fromScale(0.205, 0.14),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1568,8 +1595,8 @@ local function buildBoardPanel(parent: Instance)
 	-- place, so a scanner's thumb lands in one column all the way down.
 	local actionBtn = button("ActionButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.fromScale(0.984, 0.55),
-		Size = UDim2.fromScale(0.135, 0.32),
+		Position = UDim2.fromScale(0.984, 0.56),
+		Size = UDim2.fromScale(0.112, 0.28),
 		Text = "Accept",
 		TextScaled = true,
 		BackgroundColor3 = C.Good,
@@ -1583,8 +1610,11 @@ local function buildBoardPanel(parent: Instance)
 	-- as the trade it judges, and is the LARGEST text in the row because it is
 	-- the single most decision-relevant string in it.
 	local valueChip = label("ValueChip", {
-		Position = UDim2.fromScale(0.688, 0.32),
-		Size = UDim2.fromScale(0.152, 0.24),
+		-- Ends at 0.750, before the button column starts at 0.767. The buttons sit
+		-- side by side now, which widened that column -- at 0.688..0.840 the
+		-- verdict ran underneath Cancel and was unreadable.
+		Position = UDim2.fromScale(0.545, 0.32),
+		Size = UDim2.fromScale(0.205, 0.24),
 		Text = "Fair",
 		TextScaled = true,
 		TextColor3 = C.TextDim,
@@ -1616,8 +1646,8 @@ local function buildBoardPanel(parent: Instance)
 		AnchorPoint = Vector2.new(1, 0),
 		-- Starts below the header line (which ends at 0.20). At 0.16 it overlapped
 		-- TimePill and clipped "Live · you're in game".
-		Position = UDim2.fromScale(0.984, 0.23),
-		Size = UDim2.fromScale(0.135, 0.28),
+		Position = UDim2.fromScale(0.984, 0.24),
+		Size = UDim2.fromScale(0.112, 0.25),
 		Text = "⏱ Boost",
 		TextScaled = true,
 		BackgroundColor3 = C.Gold,
