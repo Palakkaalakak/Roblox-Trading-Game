@@ -386,6 +386,27 @@ local function buildSide(name: string, mine: boolean, x: UDim2, parent: Instance
 			ZIndex = 2,
 		}, slot)
 		corner(icon, 6)
+		-- Stack count. Duplicates of one item share a single slot rather than
+		-- consuming one slot each -- nine slots filled by "9x Stone Relic" told
+		-- a reader nothing that "Stone Relic x9" does not, and it burned the
+		-- whole side on one item. Same heavy white badge the trade-ad tiles use,
+		-- so a stack reads identically wherever it appears.
+		local count = label("CountLabel", {
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.fromScale(0.94, 0.04),
+			Size = UDim2.fromScale(0.5, 0.3),
+			Text = "",
+			Font = Enum.Font.LuckiestGuy,
+			TextScaled = true,
+			TextColor3 = Color3.new(1, 1, 1),
+			TextStrokeTransparency = 0.35,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Visible = false,
+			ZIndex = 3,
+		}, slot)
+		-- capText is scoped to the panel builders further down this file; the
+		-- constraint it wraps is the whole point, so apply it directly here.
+		new("UITextSizeConstraint", { MaxTextSize = 18 }, count)
 	end
 
 	-- gems row: dead simple — type amount, click OK (yours); label (theirs)

@@ -1,8 +1,8 @@
 --!strict
 -- Trade window wiring (GUI lives in StarterGui, edit visually there).
---   * one item COPY per slot: an offer of 2x Stone Relic fills two slots
+--   * one STACK per slot: an offer of 2x Stone Relic fills one slot, badged x2
 --   * clicking one of your EMPTY (+) slots opens the ItemPicker menu
---   * clicking one of your FILLED slots removes that copy
+--   * clicking one of your FILLED slots removes ONE copy off that stack
 --   * gems: type the amount, press OK — that's the whole interaction
 --   * both accept -> server-enforced countdown, cancel still works
 -- Server view (TradeController.trade) is the only source of truth.
@@ -26,19 +26,20 @@ local localPlayer = Players.LocalPlayer
 local TradeScreen = {}
 
 -- offer {itemId->count} -> flat sorted copies list {itemId, itemId, ...}
-local function offerToCopies(offer: any): { string }
+-- One STACK per distinct item, not one slot per copy. An offer of 2x Stone
+-- Relic occupies a single slot showing "x2"; it used to fill two, so a handful
+-- of duplicates could eat a whole side and say nothing extra doing it.
+local function offerToStacks(offer: any): { { itemId: string, count: number } }
 	local ids = {}
 	for itemId in offer.items do
 		table.insert(ids, itemId)
 	end
 	table.sort(ids)
-	local copies = {}
+	local stacks = {}
 	for _, itemId in ids do
-		for _ = 1, offer.items[itemId] do
-			table.insert(copies, itemId)
-		end
+		table.insert(stacks, { itemId = itemId, count = offer.items[itemId] })
 	end
-	return copies
+	return stacks
 end
 
 function TradeScreen.wire(gui: ScreenGui, tooltip: any)
@@ -258,8 +259,10 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				frame = slot,
 				icon = slot:WaitForChild("Icon") :: ImageLabel,
 				plus = slot:WaitForChild("Plus") :: TextLabel,
+				countLabel = slot:WaitForChild("CountLabel") :: TextLabel,
 				stroke = slot:FindFirstChildWhichIsA("UIStroke") :: UIStroke,
 				itemId = nil :: string?,
+				count = nil :: number?,
 			}
 			slots[i] = entry
 
@@ -297,7 +300,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				if entry.itemId == nil then
 					return nil, nil
 				end
-				return EconomyController.get(entry.itemId) or WildcardConfig.snapshot(entry.itemId), 1
+				return EconomyController.get(entry.itemId) or WildcardConfig.snapshot(entry.itemId), entry.count or 1
 			end)
 		end
 
@@ -442,24 +445,31 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	end
 
 	local function renderSide(side: any, offer: any, confirmed: boolean, stats: { [string]: any })
-		local copies = offerToCopies(offer)
+		local stacks = offerToStacks(offer)
 		for i, entry in side.slots do
-			local itemId = copies[i]
-			if itemId then
+			local stack = stacks[i]
+			if stack then
+				local itemId = stack.itemId
 				-- trade-ad tokens aren't in the stats push; resolve locally
 				local snap = stats[itemId] or WildcardConfig.snapshot(itemId)
 				entry.itemId = itemId
+				entry.count = stack.count
 				entry.plus.Text = ""
 				entry.icon.Visible = true
 				Components.setIcon(entry.icon, snap)
 				entry.stroke.Color = snap and Components.rarityColor(snap.rarity) or Theme.Stroke
 				entry.stroke.Thickness = 1.5
+				-- a lone copy needs no badge; the badge means "more than one"
+				entry.countLabel.Visible = stack.count > 1
+				entry.countLabel.Text = "x" .. stack.count
 			else
 				entry.itemId = nil
+				entry.count = nil
 				entry.plus.Text = side.mine and "+" or ""
 				entry.icon.Visible = false
 				entry.stroke.Color = Theme.Stroke
 				entry.stroke.Thickness = 1
+				entry.countLabel.Visible = false
 			end
 		end
 
@@ -483,6 +493,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			for _, entry in side.slots do
 				entry.icon.ImageTransparency = dim
 				entry.plus.TextTransparency = dim
+				entry.countLabel.TextTransparency = dim
 			end
 			side.gemsBox.TextEditable = not confirmed
 		end

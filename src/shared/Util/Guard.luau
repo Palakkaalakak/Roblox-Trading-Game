@@ -51,8 +51,13 @@ function Guard.checkOfferShape(v: any): (boolean, string?)
 	if not Guard.isNonNegativeInt(gems) or gems > TradeConfig.MaxGemsPerOffer then
 		return false, "bad_gems"
 	end
-	-- one COPY per UI slot: the cap is total copies across the offer
-	local copies = 0
+	-- one STACK per UI slot: the cap is DISTINCT items, and each stack is
+	-- capped separately by MaxCountPerSlot. This counted total copies instead,
+	-- which contradicted both config fields and made MaxCountPerSlot (99)
+	-- unreachable -- you could never hold 99 of anything when the whole offer
+	-- was capped at 9 copies. The UI now stacks duplicates into one slot, so
+	-- the guard has to agree or a legal offer gets rejected on post.
+	local stacks = 0
 	for itemId, count in items do
 		if not Guard.isString(itemId, 64) then
 			return false, "bad_item_id"
@@ -60,8 +65,8 @@ function Guard.checkOfferShape(v: any): (boolean, string?)
 		if not Guard.isPositiveInt(count) or count > TradeConfig.MaxCountPerSlot then
 			return false, "bad_item_count"
 		end
-		copies += count
-		if copies > TradeConfig.MaxSlotsPerSide then
+		stacks += 1
+		if stacks > TradeConfig.MaxSlotsPerSide then
 			return false, "too_many_slots"
 		end
 	end
