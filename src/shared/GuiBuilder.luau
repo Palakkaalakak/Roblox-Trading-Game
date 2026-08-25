@@ -904,8 +904,12 @@ local function buildBoardPanel(parent: Instance)
 		-- item chip, which made the top of the board shout louder than the ads
 		-- it exists to show. Roughly half height, and only as wide as the labels
 		-- need.
-		Position = UDim2.fromScale(0.014, 0.075),
-		Size = UDim2.fromScale(0.972, 0.062),
+		-- Only as wide as the two tabs. Spanning the full panel width made this
+		-- an invisible bar across the header that overlapped Post trade, Close
+		-- and the boost slots -- nothing looked wrong, but every hit test in
+		-- that band had to fight it.
+		Position = UDim2.fromScale(0.014, 0.100),
+		Size = UDim2.fromScale(0.262, 0.062),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -926,8 +930,8 @@ local function buildBoardPanel(parent: Instance)
 		capText(b, 17)
 		return b
 	end
-	tab("TabTrades", "🔁 Trade Ads", 1, 0.135)
-	tab("TabMarket", "📈 Market", 2, 0.110)
+	tab("TabTrades", "🔁 Trade Ads", 1, 0.50)
+	tab("TabMarket", "📈 Market", 2, 0.42)
 
 	-- scope filter: server-only vs game-wide feed. Defaults to "server" at
 	-- runtime (BoardScreen) so a low-pop server's first look at the board
@@ -935,7 +939,7 @@ local function buildBoardPanel(parent: Instance)
 	local scopeRow = new("Frame", {
 		Name = "ScopeRow",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.014, 0.150),
+		Position = UDim2.fromScale(0.014, 0.172),
 		Size = UDim2.fromScale(0.215, 0.056),
 	}, boardPanel)
 	new("UIListLayout", {
@@ -969,8 +973,8 @@ local function buildBoardPanel(parent: Instance)
 		-- own, which left the left half of that strip empty and pushed the feed
 		-- down for nothing -- a visible dead gap between the chrome and the ads.
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.986, 0.072),
-		Size = UDim2.fromScale(0.52, 0.134),
+		Position = UDim2.fromScale(0.986, 0.100),
+		Size = UDim2.fromScale(0.42, 0.128),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 	}, boardPanel)
@@ -1086,7 +1090,7 @@ local function buildBoardPanel(parent: Instance)
 	-- reading as the same UI family as the free rows.
 
 	local featHeader = label("FeaturedHeader", {
-		Position = UDim2.fromScale(0.014, 0.222),
+		Position = UDim2.fromScale(0.014, 0.248),
 		Size = UDim2.fromScale(0.5, 0.046),
 		Text = "⭐ FEATURED · PAID PLACEMENT",
 		TextScaled = true,
@@ -1108,7 +1112,7 @@ local function buildBoardPanel(parent: Instance)
 	-- and the feed underneath is what most players came for.
 	local featuredStrip = new("Frame", {
 		Name = "FeaturedStrip",
-		Position = UDim2.fromScale(0.014, 0.276),
+		Position = UDim2.fromScale(0.014, 0.302),
 		Size = UDim2.fromScale(0.972, 0.290),
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
@@ -1300,7 +1304,7 @@ local function buildBoardPanel(parent: Instance)
 		BackgroundColor3 = C.Gold,
 		BackgroundTransparency = 0.55,
 		BorderSizePixel = 0,
-		Position = UDim2.fromScale(0.014, 0.580),
+		Position = UDim2.fromScale(0.014, 0.606),
 		Size = UDim2.new(0.972, 0, 0, 2),
 		Visible = false,
 	}, boardPanel)
@@ -1310,8 +1314,8 @@ local function buildBoardPanel(parent: Instance)
 	-- when the strip empties back out — see FEED_TOP_* there.
 	local list = new("ScrollingFrame", {
 		Name = "ListingList",
-		Position = UDim2.fromScale(0.014, 0.225),
-		Size = UDim2.fromScale(0.972, 0.755),
+		Position = UDim2.fromScale(0.014, 0.250),
+		Size = UDim2.fromScale(0.972, 0.730),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 8,
@@ -1351,12 +1355,12 @@ local function buildBoardPanel(parent: Instance)
 		-- feed felt crammed rather than scannable. A third of the viewport shows
 		-- three at a time with room between them, which is what makes a feed
 		-- read as a list instead of a stack of slabs.
-		Size = UDim2.new(1, -12, 0.255, 0),
+		Size = UDim2.new(1, -12, 0.410, 0),
 		Visible = false,
 	}, list)
 	new("UISizeConstraint", {
-		MinSize = Vector2.new(0, 84),
-		MaxSize = Vector2.new(math.huge, 132),
+		MinSize = Vector2.new(0, 138),
+		MaxSize = Vector2.new(math.huge, 205),
 	}, row)
 	corner(row, 10)
 	stroke(row, C.Stroke, 1)
@@ -1418,8 +1422,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.022, 0.235),
-		Size = UDim2.fromScale(0.215, 0.50),
+		Position = UDim2.fromScale(0.022, 0.20),
+		Size = UDim2.fromScale(0.275, 0.52),
 	}, row)
 	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
 	local giveGemsIcon = new("ImageLabel", {
@@ -1441,13 +1445,16 @@ local function buildBoardPanel(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, row)
 	capText(giveGemsLbl, 14)
-	-- Vertical, not horizontal: a side shows ONE wide chip carrying the item's
-	-- name and value, plus a "+N more" line. A horizontal wall of icon squares
-	-- told a trader nothing about what was on offer.
+	-- Horizontal: a side shows up to FOUR item tiles side by side. One wide
+	-- named chip could only ever describe the first item, so a four-item offer
+	-- read as "one thing, +3 more" -- which is not what is being traded. The
+	-- per-item name moves to the hover tooltip and the side's worth is printed
+	-- underneath as a total, so the row still answers "what is this worth".
 	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Vertical,
-		Padding = UDim.new(0.02, 0),
+		FillDirection = Enum.FillDirection.Horizontal,
+		Padding = UDim.new(0.03, 0),
 		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
 	}, giveHolder)
 
 	-- Chip template: icon + NAME + VALUE, the three things every real trade-ad
@@ -1459,34 +1466,37 @@ local function buildBoardPanel(parent: Instance)
 		-- card, which is how every inventory grid in the genre reads.
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		Size = UDim2.fromScale(1, 0.80),
+		-- a quarter of the holder, square: four fit across with padding
+		Size = UDim2.fromScale(0.2275, 1),
 		Visible = false,
 	}, giveHolder)
+	new("UIAspectRatioConstraint", { AspectRatio = 1 }, chip)
 	corner(chip, 8)
 	stroke(chip, C.Stroke, 1)
 	local chipIcon = new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.02, 0.08),
-		Size = UDim2.fromScale(1, 0.84),
+		Position = UDim2.fromScale(0.10, 0.06),
+		Size = UDim2.fromScale(0.80, 0.72),
 		ScaleType = Enum.ScaleType.Fit,
 	}, chip)
 	square(chipIcon)
 	corner(chipIcon, 6)
 	local chipName = label("NameLabel", {
-		Position = UDim2.fromScale(0.30, 0.09),
-		Size = UDim2.fromScale(0.68, 0.42),
+		Position = UDim2.fromScale(0, 0),
+		Size = UDim2.fromScale(1, 0.01),
 		Text = "Item Name",
 		TextScaled = true,
 		TextTruncate = Enum.TextTruncate.AtEnd,
+		Visible = false, -- tile is too small for a name; the tooltip carries it
 	}, chip)
 	capText(chipName, 18)
 	-- count and value on one line: "x2 · 1.2k". Gem-coloured because value is
 	-- denominated in the same currency the rest of the UI prices things in.
 	local chipCount = label("CountLabel", {
-		Position = UDim2.fromScale(0.30, 0.53),
-		Size = UDim2.fromScale(0.68, 0.36),
+		Position = UDim2.fromScale(0.02, 0.76),
+		Size = UDim2.fromScale(0.96, 0.22),
 		Text = "x1",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1508,8 +1518,9 @@ local function buildBoardPanel(parent: Instance)
 	capText(giveMore, 13)
 
 	local rowArrow = label("ArrowLabel", {
-		Position = UDim2.fromScale(0.322, 0.42),
-		Size = UDim2.fromScale(0.045, 0.22),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.321, 0.46),
+		Size = UDim2.fromScale(0.040, 0.20),
 		Text = "⇄",
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -1520,8 +1531,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.305, 0.235),
-		Size = UDim2.fromScale(0.215, 0.50),
+		Position = UDim2.fromScale(0.345, 0.20),
+		Size = UDim2.fromScale(0.275, 0.52),
 	}, row)
 	local wantGemsIcon = new("ImageLabel", {
 		Name = "WantGemsIcon",
@@ -1600,7 +1611,7 @@ local function buildBoardPanel(parent: Instance)
 	local actionBtn = button("ActionButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.fromScale(0.984, 0.56),
-		Size = UDim2.fromScale(0.112, 0.28),
+		Size = UDim2.fromScale(0.092, 0.24),
 		Text = "Accept",
 		TextScaled = true,
 		BackgroundColor3 = C.Good,
@@ -1651,7 +1662,7 @@ local function buildBoardPanel(parent: Instance)
 		-- Starts below the header line (which ends at 0.20). At 0.16 it overlapped
 		-- TimePill and clipped "Live · you're in game".
 		Position = UDim2.fromScale(0.984, 0.24),
-		Size = UDim2.fromScale(0.112, 0.25),
+		Size = UDim2.fromScale(0.092, 0.22),
 		Text = "⏱ Boost",
 		TextScaled = true,
 		BackgroundColor3 = C.Gold,

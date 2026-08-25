@@ -56,9 +56,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local FEED_W = 0.972
 	local FEED_BOTTOM_GUTTER = 0.02
 	-- tabs + scope row + boost slots occupy the band above 0.35
-	local LIST_Y_NO_FEATURED = 0.225
+	local LIST_Y_NO_FEATURED = 0.250
 	-- featured header (0.338) + strip (0.394..0.684) + divider (0.696), gutter
-	local LIST_Y_WITH_FEATURED = 0.600
+	local LIST_Y_WITH_FEATURED = 0.626
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.
@@ -195,13 +195,17 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- unreadable, and every real trade-ad board leads with one item.
 	local function fillOfferChips(holder: Frame, gemsIcon: ImageLabel, gemsLabel: TextLabel, offer: any)
 		local more = holder:WaitForChild("MoreLabel") :: TextLabel
-		local first = offer.items[1]
-		if first then
-			addChip(holder, first, 1)
+		-- Four tiles fit a side. Showing one named chip plus "+3 more" described
+		-- a four-item offer as a one-item offer, which is not what is on the
+		-- table; the tiles show the actual contents and hover names each one.
+		local SHOWN = 4
+		local shown = math.min(#offer.items, SHOWN)
+		for i = 1, shown do
+			addChip(holder, offer.items[i], i)
 		end
-		local extra = #offer.items - (first and 1 or 0)
+		local extra = #offer.items - shown
 		more.Visible = extra > 0
-		more.Text = extra > 0 and ("+%d more item%s"):format(extra, extra == 1 and "" or "s") or ""
+		more.Text = extra > 0 and ("+%d"):format(extra) or ""
 		local hasGems = offer.gems > 0
 		gemsIcon.Visible = hasGems
 		gemsLabel.Text = hasGems and ("+%d gems (after tax)"):format(Tax.split(offer.gems)) or ""
@@ -666,10 +670,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			-- spare and height it does not, so the pair goes horizontal.
 			boostBtn.AnchorPoint = Vector2.new(1, 0.5)
 			boostBtn.Position = UDim2.fromScale(0.984, 0.5)
-			boostBtn.Size = UDim2.fromScale(0.105, 0.42)
+			boostBtn.Size = UDim2.fromScale(0.088, 0.34)
 			action.AnchorPoint = Vector2.new(1, 0.5)
-			action.Position = UDim2.fromScale(0.872, 0.5)
-			action.Size = UDim2.fromScale(0.105, 0.42)
+			action.Position = UDim2.fromScale(0.888, 0.5)
+			action.Size = UDim2.fromScale(0.088, 0.34)
 		end
 		if listing.mine then
 			boostBtn.Activated:Connect(function()
