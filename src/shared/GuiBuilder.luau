@@ -1384,9 +1384,10 @@ local function buildBoardPanel(parent: Instance)
 		Font = FONT_LIGHT,
 		TextScaled = true,
 		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Center,
 		TextColor3 = C.TextDim,
 	}, row)
-	capText(rowPoster, 16)
+	capText(rowPoster, 14)
 	local rowBadge = label("Badge", {
 		-- Sits DIRECTLY UNDER THE ACTION BUTTON, as its caption. This flag
 		-- describes one thing: what pressing that button does. Floating loose in

@@ -662,11 +662,13 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			-- rows were shortened — so stacking made them physically overlap no
 			-- matter what scale values they were given. The row has width to
 			-- spare and height it does not, so the pair goes horizontal.
+			-- Boost LEFT, Cancel RIGHT: the destructive one sits outermost, away
+			-- from the button a poster actually reaches for.
 			boostBtn.AnchorPoint = Vector2.new(1, 0.5)
-			boostBtn.Position = UDim2.fromScale(0.984, 0.5)
+			boostBtn.Position = UDim2.fromScale(0.888, 0.5)
 			boostBtn.Size = UDim2.fromScale(0.088, 0.34)
 			action.AnchorPoint = Vector2.new(1, 0.5)
-			action.Position = UDim2.fromScale(0.888, 0.5)
+			action.Position = UDim2.fromScale(0.984, 0.5)
 			action.Size = UDim2.fromScale(0.088, 0.34)
 		end
 		if listing.mine then
