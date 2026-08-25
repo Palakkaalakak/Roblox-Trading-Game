@@ -1425,6 +1425,9 @@ local function buildBoardPanel(parent: Instance)
 		Position = UDim2.fromScale(0.022, 0.22),
 		Size = UDim2.fromScale(0.140, 0.66),
 	}, row)
+	-- square block: a 112x100 holder made every "square" tile 52x47, and the
+	-- row gap between tiles differed from the column gap
+	new("UIAspectRatioConstraint", { AspectRatio = 1 }, giveHolder)
 	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
 	local giveGemsIcon = new("ImageLabel", {
 		Name = "GiveGemsIcon",
@@ -1454,6 +1457,11 @@ local function buildBoardPanel(parent: Instance)
 	-- the row and left the two sides visibly unaligned. A square block keeps both
 	-- sides the same shape and the same height whatever they hold.
 	new("UIGridLayout", {
+		-- FillDirection MUST be explicit. Left unset the second tile dropped to
+		-- a new line, so a two-item side stacked into a column while a
+		-- four-item side laid out 2x2 -- the two sides of one trade came out
+		-- different shapes.
+		FillDirection = Enum.FillDirection.Horizontal,
 		CellSize = UDim2.fromScale(0.47, 0.47),
 		CellPadding = UDim2.fromScale(0.06, 0.06),
 		FillDirectionMaxCells = 2,
@@ -1547,6 +1555,7 @@ local function buildBoardPanel(parent: Instance)
 		Position = UDim2.fromScale(0.212, 0.22),
 		Size = UDim2.fromScale(0.140, 0.66),
 	}, row)
+	new("UIAspectRatioConstraint", { AspectRatio = 1 }, wantHolder)
 	local wantGemsIcon = new("ImageLabel", {
 		Name = "WantGemsIcon",
 		Image = ICONS.Gem,
@@ -1566,10 +1575,18 @@ local function buildBoardPanel(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, row)
 	capText(wantGemsLbl, 14)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Vertical,
-		Padding = UDim.new(0.02, 0),
+	-- IDENTICAL to the give side's grid. This holder kept the old vertical list
+	-- long after the give side became a 2x2 grid, so the two halves of every
+	-- trade were laid out by different rules -- give went 2x2 while want ran
+	-- down a column and a third tile fell out of the block entirely.
+	new("UIGridLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		CellSize = UDim2.fromScale(0.47, 0.47),
+		CellPadding = UDim2.fromScale(0.06, 0.06),
+		FillDirectionMaxCells = 2,
 		SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
 	}, wantHolder)
 	local wantMore = label("MoreLabel", {
 		Name = "MoreLabel",
