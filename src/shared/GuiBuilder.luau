@@ -1460,7 +1460,7 @@ local function buildBoardPanel(parent: Instance)
 		-- box alone was 177px against a 133px block, so left-aligned text sat
 		-- visibly left of the tiles it labels even though the frame was centred.
 		AnchorPoint = Vector2.new(0, 0),
-		Position = UDim2.fromScale(0.262, 0.02),
+		Position = UDim2.fromScale(0.285, 0.02),
 		Size = UDim2.fromScale(0.20, 0.13),
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "⚡ BOOSTED · 23h left",
@@ -1594,7 +1594,7 @@ local function buildBoardPanel(parent: Instance)
 
 	local rowArrow = label("ArrowLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.2445, 0.56),
+		Position = UDim2.fromScale(0.256, 0.56),
 		Size = UDim2.fromScale(0.038, 0.20),
 		Text = "⇄",
 		TextScaled = true,
@@ -1606,7 +1606,7 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.262, 0.17),
+		Position = UDim2.fromScale(0.285, 0.17),
 		Size = UDim2.fromScale(0.185, 0.78),
 	}, row)
 	new("UIAspectRatioConstraint", { AspectRatio = 1 }, wantHolder)
@@ -1662,7 +1662,7 @@ local function buildBoardPanel(parent: Instance)
 		-- ran to 0.878 and the buttons sat on top of it, truncating the verdict
 		-- mid-word. Nothing escaped its parent, so the bounds scan passed it.
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.6235, 0.62),
+		Position = UDim2.fromScale(0.635, 0.62),
 		Size = UDim2.fromScale(0.240, 0.14),
 		Text = "",
 		Font = FONT_LIGHT,
@@ -1715,7 +1715,7 @@ local function buildBoardPanel(parent: Instance)
 		-- verdict ran underneath Cancel and was unreadable.
 		-- centred in the space between the item blocks and the button column
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.6235, 0.32),
+		Position = UDim2.fromScale(0.635, 0.32),
 		Size = UDim2.fromScale(0.240, 0.24),
 		Text = "Fair",
 		TextScaled = true,
