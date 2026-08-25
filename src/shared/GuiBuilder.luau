@@ -1345,8 +1345,18 @@ local function buildBoardPanel(parent: Instance)
 	-- Scroll room PAST the final ad. Without it the last row stops flush against
 	-- the panel edge, which reads as "the list is cut off" rather than "this is
 	-- the end", and on a touch screen leaves nothing to grab under the last row.
-	new("UIPadding", {
-		PaddingBottom = UDim.new(0, 56),
+	--
+	-- A real spacer rather than UIPadding.PaddingBottom: AutomaticCanvasSize
+	-- does not add bottom padding to the canvas, so the padding version scrolled
+	-- to within 9px of the last row instead of the 56 it asked for. A visible
+	-- (transparent) frame is measured by the UIListLayout, so the canvas grows.
+	-- LayoutOrder is huge so it always sorts after the ads.
+	new("Frame", {
+		Name = "BottomSpacer",
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 56),
+		LayoutOrder = 1000000,
 	}, list)
 	new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
@@ -1426,12 +1436,16 @@ local function buildBoardPanel(parent: Instance)
 		-- the middle of the row it had nothing to attach to -- a reader could not
 		-- tell whether it described the give side, the want side or the whole ad.
 		-- Anchored to the button, it reads as the button's own small print.
-		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.fromScale(0.984, 0.96),
-		Size = UDim2.fromScale(0.235, 0.17),
+		-- Centred DIRECTLY under the action button and no wider than the button
+		-- column. Right-aligned at 0.235 wide against an 0.088 button, it stuck
+		-- out well past both edges and read as a third loose label rather than
+		-- the button's own small print.
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.892, 0.66),
+		Size = UDim2.fromScale(0.22, 0.15),
 		Text = "Trades instantly",
 		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Right,
+		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.Warn,
 	}, row)
 	capText(rowBadge, 14)
@@ -1502,8 +1516,8 @@ local function buildBoardPanel(parent: Instance)
 		-- four-item side laid out 2x2 -- the two sides of one trade came out
 		-- different shapes.
 		FillDirection = Enum.FillDirection.Horizontal,
-		CellSize = UDim2.fromScale(0.47, 0.47),
-		CellPadding = UDim2.fromScale(0.06, 0.06),
+		CellSize = UDim2.fromScale(0.40, 0.40),
+		CellPadding = UDim2.fromScale(0.20, 0.20),
 		FillDirectionMaxCells = 2,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		-- TOP-LEFT, never centred. Centring re-positions the tiles for every
@@ -1621,8 +1635,8 @@ local function buildBoardPanel(parent: Instance)
 	-- down a column and a third tile fell out of the block entirely.
 	new("UIGridLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
-		CellSize = UDim2.fromScale(0.47, 0.47),
-		CellPadding = UDim2.fromScale(0.06, 0.06),
+		CellSize = UDim2.fromScale(0.40, 0.40),
+		CellPadding = UDim2.fromScale(0.20, 0.20),
 		FillDirectionMaxCells = 2,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		HorizontalAlignment = Enum.HorizontalAlignment.Left,

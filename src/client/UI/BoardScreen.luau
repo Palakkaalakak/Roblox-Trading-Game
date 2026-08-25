@@ -206,8 +206,12 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		if grid == nil then
 			return
 		end
-		local cell = cols == 2 and 0.47 or 0.30
-		local pad = cols == 2 and 0.06 or 0.05
+		-- Tiles do not fill the block edge to edge. Once the block grew, a 2x2
+		-- of near-full-width tiles read as one solid slab rather than four
+		-- separate things you could count; the air between them is what makes
+		-- them read as individual items.
+		local cell = cols == 2 and 0.40 or 0.28
+		local pad = cols == 2 and 0.20 or 0.08
 		grid.CellSize = UDim2.fromScale(cell, cell)
 		grid.CellPadding = UDim2.fromScale(pad, pad)
 		grid.FillDirectionMaxCells = cols
@@ -722,20 +726,24 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			-- spare and height it does not, so the pair goes horizontal.
 			-- Boost LEFT, Cancel RIGHT: the destructive one sits outermost, away
 			-- from the button a poster actually reaches for.
-			boostBtn.AnchorPoint = Vector2.new(1, 0.5)
-			boostBtn.Position = UDim2.fromScale(0.888, 0.5)
-			boostBtn.Size = UDim2.fromScale(0.088, 0.34)
-			action.AnchorPoint = Vector2.new(1, 0.5)
-			action.Position = UDim2.fromScale(0.984, 0.5)
-			action.Size = UDim2.fromScale(0.088, 0.34)
+			boostBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+			boostBtn.Position = UDim2.fromScale(0.845, 0.46)
+			boostBtn.Size = UDim2.fromScale(0.086, 0.26)
+			action.AnchorPoint = Vector2.new(0.5, 0.5)
+			action.Position = UDim2.fromScale(0.939, 0.46)
+			action.Size = UDim2.fromScale(0.086, 0.26)
 		else
 			-- One button, so it CENTRES in the same column the pair occupies
 			-- (0.800..0.984) instead of hugging the right edge. Left at the edge
 			-- it opened a button-sized hole where Boost would have been, and the
 			-- row read as though something had failed to load.
+			-- WIDE, not square. One button gets the whole column (0.800..0.984),
+			-- the same span its caption underneath occupies, so the two read as
+			-- one object. At 0.088 it was as tall as it was wide and sat in the
+			-- middle of a lot of nothing.
 			action.AnchorPoint = Vector2.new(0.5, 0.5)
-			action.Position = UDim2.fromScale(0.892, 0.5)
-			action.Size = UDim2.fromScale(0.088, 0.34)
+			action.Position = UDim2.fromScale(0.892, 0.46)
+			action.Size = UDim2.fromScale(0.184, 0.26)
 		end
 		if listing.mine then
 			boostBtn.Activated:Connect(function()
