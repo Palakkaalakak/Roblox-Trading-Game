@@ -1041,6 +1041,30 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		clearPostBoostOptions()
 	end
 
+	-- Server error codes are field names, not sentences. A player who saw
+	-- "Couldn't post: empty_side" learned nothing they could act on, so every
+	-- reachable code gets plain wording; anything unmapped still surfaces its
+	-- code rather than a shrug, so a new failure stays diagnosable.
+	local POST_ERRORS: { [string]: string } = {
+		empty_side = "Both sides need something in them — add what you want in return.",
+		ad_slots_full = "You've used all your trade ad slots in this feed. Cancel one, or buy more slots.",
+		board_full = "The board is completely full right now. Try again shortly.",
+		unknown_item = "One of the items in this trade no longer exists.",
+		bad_offer = "That trade isn't valid — check both sides and try again.",
+		bad_scope = "That feed doesn't exist. Reopen the board and try again.",
+		not_holding = "You no longer hold everything you offered.",
+		insufficient = "You no longer hold everything you offered.",
+		loading = "Your data is still loading — give it a second and try again.",
+		bad_args = "Something about that trade was malformed. Rebuild it and try again.",
+	}
+	local function postErrorText(err: any): string
+		local mapped = type(err) == "string" and POST_ERRORS[err] or nil
+		if mapped then
+			return mapped
+		end
+		return "Couldn't post: " .. tostring(err)
+	end
+
 	local function submitPost(sku: any?)
 		local pending = pendingPost
 		if pending == nil then
@@ -1060,7 +1084,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				scope = pending.scope,
 			})
 			toast(
-				result.ok and "Posted to the board!" or ("Couldn't post: " .. tostring(result.err)),
+				result.ok and "Posted to the board!" or postErrorText(result.err),
 				result.ok and Theme.Good or Theme.Bad
 			)
 			if result.ok then

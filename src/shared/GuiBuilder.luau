@@ -929,7 +929,7 @@ local function buildBoardPanel(parent: Instance)
 		-- an invisible bar across the header that overlapped Post trade, Close
 		-- and the boost slots -- nothing looked wrong, but every hit test in
 		-- that band had to fight it.
-		Position = UDim2.fromScale(0.014, 0.100),
+		Position = UDim2.fromScale(0.014, 0.086),
 		Size = UDim2.fromScale(0.262, 0.062),
 	}, boardPanel)
 	new("UIListLayout", {
@@ -1787,8 +1787,12 @@ local function buildBoardPanel(parent: Instance)
 	local home = new("Frame", {
 		Name = "MarketHome",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromOffset(12, 78),
-		Size = UDim2.new(1, -24, 1, -90),
+		-- SCALE, not a fixed 78px offset. The tab row above it is scale-based,
+		-- so on any panel taller than the default the two grew into each other
+		-- and the tabs sat on top of the market's search box. Anchored below
+		-- TabRow's bottom edge (0.086 + 0.062) with a gutter.
+		Position = UDim2.fromScale(0.014, 0.170),
+		Size = UDim2.fromScale(0.972, 0.810),
 		Visible = false,
 	}, boardPanel)
 	local homeSearch = new("TextBox", {

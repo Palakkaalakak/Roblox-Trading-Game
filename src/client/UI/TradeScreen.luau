@@ -665,9 +665,52 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	-- Buttons / countdown / render
 	--------------------------------------------------------------------------
 
+	-- A side counts as filled if it holds any item or any gems -- the same test
+	-- the server applies, kept here so the player is told BEFORE their work is
+	-- thrown away.
+	local function sideIsEmpty(offer: any): boolean
+		if offer.gems > 0 then
+			return false
+		end
+		for _ in offer.items do
+			return false
+		end
+		return true
+	end
+
+	-- Say what is wrong on the side that is wrong, then leave everything exactly
+	-- as it was. Posting used to nil the compose, hide the panel and fire onPost
+	-- unconditionally, so an empty side came back as "Couldn't post: empty_side"
+	-- with the composed trade already destroyed -- the player lost the lot and
+	-- was told a field name.
+	local headerReset: { [any]: string } = {}
+	local function flagSide(sideApi: any, message: string)
+		local header = sideApi.header
+		if headerReset[header] == nil then
+			headerReset[header] = header.Text
+		end
+		local original = headerReset[header]
+		header.Text = message
+		header.TextColor3 = Theme.Bad
+		task.delay(3, function()
+			if header.Parent and header.Text == message then
+				header.Text = original
+				header.TextColor3 = Theme.Text
+			end
+		end)
+	end
+
 	acceptBtn.Activated:Connect(function()
 		if compose then
 			local c = compose
+			if sideIsEmpty(c.give) then
+				flagSide(yourSide, "Add something to give first")
+				return
+			end
+			if sideIsEmpty(c.want) then
+				flagSide(theirSide, "Add what you want in return")
+				return
+			end
 			compose = nil
 			panel.Visible = false
 			chatPanel.Visible = false
