@@ -1355,12 +1355,12 @@ local function buildBoardPanel(parent: Instance)
 		-- feed felt crammed rather than scannable. A third of the viewport shows
 		-- three at a time with room between them, which is what makes a feed
 		-- read as a list instead of a stack of slabs.
-		Size = UDim2.new(1, -12, 0.410, 0),
+		Size = UDim2.new(1, -12, 0.500, 0),
 		Visible = false,
 	}, list)
 	new("UISizeConstraint", {
-		MinSize = Vector2.new(0, 138),
-		MaxSize = Vector2.new(math.huge, 205),
+		MinSize = Vector2.new(0, 172),
+		MaxSize = Vector2.new(math.huge, 245),
 	}, row)
 	corner(row, 10)
 	stroke(row, C.Stroke, 1)
@@ -1408,8 +1408,15 @@ local function buildBoardPanel(parent: Instance)
 	-- evidence of a purchase was the ad's position, which a player cannot read
 	-- as "my boost is live". Counts the boost's own clock down, not the ad's.
 	local rowBoostBadge = label("BoostBadge", {
-		Position = UDim2.fromScale(0.240, 0.05),
-		Size = UDim2.fromScale(0.22, 0.15),
+		-- centred over the WANT block, so it reads as belonging to the trade
+		-- rather than hanging in the gap between the two halves
+		-- Box centred on the want block AND the text centred inside the box: the
+		-- box alone was 177px against a 133px block, so left-aligned text sat
+		-- visibly left of the tiles it labels even though the frame was centred.
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.328, 0.05),
+		Size = UDim2.fromScale(0.20, 0.15),
+		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "⚡ BOOSTED · 23h left",
 		TextScaled = true,
 		TextColor3 = C.Gold,
@@ -1423,8 +1430,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.022, 0.22),
-		Size = UDim2.fromScale(0.140, 0.66),
+		Position = UDim2.fromScale(0.022, 0.20),
+		Size = UDim2.fromScale(0.200, 0.72),
 	}, row)
 	-- square block: a 112x100 holder made every "square" tile 52x47, and the
 	-- row gap between tiles differed from the column gap
@@ -1541,7 +1548,7 @@ local function buildBoardPanel(parent: Instance)
 
 	local rowArrow = label("ArrowLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.183, 0.55),
+		Position = UDim2.fromScale(0.212, 0.56),
 		Size = UDim2.fromScale(0.038, 0.20),
 		Text = "⇄",
 		TextScaled = true,
@@ -1553,8 +1560,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.212, 0.22),
-		Size = UDim2.fromScale(0.140, 0.66),
+		Position = UDim2.fromScale(0.245, 0.20),
+		Size = UDim2.fromScale(0.200, 0.72),
 	}, row)
 	new("UIAspectRatioConstraint", { AspectRatio = 1 }, wantHolder)
 	local wantGemsIcon = new("ImageLabel", {
@@ -1608,8 +1615,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Width stops short of 0.849, where the button column begins. At 0.19 this
 		-- ran to 0.878 and the buttons sat on top of it, truncating the verdict
 		-- mid-word. Nothing escaped its parent, so the bounds scan passed it.
-		Position = UDim2.fromScale(0.545, 0.62),
-		Size = UDim2.fromScale(0.205, 0.14),
+		Position = UDim2.fromScale(0.470, 0.62),
+		Size = UDim2.fromScale(0.240, 0.14),
 		Text = "",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1659,8 +1666,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Ends at 0.750, before the button column starts at 0.767. The buttons sit
 		-- side by side now, which widened that column -- at 0.688..0.840 the
 		-- verdict ran underneath Cancel and was unreadable.
-		Position = UDim2.fromScale(0.545, 0.32),
-		Size = UDim2.fromScale(0.205, 0.24),
+		Position = UDim2.fromScale(0.470, 0.32),
+		Size = UDim2.fromScale(0.240, 0.24),
 		Text = "Fair",
 		TextScaled = true,
 		TextColor3 = C.TextDim,
