@@ -147,21 +147,15 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- actually decides on, and the server has been sending it per item since
 	-- the payload gained `value`; the chip used to throw it away and show a
 	-- bare "x1", which told nobody anything.
-	-- A stack shows BOTH numbers: what one is worth and what the stack is worth.
-	-- Showing only the total makes two very different offers -- one rare item
-	-- versus twenty cheap ones -- look identical at a glance, and showing only
-	-- the each-price hides what is actually on the table. Singles print one
-	-- number, because "1 each / 8 total" is noise.
+	-- Count only. The tile is icon-sized, so a gem figure printed on it was
+	-- unreadable at any font that fit; hovering the tile shows the item's name
+	-- and live value, which is where a price belongs. The badge answers the one
+	-- thing the icon cannot: how many.
 	local function countValueText(entry: any): string
-		local countText = entry.wildcard and "any" or ("x" .. entry.count)
-		if entry.value == nil or entry.value <= 0 then
-			return countText
+		if entry.wildcard then
+			return "any"
 		end
-		local each = Format.abbrev(entry.value)
-		if entry.wildcard or entry.count <= 1 then
-			return ("%s · %s gems"):format(countText, each)
-		end
-		return ("%s · %s ea · %s total"):format(countText, each, Format.abbrev(entry.value * entry.count))
+		return "x" .. entry.count
 	end
 
 	-- One offer chip: icon + NAME + count/value. Real items hover to live
@@ -190,9 +184,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end)
 	end
 
-	-- One named chip per side plus a "+N more" line, rather than a wall of
-	-- anonymous icons: a row that shows five 46px squares and no names is
-	-- unreadable, and every real trade-ad board leads with one item.
+	-- Up to four item tiles a side, laid out 2x2 from the top-left so the same
+	-- item always lands in the same place whatever else the side holds. Names
+	-- and live values come from hovering a tile (see addChip's tooltip.attach).
 	local function fillOfferChips(holder: Frame, gemsIcon: ImageLabel, gemsLabel: TextLabel, offer: any)
 		local more = holder:WaitForChild("MoreLabel") :: TextLabel
 		-- Four tiles fit a side. Showing one named chip plus "+3 more" described

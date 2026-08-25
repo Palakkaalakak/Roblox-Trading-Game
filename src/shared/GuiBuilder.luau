@@ -1422,8 +1422,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.022, 0.20),
-		Size = UDim2.fromScale(0.275, 0.52),
+		Position = UDim2.fromScale(0.022, 0.22),
+		Size = UDim2.fromScale(0.140, 0.66),
 	}, row)
 	-- swap gems: never a fake item card, just an icon + "+N gems (after tax)"
 	local giveGemsIcon = new("ImageLabel", {
@@ -1450,11 +1450,21 @@ local function buildBoardPanel(parent: Instance)
 	-- read as "one thing, +3 more" -- which is not what is being traded. The
 	-- per-item name moves to the hover tooltip and the side's worth is printed
 	-- underneath as a total, so the row still answers "what is this worth".
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Horizontal,
-		Padding = UDim.new(0.03, 0),
+	-- 2x2, not a line: four tiles in a row stretched a side across a third of
+	-- the row and left the two sides visibly unaligned. A square block keeps both
+	-- sides the same shape and the same height whatever they hold.
+	new("UIGridLayout", {
+		CellSize = UDim2.fromScale(0.47, 0.47),
+		CellPadding = UDim2.fromScale(0.06, 0.06),
+		FillDirectionMaxCells = 2,
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		VerticalAlignment = Enum.VerticalAlignment.Center,
+		-- TOP-LEFT, never centred. Centring re-positions the tiles for every
+		-- different item count, so a one-item ad put its tile in the middle of
+		-- the block while a four-item ad started at the edge -- the first item
+		-- of one row did not line up with the first item of the next, and the
+		-- two sides of the same trade read as different shapes.
+		HorizontalAlignment = Enum.HorizontalAlignment.Left,
+		VerticalAlignment = Enum.VerticalAlignment.Top,
 	}, giveHolder)
 
 	-- Chip template: icon + NAME + VALUE, the three things every real trade-ad
@@ -1466,19 +1476,17 @@ local function buildBoardPanel(parent: Instance)
 		-- card, which is how every inventory grid in the genre reads.
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
-		-- a quarter of the holder, square: four fit across with padding
-		Size = UDim2.fromScale(0.2275, 1),
+		Size = UDim2.fromScale(0.47, 0.47), -- grid overrides; kept for clarity
 		Visible = false,
 	}, giveHolder)
-	new("UIAspectRatioConstraint", { AspectRatio = 1 }, chip)
 	corner(chip, 8)
 	stroke(chip, C.Stroke, 1)
 	local chipIcon = new("ImageLabel", {
 		Name = "Icon",
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.10, 0.06),
-		Size = UDim2.fromScale(0.80, 0.72),
+		Position = UDim2.fromScale(0.08, 0.08),
+		Size = UDim2.fromScale(0.84, 0.84),
 		ScaleType = Enum.ScaleType.Fit,
 	}, chip)
 	square(chipIcon)
@@ -1495,15 +1503,20 @@ local function buildBoardPanel(parent: Instance)
 	-- count and value on one line: "x2 · 1.2k". Gem-coloured because value is
 	-- denominated in the same currency the rest of the UI prices things in.
 	local chipCount = label("CountLabel", {
-		Position = UDim2.fromScale(0.02, 0.76),
-		Size = UDim2.fromScale(0.96, 0.22),
+		-- Count only, white and heavy, in the TOP-RIGHT corner like an inventory
+		-- stack badge. The gem value used to live here too and was unreadable at
+		-- tile size; hovering the tile still shows name and live value.
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(0.93, 0.07),
+		Size = UDim2.fromScale(0.40, 0.24),
 		Text = "x1",
-		Font = FONT_LIGHT,
+		Font = Enum.Font.LuckiestGuy,
 		TextScaled = true,
-		TextColor3 = C.Gem,
-		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextStrokeTransparency = 0.35,
+		TextXAlignment = Enum.TextXAlignment.Right,
 	}, chip)
-	capText(chipCount, 16)
+	capText(chipCount, 15)
 	-- "+2 more" when a side holds items the single chip cannot show
 	local giveMore = label("MoreLabel", {
 		Name = "MoreLabel",
@@ -1519,8 +1532,8 @@ local function buildBoardPanel(parent: Instance)
 
 	local rowArrow = label("ArrowLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.321, 0.46),
-		Size = UDim2.fromScale(0.040, 0.20),
+		Position = UDim2.fromScale(0.183, 0.55),
+		Size = UDim2.fromScale(0.038, 0.20),
 		Text = "⇄",
 		TextScaled = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
@@ -1531,8 +1544,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.345, 0.20),
-		Size = UDim2.fromScale(0.275, 0.52),
+		Position = UDim2.fromScale(0.212, 0.22),
+		Size = UDim2.fromScale(0.140, 0.66),
 	}, row)
 	local wantGemsIcon = new("ImageLabel", {
 		Name = "WantGemsIcon",
