@@ -318,17 +318,54 @@ end
 local function startTransparencySweep()
 	-- Every 0.4s, not per frame: this is a cosmetic courtesy, and a per-frame
 	-- sweep over every booth for every player is real cost for no gain.
+	--
+	-- Three things keep this cheap enough for a low-end phone:
+	--   * the booth anchors are gathered ONCE per sweep, not once per player.
+	--     GetTagged allocates a fresh table every call, so doing it inside the
+	--     player loop meant one throwaway table per player per sweep -- pure GC
+	--     pressure on the device least able to absorb it.
+	--   * distances compare squared, so no sqrt per booth per player.
+	--   * players far from the camera are skipped outright. Fading someone you
+	--     cannot see buys nothing, and their state is left untouched so it
+	--     applies correctly the moment they come back into range.
 	task.spawn(function()
 		local faded: { [Player]: boolean } = {}
+		local anchors: { Vector3 } = {}
+		local nearSq = BoothConfig.TransparencyRadius * BoothConfig.TransparencyRadius
+		local CULL_SQ = 250 * 250
 		while true do
 			task.wait(0.4)
+
+			table.clear(anchors)
+			for _, model in CollectionService:GetTagged(BoothConfig.Tag) do
+				local anchor = anchorOf(model)
+				if anchor then
+					table.insert(anchors, anchor.Position)
+				end
+			end
+
+			local camera = workspace.CurrentCamera
+			local eye = camera and camera.CFrame.Position or Vector3.zero
+
 			for _, player in Players:GetPlayers() do
 				local char = player.Character
 				local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 				if root == nil then
 					continue
 				end
-				local near = nearAnyBooth(root.Position)
+				local pos = root.Position
+				local toEye = pos - eye
+				if toEye.X * toEye.X + toEye.Y * toEye.Y + toEye.Z * toEye.Z > CULL_SQ then
+					continue -- off-screen distance: nobody can see this fade
+				end
+				local near = false
+				for _, a in anchors do
+					local d = a - pos
+					if d.X * d.X + d.Y * d.Y + d.Z * d.Z <= nearSq then
+						near = true
+						break
+					end
+				end
 				if near == faded[player] then
 					continue -- already in the right state
 				end

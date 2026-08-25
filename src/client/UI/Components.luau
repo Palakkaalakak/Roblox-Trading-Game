@@ -234,36 +234,65 @@ function Components.wireTooltip(gui: ScreenGui)
 		return obj.Parent ~= nil and isShown(obj)
 	end
 
+	-- A touch-only device has no pointer to hover with, so this whole loop can
+	-- never produce a tooltip there -- it would only burn frames on exactly the
+	-- hardware that can least afford it. Devices with both (emulator, tablet
+	-- with a mouse) keep it.
+	local hoverCapable = UserInputService.MouseEnabled or not UserInputService.TouchEnabled
+
 	local acc = 0
-	RunService.Heartbeat:Connect(function(dt)
-		acc += dt
-		if acc < 0.05 then -- 20Hz is plenty for a tooltip
-			return
-		end
-		acc = 0
-		local p = mousePoint()
-
-		-- still on the same thing? keep it up, and keep it FRESH (values move
-		-- constantly, so a held tooltip should track them rather than go stale)
-		if current and alive(current) and contains(current, p) and registry[current] then
-			local snapshot, count = registry[current]()
-			show(snapshot, count, current)
-			return
-		end
-
-		-- otherwise find whatever is under the pointer now (this is what
-		-- survives a rebuild under a still cursor)
-		for obj, get in registry do
-			if alive(obj) and contains(obj, p) then
-				current = obj
-				local snapshot, count = get()
-				show(snapshot, count, obj)
+	local lastPoint = Vector2.zero
+	local idleAcc = 0
+	if hoverCapable then
+		RunService.Heartbeat:Connect(function(dt)
+			acc += dt
+			if acc < 0.05 then -- 20Hz is plenty for a tooltip
 				return
 			end
-		end
-		current = nil
-		hide()
-	end)
+			acc = 0
+			local p = mousePoint()
+			local moved = p ~= lastPoint
+			lastPoint = p
+
+			-- still on the same thing? keep it up, and keep it FRESH (values move
+			-- constantly, so a held tooltip should track them rather than go stale)
+			-- contains() is two property reads; alive() walks every ancestor up to
+			-- the ScreenGui, so the cheap test gates the expensive one.
+			if current and contains(current, p) and alive(current) and registry[current] then
+				local snapshot, count = registry[current]()
+				show(snapshot, count, current)
+				return
+			end
+
+			-- A full registry sweep is O(number of attached tiles), and with a
+			-- board open that is hundreds. At rest the answer almost never
+			-- changes, so sweep every tick only while the pointer is actually
+			-- moving and drop to ~4Hz when it is parked. The parked sweep is what
+			-- still catches a row rebuilt under a stationary cursor.
+			if not moved then
+				idleAcc += 0.05
+				if idleAcc < 0.25 then
+					return
+				end
+				idleAcc = 0
+			else
+				idleAcc = 0
+			end
+
+			-- otherwise find whatever is under the pointer now (this is what
+			-- survives a rebuild under a still cursor)
+			for obj, get in registry do
+				if contains(obj, p) and alive(obj) then
+					current = obj
+					local snapshot, count = get()
+					show(snapshot, count, obj)
+					return
+				end
+			end
+			current = nil
+			hide()
+		end)
+	end
 
 	return {
 		attach = function(obj: GuiObject, getSnapshot: () -> (any?, number?))
