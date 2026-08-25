@@ -19,6 +19,9 @@ local Theme = {
 	Warn = Color3.fromRGB(250, 190, 80),
 	Gem = Color3.fromRGB(120, 220, 232),
 	Gold = Color3.fromRGB(253, 179, 30),
+	-- Boost's colour. Gold belongs to Featured alone -- two paid tiers wearing
+	-- the same colour is two products a buyer cannot tell apart.
+	Electric = Color3.fromRGB(64, 224, 255),
 	Info = Color3.fromRGB(126, 190, 255),
 
 	Rarity = {

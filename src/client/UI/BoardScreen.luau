@@ -626,7 +626,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- time-left pill: surfaces the presence-tied lifetime — otherwise
 		-- invisible — so players learn staying online keeps an ad alive
 		if listing.here then
-			timePill.Text = "Live · you're in game"
+			-- Spell the rule out rather than just asserting "Live": the presence
+			-- mechanic is invisible otherwise, and a player has no way to learn
+			-- that staying in the game is what keeps their ad alive.
+			timePill.Text = "No time limit while you're in the game · 2h after you leave (unless boosted)"
 			timePill.TextColor3 = Theme.Good
 		else
 			timePill.Text = timeLeftText(listing.expiresAt)
@@ -639,6 +642,13 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- privilege is what the boost is actually selling.
 		local tier = listing.boostTier or TradeAdConfig.BoostTier.None
 		boostBadge.Visible = tier >= TradeAdConfig.BoostTier.Boosted
+		if not boostBadge.Visible then
+			local edge = row:FindFirstChildWhichIsA("UIStroke")
+			if edge then
+				edge.Color = Theme.Stroke
+				edge.Transparency = 0
+			end
+		end
 		if boostBadge.Visible then
 			local icon = tier >= TradeAdConfig.BoostTier.Featured and "★ FEATURED" or "⚡ BOOSTED"
 			-- no boostExpiresAt means the tier comes from a pass perk, which
@@ -648,7 +658,17 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			else
 				boostBadge.Text = icon
 			end
-			boostBadge.TextColor3 = tier >= TradeAdConfig.BoostTier.Featured and Theme.Gold or Theme.Warn
+			-- Featured keeps gold; Boost gets electric cyan. Sharing a colour made
+			-- the cheap tier and the scarce one look like the same purchase.
+			local tint = tier >= TradeAdConfig.BoostTier.Featured and Theme.Gold or Theme.Electric
+			boostBadge.TextColor3 = tint
+			-- and a faint outline on the row itself, so a boosted ad reads as
+			-- lifted even before you get to the badge
+			local edge = row:FindFirstChildWhichIsA("UIStroke")
+			if edge then
+				edge.Color = tint
+				edge.Transparency = 0.72
+			end
 		end
 
 		-- boost button: only the poster can push their own ad. Two buttons stack

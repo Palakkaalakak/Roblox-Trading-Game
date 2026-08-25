@@ -956,7 +956,11 @@ local function buildBoardPanel(parent: Instance)
 			LayoutOrder = order,
 		}, scopeRow)
 		minTouch(b, 0, 30)
-		capText(b, 15)
+		capText(b, 13)
+		new("UIPadding", {
+			PaddingLeft = UDim.new(0, 10),
+			PaddingRight = UDim.new(0, 10),
+		}, b)
 	end
 	scopeBtn("ScopeServer", "THIS SERVER", C.Accent, 1)
 	scopeBtn("ScopeGlobal", "GLOBAL", C.BgLight, 2)
@@ -973,8 +977,8 @@ local function buildBoardPanel(parent: Instance)
 		-- own, which left the left half of that strip empty and pushed the feed
 		-- down for nothing -- a visible dead gap between the chrome and the ads.
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.986, 0.100),
-		Size = UDim2.fromScale(0.42, 0.128),
+		Position = UDim2.fromScale(0.986, 0.128),
+		Size = UDim2.fromScale(0.40, 0.120),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 	}, boardPanel)
@@ -1378,8 +1382,10 @@ local function buildBoardPanel(parent: Instance)
 	corner(rowSpine, 2)
 
 	local rowPoster = label("PosterLabel", {
-		Position = UDim2.fromScale(0.016, 0.05),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.113, 0.05),
 		Size = UDim2.fromScale(0.20, 0.15),
+		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "PosterName",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1414,7 +1420,7 @@ local function buildBoardPanel(parent: Instance)
 		-- box alone was 177px against a 133px block, so left-aligned text sat
 		-- visibly left of the tiles it labels even though the frame was centred.
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.328, 0.05),
+		Position = UDim2.fromScale(0.327, 0.05),
 		Size = UDim2.fromScale(0.20, 0.15),
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Text = "⚡ BOOSTED · 23h left",
@@ -1430,8 +1436,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.022, 0.20),
-		Size = UDim2.fromScale(0.200, 0.72),
+		Position = UDim2.fromScale(0.042, 0.20),
+		Size = UDim2.fromScale(0.170, 0.62),
 	}, row)
 	-- square block: a 112x100 holder made every "square" tile 52x47, and the
 	-- row gap between tiles differed from the column gap
@@ -1548,7 +1554,7 @@ local function buildBoardPanel(parent: Instance)
 
 	local rowArrow = label("ArrowLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.212, 0.56),
+		Position = UDim2.fromScale(0.220, 0.50),
 		Size = UDim2.fromScale(0.038, 0.20),
 		Text = "⇄",
 		TextScaled = true,
@@ -1560,8 +1566,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.245, 0.20),
-		Size = UDim2.fromScale(0.200, 0.72),
+		Position = UDim2.fromScale(0.256, 0.20),
+		Size = UDim2.fromScale(0.170, 0.62),
 	}, row)
 	new("UIAspectRatioConstraint", { AspectRatio = 1 }, wantHolder)
 	local wantGemsIcon = new("ImageLabel", {
@@ -1615,7 +1621,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Width stops short of 0.849, where the button column begins. At 0.19 this
 		-- ran to 0.878 and the buttons sat on top of it, truncating the verdict
 		-- mid-word. Nothing escaped its parent, so the bounds scan passed it.
-		Position = UDim2.fromScale(0.470, 0.62),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.596, 0.62),
 		Size = UDim2.fromScale(0.240, 0.14),
 		Text = "",
 		Font = FONT_LIGHT,
@@ -1666,12 +1673,14 @@ local function buildBoardPanel(parent: Instance)
 		-- Ends at 0.750, before the button column starts at 0.767. The buttons sit
 		-- side by side now, which widened that column -- at 0.688..0.840 the
 		-- verdict ran underneath Cancel and was unreadable.
-		Position = UDim2.fromScale(0.470, 0.32),
+		-- centred in the space between the item blocks and the button column
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.596, 0.32),
 		Size = UDim2.fromScale(0.240, 0.24),
 		Text = "Fair",
 		TextScaled = true,
 		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Left,
+		TextXAlignment = Enum.TextXAlignment.Center,
 	}, row)
 	capText(valueChip, 24)
 
@@ -1681,10 +1690,11 @@ local function buildBoardPanel(parent: Instance)
 	-- badges rather than taking a slot in the action column.
 	local timePill = label("TimePill", {
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.984, 0.05),
-		Size = UDim2.fromScale(0.23, 0.15),
+		Position = UDim2.fromScale(0.984, 0.04),
+		Size = UDim2.fromScale(0.40, 0.20),
 		Text = "2h left",
 		TextScaled = true,
+		TextWrapped = true,
 		TextColor3 = C.TextDim,
 		TextXAlignment = Enum.TextXAlignment.Right,
 	}, row)
