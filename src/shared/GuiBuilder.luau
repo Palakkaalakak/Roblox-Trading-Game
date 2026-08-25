@@ -1114,12 +1114,25 @@ local function buildBoardPanel(parent: Instance)
 	-- three or fewer are featured, two when more. A fixed two-row block would
 	-- reserve half the panel for empty gold on a board with one featured ad,
 	-- and the feed underneath is what most players came for.
-	local featuredStrip = new("Frame", {
+	local featuredStrip = new("ScrollingFrame", {
 		Name = "FeaturedStrip",
 		Position = UDim2.fromScale(0.014, 0.302),
 		Size = UDim2.fromScale(0.972, 0.290),
 		BackgroundColor3 = C.Bg,
 		BorderSizePixel = 0,
+		-- The rail is WIDER than the panel on purpose: six slots are for sale
+		-- but only three fit at a readable width, so the rest are reached by
+		-- scrolling sideways. This has to be a ScrollingFrame for that to be
+		-- true -- as a plain Frame the cards past the third rendered outside
+		-- the strip entirely, on top of the free feed, so half the paid shelf
+		-- was invisible to the buyer who paid for it.
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		CanvasSize = UDim2.new(),
+		ScrollBarThickness = 4,
+		ScrollBarImageColor3 = C.Gold,
+		ScrollBarImageTransparency = 0.4,
+		ClipsDescendants = true,
 		Visible = false,
 	}, boardPanel)
 	corner(featuredStrip, 14)
@@ -1137,7 +1150,10 @@ local function buildBoardPanel(parent: Instance)
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		HorizontalAlignment = Enum.HorizontalAlignment.Left,
 		VerticalAlignment = Enum.VerticalAlignment.Top,
-		FillDirectionMaxCells = 3,
+		FillDirection = Enum.FillDirection.Horizontal,
+		-- One row, always. The rail scrolls to reach slots 4-6 rather than
+		-- wrapping onto a second row, which would eat the feed underneath.
+		FillDirectionMaxCells = 0,
 	}, featuredStrip)
 	new("UIPadding", {
 		PaddingLeft = UDim.new(0.014, 0),
@@ -1326,6 +1342,12 @@ local function buildBoardPanel(parent: Instance)
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 	}, boardPanel)
+	-- Scroll room PAST the final ad. Without it the last row stops flush against
+	-- the panel edge, which reads as "the list is cut off" rather than "this is
+	-- the end", and on a touch screen leaves nothing to grab under the last row.
+	new("UIPadding", {
+		PaddingBottom = UDim.new(0, 56),
+	}, list)
 	new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
 	local emptyLbl = label("EmptyLabel", {
@@ -1359,12 +1381,12 @@ local function buildBoardPanel(parent: Instance)
 		-- feed felt crammed rather than scannable. A third of the viewport shows
 		-- three at a time with room between them, which is what makes a feed
 		-- read as a list instead of a stack of slabs.
-		Size = UDim2.new(1, -12, 0.500, 0),
+		Size = UDim2.new(1, -12, 0.550, 0),
 		Visible = false,
 	}, list)
 	new("UISizeConstraint", {
-		MinSize = Vector2.new(0, 172),
-		MaxSize = Vector2.new(math.huge, 245),
+		MinSize = Vector2.new(0, 189),
+		MaxSize = Vector2.new(math.huge, 270),
 	}, row)
 	corner(row, 10)
 	stroke(row, C.Stroke, 1)
@@ -1382,10 +1404,14 @@ local function buildBoardPanel(parent: Instance)
 	corner(rowSpine, 2)
 
 	local rowPoster = label("PosterLabel", {
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.113, 0.05),
-		Size = UDim2.fromScale(0.20, 0.15),
-		TextXAlignment = Enum.TextXAlignment.Center,
+		-- LEFT edge locked to the give block's left edge. Centred, the box was a
+		-- fixed width but the name inside it was not, so every different-length
+		-- name started at a different x and the column of names down the feed
+		-- looked ragged against the tiles underneath it.
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.fromScale(0.042, 0.02),
+		Size = UDim2.fromScale(0.20, 0.13),
+		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "PosterName",
 		Font = FONT_LIGHT,
 		TextScaled = true,
@@ -1393,7 +1419,7 @@ local function buildBoardPanel(parent: Instance)
 		TextYAlignment = Enum.TextYAlignment.Center,
 		TextColor3 = C.TextDim,
 	}, row)
-	capText(rowPoster, 14)
+	capText(rowPoster, 17)
 	local rowBadge = label("Badge", {
 		-- Sits DIRECTLY UNDER THE ACTION BUTTON, as its caption. This flag
 		-- describes one thing: what pressing that button does. Floating loose in
@@ -1419,16 +1445,16 @@ local function buildBoardPanel(parent: Instance)
 		-- Box centred on the want block AND the text centred inside the box: the
 		-- box alone was 177px against a 133px block, so left-aligned text sat
 		-- visibly left of the tiles it labels even though the frame was centred.
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.327, 0.05),
-		Size = UDim2.fromScale(0.20, 0.15),
-		TextXAlignment = Enum.TextXAlignment.Center,
+		AnchorPoint = Vector2.new(0, 0),
+		Position = UDim2.fromScale(0.262, 0.02),
+		Size = UDim2.fromScale(0.20, 0.13),
+		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "⚡ BOOSTED · 23h left",
 		TextScaled = true,
 		TextColor3 = C.Gold,
 		Visible = false,
 	}, row)
-	capText(rowBoostBadge, 14)
+	capText(rowBoostBadge, 17)
 
 	local giveHolder = new("Frame", {
 		Name = "GiveHolder",
@@ -1436,8 +1462,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.042, 0.20),
-		Size = UDim2.fromScale(0.170, 0.62),
+		Position = UDim2.fromScale(0.042, 0.17),
+		Size = UDim2.fromScale(0.185, 0.78),
 	}, row)
 	-- square block: a 112x100 holder made every "square" tile 52x47, and the
 	-- row gap between tiles differed from the column gap
@@ -1554,7 +1580,7 @@ local function buildBoardPanel(parent: Instance)
 
 	local rowArrow = label("ArrowLabel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.220, 0.50),
+		Position = UDim2.fromScale(0.2445, 0.56),
 		Size = UDim2.fromScale(0.038, 0.20),
 		Text = "⇄",
 		TextScaled = true,
@@ -1566,8 +1592,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.256, 0.20),
-		Size = UDim2.fromScale(0.170, 0.62),
+		Position = UDim2.fromScale(0.262, 0.17),
+		Size = UDim2.fromScale(0.185, 0.78),
 	}, row)
 	new("UIAspectRatioConstraint", { AspectRatio = 1 }, wantHolder)
 	local wantGemsIcon = new("ImageLabel", {
@@ -1622,7 +1648,7 @@ local function buildBoardPanel(parent: Instance)
 		-- ran to 0.878 and the buttons sat on top of it, truncating the verdict
 		-- mid-word. Nothing escaped its parent, so the bounds scan passed it.
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.596, 0.62),
+		Position = UDim2.fromScale(0.6235, 0.62),
 		Size = UDim2.fromScale(0.240, 0.14),
 		Text = "",
 		Font = FONT_LIGHT,
@@ -1675,7 +1701,7 @@ local function buildBoardPanel(parent: Instance)
 		-- verdict ran underneath Cancel and was unreadable.
 		-- centred in the space between the item blocks and the button column
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.596, 0.32),
+		Position = UDim2.fromScale(0.6235, 0.32),
 		Size = UDim2.fromScale(0.240, 0.24),
 		Text = "Fair",
 		TextScaled = true,

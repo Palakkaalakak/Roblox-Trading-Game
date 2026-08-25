@@ -187,13 +187,44 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- Up to four item tiles a side, laid out 2x2 from the top-left so the same
 	-- item always lands in the same place whatever else the side holds. Names
 	-- and live values come from hovering a tile (see addChip's tooltip.attach).
-	local function fillOfferChips(holder: Frame, gemsIcon: ImageLabel, gemsLabel: TextLabel, offer: any)
+	-- The post panel sells nine slots a side, so the feed has to be able to show
+	-- nine. It does it by changing the DENSITY of the block, never its size: a
+	-- side holding four or fewer lays out 2x2 with big tiles, five or more
+	-- switches the same block to 3x3 with smaller ones. Nothing is ever hidden
+	-- behind a "+N", and because the block keeps its footprint the poster name,
+	-- arrow and verdict stay where they were aligned to.
+	local CHIP_CAP = 9
+	local function gridColsFor(count: number): number
+		return count > 4 and 3 or 2
+	end
+
+	-- Both sides share one density even when their counts differ. A 2x2 facing
+	-- a 3x3 makes the smaller side's items look more valuable than the other's
+	-- purely because their art is bigger, which is a lie about the trade.
+	local function applyChipGrid(holder: Frame, cols: number)
+		local grid = holder:FindFirstChildWhichIsA("UIGridLayout")
+		if grid == nil then
+			return
+		end
+		local cell = cols == 2 and 0.47 or 0.30
+		local pad = cols == 2 and 0.06 or 0.05
+		grid.CellSize = UDim2.fromScale(cell, cell)
+		grid.CellPadding = UDim2.fromScale(pad, pad)
+		grid.FillDirectionMaxCells = cols
+	end
+
+	local function fillOfferChips(
+		holder: Frame,
+		gemsIcon: ImageLabel,
+		gemsLabel: TextLabel,
+		offer: any,
+		cols: number
+	)
 		local more = holder:WaitForChild("MoreLabel") :: TextLabel
-		-- Four tiles fit a side. Showing one named chip plus "+3 more" described
-		-- a four-item offer as a one-item offer, which is not what is on the
-		-- table; the tiles show the actual contents and hover names each one.
-		local SHOWN = 4
-		local shown = math.min(#offer.items, SHOWN)
+		applyChipGrid(holder, cols)
+		-- The cap is the post panel's own slot count, so in practice nothing is
+		-- ever truncated; it only guards against a malformed payload.
+		local shown = math.min(#offer.items, CHIP_CAP)
 		for i = 1, shown do
 			addChip(holder, offer.items[i], i)
 		end
@@ -512,7 +543,12 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local order = 0
 		for _, sku in TradeAdConfig.liveSkus() do
 			local count = boostState.credits[sku.id] or 0
-			if count > 0 then
+			-- Only the credits spendable on the scope being viewed. A global
+			-- credit shown while the Server tab is open read as "you have one",
+			-- then the boost sheet -- which is scoped -- answered "no banked
+			-- boosts for this server yet". Same player, same second, two
+			-- opposite answers.
+			if count > 0 and sku.scope == activeScope then
 				order += 1
 				local slot = boostSlotTemplate:Clone()
 				slot.Name = "slot_" .. sku.id
@@ -611,8 +647,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- that "ask first" means their acceptance is a request, not a trade.
 		badge.Text = listing.autoTrade and "Accept → trades instantly" or "Accept → sends a request"
 		badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
-		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give) -- what the poster GIVES you
-		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want) -- what they WANT from you
+		-- one density for both sides, driven by whichever side carries more
+		local chipCols = gridColsFor(math.max(#listing.give.items, #listing.want.items))
+		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give, chipCols) -- what the poster GIVES you
+		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want, chipCols) -- what they WANT from you
 
 		-- the verdict, right after the want side so it reads as part of the trade
 		valueChip.Text, valueChip.TextColor3 = verdictFor(listing)
@@ -689,6 +727,14 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			boostBtn.Size = UDim2.fromScale(0.088, 0.34)
 			action.AnchorPoint = Vector2.new(1, 0.5)
 			action.Position = UDim2.fromScale(0.984, 0.5)
+			action.Size = UDim2.fromScale(0.088, 0.34)
+		else
+			-- One button, so it CENTRES in the same column the pair occupies
+			-- (0.800..0.984) instead of hugging the right edge. Left at the edge
+			-- it opened a button-sized hole where Boost would have been, and the
+			-- row read as though something had failed to load.
+			action.AnchorPoint = Vector2.new(0.5, 0.5)
+			action.Position = UDim2.fromScale(0.892, 0.5)
 			action.Size = UDim2.fromScale(0.088, 0.34)
 		end
 		if listing.mine then
@@ -883,6 +929,11 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end
 		if lastListings then
 			renderBoard(lastListings)
+		end
+		-- the slot row only shows credits for the scope in view, so it has to
+		-- follow the tab
+		if lastBoostState then
+			renderBoostInventory(lastBoostState)
 		end
 	end
 	for scope, btn in scopeButtons do
