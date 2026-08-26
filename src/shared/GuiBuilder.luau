@@ -1117,7 +1117,7 @@ local function buildBoardPanel(parent: Instance)
 	local featHeader = label("FeaturedHeader", {
 		Position = UDim2.fromScale(0.014, 0.248),
 		Size = UDim2.fromScale(0.5, 0.046),
-		Text = "⭐ FEATURED · PAID PLACEMENT",
+		Text = "⭐ FEATURED",
 		TextScaled = true,
 		TextColor3 = C.Gold,
 		Visible = false,
@@ -1147,8 +1147,8 @@ local function buildBoardPanel(parent: Instance)
 		-- true -- as a plain Frame the cards past the third rendered outside
 		-- the strip entirely, on top of the free feed, so half the paid shelf
 		-- was invisible to the buyer who paid for it.
-		ScrollingDirection = Enum.ScrollingDirection.X,
-		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 		ScrollBarThickness = 4,
 		ScrollBarImageColor3 = C.Gold,
@@ -1158,23 +1158,12 @@ local function buildBoardPanel(parent: Instance)
 	}, boardPanel)
 	corner(featuredStrip, 14)
 	stroke(featuredStrip, C.Gold, 2)
-	new("UIGridLayout", {
-		-- 3 across; the row count is whatever the card total needs.
-		-- THREE across, one row. Each card has to carry two items with a name and
-		-- a value apiece, and six across gives each only ~146px -- at that width
-		-- the labels resolve to 7px, which is present in the tree and invisible
-		-- on screen. Two rows of three was worse still (47px cards, 4px text) and
-		-- crushed the feed underneath. Three keeps every card readable; the pool
-		-- is still six, so the strip scrolls to reach the rest.
-		CellSize = UDim2.fromScale(0.315, 0.88),
-		CellPadding = UDim2.fromScale(0.018, 0.04),
+	-- Stacks like the feed, because the rail holds the SAME rows the feed does.
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		HorizontalAlignment = Enum.HorizontalAlignment.Left,
-		VerticalAlignment = Enum.VerticalAlignment.Top,
-		FillDirection = Enum.FillDirection.Horizontal,
-		-- One row, always. The rail scrolls to reach slots 4-6 rather than
-		-- wrapping onto a second row, which would eat the feed underneath.
-		FillDirectionMaxCells = 0,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 	}, featuredStrip)
 	new("UIPadding", {
 		PaddingLeft = UDim.new(0.014, 0),
@@ -1183,160 +1172,9 @@ local function buildBoardPanel(parent: Instance)
 		PaddingBottom = UDim.new(0.05, 0),
 	}, featuredStrip)
 
-	-- One featured card. Every pixel of it has to buy INFORMATION: a trader
-	-- decides on three things -- what is on offer, how much it is worth, and
-	-- whether the swap is fair -- so the card carries icon + name + value per
-	-- side and the same verdict wording the rows use.
-	--
-	-- Width is a third of the rail so three cards fill it with a sliver of a
-	-- fourth showing, which is what makes the horizontal scroll discoverable
-	-- on a touch screen.
-	--
-	local featuredCard = new("Frame", {
-		Name = "FeaturedCard",
-		BackgroundColor3 = C.BgLight,
-		BorderSizePixel = 0,
-		Size = UDim2.fromScale(0.42, 1),
-		Visible = false,
-	}, featuredStrip)
-	corner(featuredCard, 12)
-	stroke(featuredCard, C.Gold, 2.5)
-	-- gold spine: reads as "paid placement" at a glance even in a screenshot
-	local featuredSpine = new("Frame", {
-		Name = "AccentBar",
-		BackgroundColor3 = C.Gold,
-		BorderSizePixel = 0,
-		Position = UDim2.fromScale(0, 0),
-		Size = UDim2.new(0, 6, 1, 0),
-	}, featuredCard)
-	corner(featuredSpine, 2)
-
-	-- Line 1: who + how long left. Both small and dim -- context, not the
-	-- decision, and they used to compete with the art for attention.
-	local featPoster = label("PosterLabel", {
-		Position = UDim2.fromScale(0.05, 0.05),
-		Size = UDim2.fromScale(0.50, 0.11),
-		Text = "PosterName",
-		Font = FONT_LIGHT,
-		TextScaled = true,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		TextColor3 = C.TextDim,
-	}, featuredCard)
-	capText(featPoster, 14)
-	local featTier = label("TierLabel", {
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.fromScale(0.96, 0.05),
-		Size = UDim2.fromScale(0.36, 0.11),
-		Text = "2d left",
-		Font = FONT_LIGHT,
-		TextScaled = true,
-		TextColor3 = C.Gold,
-		TextXAlignment = Enum.TextXAlignment.Right,
-	}, featuredCard)
-	capText(featTier, 14)
-
-	-- Line 2 (dominant): GIVE (icon + name + value) -- gold arrow -- WANT.
-	local featGive = new("Frame", {
-		Name = "GiveHolder",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.05, 0.19),
-		Size = UDim2.fromScale(0.38, 0.58),
-	}, featuredCard)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Vertical,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, featGive)
-	local featArrow = label("ArrowLabel", {
-		Position = UDim2.fromScale(0.45, 0.40),
-		Size = UDim2.fromScale(0.10, 0.16),
-		Text = "⇄",
-		TextScaled = true,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = C.Gold,
-	}, featuredCard)
-	capText(featArrow, 28)
-	local featWant = new("Frame", {
-		Name = "WantHolder",
-		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.57, 0.19),
-		Size = UDim2.fromScale(0.38, 0.58),
-	}, featuredCard)
-	new("UIListLayout", {
-		FillDirection = Enum.FillDirection.Vertical,
-		SortOrder = Enum.SortOrder.LayoutOrder,
-	}, featWant)
-
-	-- Per-side item card: art on top, then NAME, then count + value. Lives
-	-- under GiveHolder; BoardScreen clones it into both sides.
-	local miniChip = new("Frame", {
-		Name = "MiniChip",
-		BackgroundTransparency = 1,
-		Size = UDim2.fromScale(1, 0.80),
-		Visible = false,
-	}, featGive)
-	-- The art sits in a recessed dark well rather than floating on the card.
-	-- A well gives the icon an edge to read against on a warm background and
-	-- makes the item feel like an object you could pick up.
-	local miniIcon = new("ImageLabel", {
-		Name = "Icon",
-		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-		BackgroundColor3 = C.Bg,
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.01),
-		Size = UDim2.fromScale(1, 0.64),
-		ScaleType = Enum.ScaleType.Fit,
-	}, miniChip)
-	square(miniIcon)
-	corner(miniIcon, 10)
-	stroke(miniIcon, C.Gold:Lerp(C.Bg, 0.55), 1.5)
-	local miniName = label("NameLabel", {
-		Position = UDim2.fromScale(0, 0.59),
-		Size = UDim2.fromScale(1, 0.22),
-		Text = "Item Name",
-		TextScaled = true,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, miniChip)
-	capText(miniName, 16)
-	local miniCount = label("CountLabel", {
-		Position = UDim2.fromScale(0, 0.81),
-		Size = UDim2.fromScale(1, 0.19),
-		Text = "x1",
-		Font = FONT_LIGHT,
-		TextScaled = true,
-		TextColor3 = C.Gem,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, miniChip)
-	capText(miniCount, 14)
-	-- per-side "+N more", stacked under that side's item card
-	local function featMore(parent: Instance)
-		local m = label("MoreLabel", {
-			Name = "MoreLabel",
-			Size = UDim2.fromScale(1, 0.18),
-			Text = "",
-			Font = FONT_LIGHT,
-			TextScaled = true,
-			TextColor3 = C.TextDim,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			LayoutOrder = 99,
-			Visible = false,
-		}, parent)
-		capText(m, 12)
-	end
-	featMore(featGive)
-	featMore(featWant)
-
-	-- Line 3: the verdict, same wording and colouring the feed rows use, so a
-	-- trader reads one line and knows whether to care.
-	local featVerdict = label("VerdictLabel", {
-		Position = UDim2.fromScale(0.05, 0.79),
-		Size = UDim2.fromScale(0.90, 0.15),
-		Text = "Fair",
-		TextScaled = true,
-		TextColor3 = C.TextDim,
-		TextXAlignment = Enum.TextXAlignment.Center,
-	}, featuredCard)
-	capText(featVerdict, 18)
+	-- (The bespoke FeaturedCard template lived here. The rail now clones the
+	-- ordinary listing row, so a featured ad looks exactly like a normal one --
+	-- paying moves your ad, it does not redraw it.)
 
 	-- hard edge between the paid band and the free feed, so the two never read
 	-- as one continuous list. Hidden with the strip.

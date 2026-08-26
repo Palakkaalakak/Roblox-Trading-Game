@@ -122,6 +122,7 @@ local Enums = {
 		"TradeStateChanged", -- (sanitized trade view)
 		"TradeSettled", -- (tradeId, receivedItems, receivedGems)
 		"TradeAborted", -- (tradeId, reason)
+		"AdBoostStateChanged", -- () — a boost credit was banked; refetch GetAdBoostState
 		"Notify", -- (text) — generic notification toast
 		"TradeChat", -- ({tradeId, fromUserId, fromName, text, at})
 		"GroupChat", -- ({groupId, userId, name, text, at}) — already filtered for this reader

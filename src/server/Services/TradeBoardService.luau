@@ -2263,6 +2263,11 @@ function TradeBoardService.Start()
 			-- against a listing that already died" failure mode entirely.
 			TradeBoardService.bankCredit(profile, sku.id)
 			AnalyticsService.log("ad_boost_purchased", { userId = player.UserId, sku = sku.id, claimId = claimId })
+			-- Tell the buyer immediately. Without this the new credit only
+			-- appeared once something else happened to re-render the slot row --
+			-- switching scope tabs, reopening the board -- so a player who had
+			-- just paid saw no change and had no reason to believe it worked.
+			Net.fireClient("AdBoostStateChanged", player)
 			return true
 		end)
 	end

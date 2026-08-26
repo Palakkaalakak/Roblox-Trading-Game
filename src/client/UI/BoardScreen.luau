@@ -45,10 +45,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- boostTier >= 2 listings)
 	local featuredStrip = panel:WaitForChild("FeaturedStrip") :: ScrollingFrame
 	local featuredHeader = panel:WaitForChild("FeaturedHeader") :: TextLabel
-	local featuredCardTemplate = featuredStrip:WaitForChild("FeaturedCard") :: Frame
-	local featuredMiniChip = (featuredCardTemplate:WaitForChild("GiveHolder") :: Frame):WaitForChild("MiniChip") :: Frame
 	local featuredDivider = panel:WaitForChild("FeaturedDivider") :: Frame
-	local featuredSpawned: { Instance } = {}
 	-- Feed geometry is expressed as FRACTIONS of the panel, not pixels: the
 	-- board is scale-native, so the band the feed occupies has to move in the
 	-- same units the builder laid it out in.
@@ -57,8 +54,6 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local FEED_BOTTOM_GUTTER = 0.02
 	-- tabs + scope row + boost slots occupy the band above 0.35
 	local LIST_Y_NO_FEATURED = 0.250
-	-- featured header (0.338) + strip (0.394..0.684) + divider (0.696), gutter
-	local LIST_Y_WITH_FEATURED = 0.626
 
 	-- Header, band and divider live and die together: half of a collapsed strip
 	-- is a gold word floating over nothing.
@@ -71,19 +66,37 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- full feed row visible underneath. At 0.148 two rows pushed the feed down
 	-- to ~57px against a 131px row, so the first ad was sliced in half by the
 	-- panel edge — the paid shelf was eating the thing it sits on top of.
-	local FEATURED_ROW_H = 0.300
-	local FEATURED_COLS = 3
+	-- One rail row is one feed row, because they are literally the same row.
+	-- 204px against a 509px panel, so a row is ~0.40 of the panel's height.
+	local FEATURED_ROW_H = 0.401
+	local FEATURED_TOP = 0.302
+	local FEATURED_GAP = 0.012
+	local FEATURED_VISIBLE_ROWS = 3
+	-- The feed must keep at least this much of the panel, or the rail eats the
+	-- thing it is supposed to sit on top of.
+	local FEED_MIN_H = 0.28
 
+	-- The rail is a fixed THREE rows tall and scrolls to reach the rest of the
+	-- five slots. Sizing it to the live count would make the feed underneath
+	-- jump every time an ad was featured or expired; a fixed height that scrolls
+	-- keeps the feed's top edge still.
 	local function setFeaturedVisible(visible: boolean, count: number?)
 		featuredStrip.Visible = visible
 		featuredHeader.Visible = visible
 		featuredDivider.Visible = visible
-		local rows = 1 -- capped: a second row costs more feed than the shelf is worth
-		featuredStrip.Size = UDim2.fromScale(FEED_W, rows * FEATURED_ROW_H)
-		local listY = visible and (LIST_Y_WITH_FEATURED + (rows - 1) * FEATURED_ROW_H) or LIST_Y_NO_FEATURED
+		-- Cap the rail at whatever actually fits above a usable feed. Asking for
+		-- three rows on a panel only ~2.5 rows tall would push the feed off the
+		-- bottom entirely, so the rail takes what it can and scrolls for the rest.
+		local roomRows = math.floor((1 - FEATURED_TOP - FEATURED_GAP - FEED_MIN_H - FEED_BOTTOM_GUTTER) / FEATURED_ROW_H)
+		local fits = math.max(1, math.min(FEATURED_VISIBLE_ROWS, roomRows))
+		local shown = math.min(count or 0, fits)
+		local railRows = math.max(1, shown)
+		featuredStrip.Size = UDim2.fromScale(FEED_W, railRows * FEATURED_ROW_H)
+		local listY = visible and (FEATURED_TOP + railRows * FEATURED_ROW_H + FEATURED_GAP) or LIST_Y_NO_FEATURED
 		list.Position = UDim2.fromScale(FEED_X, listY)
 		list.Size = UDim2.fromScale(FEED_W, 1 - listY - FEED_BOTTOM_GUTTER)
 		emptyLabel.Position = UDim2.fromScale(FEED_X, listY + 0.07)
+		featuredDivider.Position = UDim2.fromScale(FEED_X, listY - FEATURED_GAP * 0.5)
 	end
 	setFeaturedVisible(false)
 
@@ -623,12 +636,15 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		refreshBoostInventory()
 	end
 
-	local function renderListing(listing: any, order: number)
+	-- `parent` is the feed by default and the featured rail when a listing is
+	-- featured. Same template, same wiring, same everything -- a featured ad IS
+	-- a normal ad, it just sits in the gold box instead of the feed.
+	local function renderListing(listing: any, order: number, parent: Instance?)
 		local row = rowTemplate:Clone()
 		row.Name = "listing_" .. listing.id
 		row.Visible = true
 		row.LayoutOrder = order
-		row.Parent = list
+		row.Parent = parent or list
 		table.insert(spawned, row)
 
 		local giveHolder = row:WaitForChild("GiveHolder") :: Frame
@@ -823,88 +839,23 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end
 	end
 
-	local function clearFeatured()
-		for _, inst in featuredSpawned do
-			inst:Destroy()
+
+
+	-- Gold rail above the feed holding the featured ads for the active scope.
+	--
+	-- These are the SAME rows the feed renders, not a bespoke card. The card
+	-- version had its own layout, its own item chips and its own idea of what a
+	-- trade looks like, so the paid placement read as a different, smaller
+	-- product than the free listing underneath it. Paying should move your ad,
+	-- not redraw it.
+	--
+	-- A featured ad appears here and NOWHERE else -- renderBoard keeps it out of
+	-- the feed, so the rail is a promotion rather than a duplicate.
+	local function renderFeatured(featured: { any })
+		for i, listing in featured do
+			renderListing(listing, i, featuredStrip)
 		end
-		table.clear(featuredSpawned)
-	end
-
-	-- Fill one side of a featured card: ONE named, priced item plus a "+N more"
-	-- line. The card is fixed-height on purpose (a wrapping summary used to
-	-- jitter every card's height), and one item with a name and a value is
-	-- worth more to a trader than three anonymous icons.
-	local function fillFeaturedSide(holder: Frame, offer: any)
-		local more = holder:WaitForChild("MoreLabel") :: TextLabel
-		local entry = offer.items[1]
-		if entry then
-			local chip = featuredMiniChip:Clone()
-			chip.Name = "chip"
-			chip.Visible = true
-			chip.LayoutOrder = 1
-			Components.setIcon(chip:WaitForChild("Icon") :: ImageLabel, { imageId = entry.imageId, name = entry.name })
-			;(chip:WaitForChild("NameLabel") :: TextLabel).Text = entry.name
-			;(chip:WaitForChild("CountLabel") :: TextLabel).Text = countValueText(entry)
-			chip.Parent = holder
-			table.insert(featuredSpawned, chip)
-			if entry.itemId and not entry.wildcard then
-				EconomyController.ensure({ entry.itemId })
-			end
-			tooltip.attach(chip, function()
-				if entry.wildcard and entry.itemId then
-					return WildcardConfig.snapshot(entry.itemId), nil
-				end
-				if entry.itemId then
-					return EconomyController.get(entry.itemId) or { name = entry.name, imageId = entry.imageId }, nil
-				end
-				return { name = entry.name, imageId = entry.imageId }, nil
-			end)
-		end
-		-- gems on a side still count as "something else in this trade"
-		local extra = #offer.items - (entry and 1 or 0)
-		if offer.gems > 0 then
-			extra += 1
-		end
-		more.Visible = extra > 0
-		more.Text = extra > 0 and ("+%d more"):format(extra) or ""
-	end
-
-	-- gold strip above the list: at most FeaturedSlotsPerScope boosted ads for
-	-- the active scope. Collapses to nothing rather than show as an empty rail.
-	local function renderFeatured(scopeListings: { any })
-		clearFeatured()
-		local shown = 0
-		for _, listing in scopeListings do
-			if shown >= TradeAdConfig.FeaturedSlotsPerScope then
-				break
-			end
-			if listing.boostTier and listing.boostTier >= TradeAdConfig.BoostTier.Featured then
-				shown += 1
-				local card = featuredCardTemplate:Clone()
-				card.Name = "featured_" .. listing.id
-				card.Visible = true
-				card.LayoutOrder = shown
-				;(card:WaitForChild("PosterLabel") :: TextLabel).Text = listing.posterName
-
-				-- what / how much / is it fair — the three things a trader
-				-- decides on. Anything less and the paid card is worth less
-				-- than the free row underneath it.
-				fillFeaturedSide(card:WaitForChild("GiveHolder") :: Frame, listing.give)
-				fillFeaturedSide(card:WaitForChild("WantHolder") :: Frame, listing.want)
-
-				local verdict = card:WaitForChild("VerdictLabel") :: TextLabel
-				verdict.Text, verdict.TextColor3 = verdictFor(listing)
-
-				-- countdown only: every card in this strip is featured, so
-				-- repeating the word on each one was noise against the art
-				local tierLabel = card:WaitForChild("TierLabel") :: TextLabel
-				tierLabel.Text = listing.boostExpiresAt and boostLeftText(listing.boostExpiresAt) or "Featured"
-
-				card.Parent = featuredStrip
-				table.insert(featuredSpawned, card)
-			end
-		end
-		setFeaturedVisible(shown > 0, shown)
+		setFeaturedVisible(#featured > 0, #featured)
 	end
 
 	-- Rebuilding the feed destroys and re-creates roughly a thousand instances
@@ -925,8 +876,11 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		for i, l in scopeListings do
 			parts[i + 1] = table.concat({
 				l.id,
-				tostring(l.status),
-				tostring(l.tier or 0),
+				-- boostTier, not `tier`: the payload calls it boostTier and carries no
+				-- `status` at all. Reading names it does not have made both entries a
+				-- constant nil, so featuring or boosting an ad changed nothing the
+				-- cache could see and the feed kept showing stale rows.
+				tostring(l.boostTier or 0),
 				tostring(l.expiresAt or 0),
 				tostring(l.mine),
 				tostring(l.autoTrade),
@@ -950,8 +904,24 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end
 		clearRendered() -- nils lastSignature via invalidateBoardCache
 		lastSignature = signature
-		renderFeatured(scopeListings)
-		for i, listing in scopeListings do
+
+		-- A featured ad belongs to the rail and is kept OUT of the feed. Showing
+		-- it in both made the paid slot look like a duplicate posting rather than
+		-- a promotion, and cost the feed a row to say the same thing twice.
+		local featured, rest = {}, {}
+		for _, listing in scopeListings do
+			local isFeatured = listing.boostTier ~= nil
+				and listing.boostTier >= TradeAdConfig.BoostTier.Featured
+				and #featured < TradeAdConfig.FeaturedSlotsPerScope
+			if isFeatured then
+				table.insert(featured, listing)
+			else
+				table.insert(rest, listing)
+			end
+		end
+
+		renderFeatured(featured)
+		for i, listing in rest do
 			renderListing(listing, i)
 		end
 		emptyLabel.Visible = #scopeListings == 0 and activeTab == "swap"
@@ -969,6 +939,13 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			end
 		end)
 	end
+
+	-- A banked credit shows up the moment it is bought. The server fires this as
+	-- soon as the receipt is processed, so the slot row no longer waits for the
+	-- player to switch tabs before admitting the purchase worked.
+	Net.on("AdBoostStateChanged", function()
+		refreshBoostInventory()
+	end)
 
 	local function selectScope(scope: string)
 		activeScope = scope
@@ -1021,8 +998,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			refreshBoostInventory()
 		else
 			clearRendered()
-			clearFeatured()
-			emptyLabel.Visible = false
+				emptyLabel.Visible = false
 			list.Visible = false
 			postBtn.Visible = false
 			scopeRow.Visible = false

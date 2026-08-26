@@ -38,7 +38,7 @@ local TradeAdConfig = {
 
 	-- Scarce on purpose: scarcity is what makes the strip worth buying, and
 	-- what stops it becoming a second feed.
-	FeaturedSlotsPerScope = 6,
+	FeaturedSlotsPerScope = 5,
 
 	BoostTier = {
 		None = 0,
