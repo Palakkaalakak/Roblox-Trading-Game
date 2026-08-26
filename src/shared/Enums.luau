@@ -113,6 +113,7 @@ local Enums = {
 		"ApplyAdBoost", -- (listingId, skuId) -> {ok, err?} — spend a banked credit on your own open ad
 		"GetAdBoostState", -- () -> {ok, credits, featuredOpen, autoRenew} — owned credits + free featured slots
 		"SetAdAutoRenew", -- (scope, enabled) -> {ok, err?} — per-scope featured auto-renew preference
+		"SetPerkDebug", -- (offerId, enabled) -> {ok, err?} — DEV ONLY: suppress an owned pass's perk
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)

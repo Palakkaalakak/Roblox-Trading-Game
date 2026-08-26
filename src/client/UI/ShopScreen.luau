@@ -113,6 +113,52 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 	-- The Blox-Fruits card nests things (the name lives in the coloured banner,
 	-- the old price sits inside the green price bar), so these are found
 	-- recursively rather than as direct children.
+	-- Development toggle, rendered ONLY when the server said so. The server
+	-- attaches offer.adPerk for one account and omits it for everyone else, so
+	-- there is nothing here to discover or spoof -- a client that fakes the
+	-- field still gets refused by SetPerkDebug.
+	--
+	-- It exists because owning a pass is permanent: without this there is no way
+	-- to see what the game looks like without one on an account that bought it.
+	local refreshShop: () -> ()
+	local function wirePerkDebug(cardInst: Frame, offer: any)
+		local existing = cardInst:FindFirstChild("PerkDebugToggle")
+		if existing then
+			existing:Destroy()
+		end
+		if offer.adPerk == nil then
+			return
+		end
+		local on = offer.perkOn == true
+		local btn = Instance.new("TextButton")
+		btn.Name = "PerkDebugToggle"
+		-- Sits just ABOVE the buy button (which starts at 0.815 of the card), not
+		-- over it. Anchored bottom so it grows upward and never eats the price.
+		btn.AnchorPoint = Vector2.new(0.5, 1)
+		btn.Position = UDim2.fromScale(0.5, 0.805)
+		btn.Size = UDim2.fromScale(0.92, 0.10)
+		btn.BackgroundColor3 = on and Theme.Good or Theme.Bad
+		btn.BorderSizePixel = 0
+		btn.Font = Enum.Font.GothamBold
+		btn.TextScaled = true
+		btn.TextColor3 = Color3.new(1, 1, 1)
+		btn.Text = on and "DEBUG: perk ON" or "DEBUG: perk OFF"
+		btn.ZIndex = 20
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = btn
+		local cap = Instance.new("UITextSizeConstraint")
+		cap.MaxTextSize = 12
+		cap.Parent = btn
+		btn.Parent = cardInst
+		btn.Activated:Connect(function()
+			local result = Net.invoke("SetPerkDebug", offer.id, not on)
+			if result and result.ok then
+				refreshShop()
+			end
+		end)
+	end
+
 	local function fillCommon(cardInst: Frame, offer: any)
 		local nameLabel = cardInst:FindFirstChild("OfferName", true) :: TextLabel
 		nameLabel.Text = offer.name
@@ -159,6 +205,7 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		end
 
 		wireBuy(cardInst:WaitForChild("BuyButton") :: TextButton, offer)
+		wirePerkDebug(cardInst, offer)
 	end
 
 	-- medium card (grid)
@@ -318,6 +365,8 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			end
 		end)
 	end
+
+	refreshShop = refresh
 
 	function ShopScreen.open()
 		Components.closeOtherPanels(panel)

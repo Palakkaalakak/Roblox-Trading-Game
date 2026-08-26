@@ -55,6 +55,25 @@ local priceCache: { [number]: number } = {}
 -- cached: the moment an offer gets its real id, its real price should resolve.
 local PLACEHOLDER_PRICE = 99
 
+-- Owning a pass is permanent, which makes testing what the game looks like
+-- WITHOUT it impossible on an account that has bought one. This lets exactly
+-- one account flip its own perk flags off and back on from the shop.
+--
+-- Deliberately name-gated rather than config-driven: it is a development
+-- affordance, not a feature, and it grants nothing -- the flag it flips is
+-- re-granted from real pass ownership on the next join, so the worst case is
+-- a perk that turns itself back on.
+local PERK_DEBUG_USER = "Palakkaalakak"
+
+local function isPerkDebugger(player: Player): boolean
+	return player.Name == PERK_DEBUG_USER
+end
+
+local function perkIsOn(player: Player, perk: string): boolean
+	local prof = DataService.getProfile(player)
+	return prof ~= nil and prof.AdPerks ~= nil and prof.AdPerks[perk] == true
+end
+
 local function tokenItemId(sku: string): string
 	return "prod_" .. sku
 end
@@ -390,6 +409,50 @@ function ProductService.Start()
 
 	-- The shop catalogue the client renders. Sends only what the UI needs, plus
 	-- which gamepasses this player already owns (for the OWNED state).
+	-- Flip one ad perk on or off for the debug account. Refuses everyone else,
+	-- refuses a perk the account does not actually own the pass for, and the
+	-- flag is restored from real ownership on the next join.
+	Net.bindFunction("SetPerkDebug", function(player, offerId, enabled)
+		if not isPerkDebugger(player) then
+			return { ok = false, err = "not_allowed" }
+		end
+		if not Guard.isString(offerId, 64) or not Guard.isBool(enabled) then
+			return { ok = false, err = "bad_args" }
+		end
+		local offer
+		for _, o in MonetizationConfig.Offers do
+			if o.id == offerId then
+				offer = o
+				break
+			end
+		end
+		local perk = offer and offer.grants and offer.grants.adPerk
+		if perk == nil then
+			return { ok = false, err = "not_a_perk_offer" }
+		end
+		-- Turning a perk ON still requires owning the pass. This toggle exists to
+		-- SUPPRESS something already bought, not to hand it out.
+		if enabled and not ownsGamePass(player, offer.productId) then
+			return { ok = false, err = "not_owned" }
+		end
+		local prof = DataService.getProfile(player)
+		if prof == nil then
+			return { ok = false, err = "loading" }
+		end
+		prof.AdPerks = prof.AdPerks or { priority = false, duration = false }
+		prof.AdPerks[perk] = enabled
+		task.spawn(function()
+			DataService.saveNow(player)
+		end)
+		AnalyticsService.log("perk_debug_toggled", {
+			userId = player.UserId,
+			offerId = offerId,
+			perk = perk,
+			enabled = enabled,
+		})
+		return { ok = true, perk = perk, enabled = enabled }
+	end)
+
 	Net.bindFunction("GetShop", function(player)
 		local offers = {}
 		-- Ad boosts are sold here alongside everything else. They come from
@@ -405,6 +468,12 @@ function ProductService.Start()
 			local owned = false
 			if sellable and offer.productType == "gamepass" then
 				owned = ownsGamePass(player, offer.productId)
+			end
+			local debugPerk: string? = nil
+			local debugPerkOn: boolean? = nil
+			if isPerkDebugger(player) and offer.grants.adPerk ~= nil then
+				debugPerk = offer.grants.adPerk
+				debugPerkOn = perkIsOn(player, offer.grants.adPerk)
 			end
 			table.insert(offers, {
 				sellable = sellable,
@@ -426,6 +495,15 @@ function ProductService.Start()
 				accent = offer.accent,
 				price = priceInRobux(offer),
 				owned = owned,
+				-- Debug-only, and only for the one account below: which perk this
+				-- pass grants and whether it is currently live. Absent for every
+				-- other player, so the toggle cannot render for them.
+				--
+				-- Computed above rather than inline: `a and b or nil` collapses a
+				-- legitimate `false` to nil, which would have reported a perk that
+				-- is switched OFF as "no perk state at all".
+				adPerk = debugPerk,
+				perkOn = debugPerkOn,
 			})
 		end
 		return {
