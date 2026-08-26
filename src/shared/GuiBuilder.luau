@@ -5236,10 +5236,11 @@ local function buildModals(parent: Instance)
 	buildEventsPanel(gui)
 	buildBoardPanel(gui)
 	buildProfilePanel(gui)
-	buildRollsPanel(gui)
-	buildShopPanel(gui)
 	buildFreeGemsPanel(gui)
-	buildSyndicatePanel(gui)
+	-- Rolls, Shop and Syndicate are NOT built here. They are the three heaviest
+	-- panels a player may never open in a session (352 instances between them),
+	-- and everything in StarterGui replicates to every client on join. They are
+	-- built on first open instead -- see GuiBuilder.ensurePanel.
 
 	-- invite popup
 	local invite = panel("InvitePanel", {
@@ -5453,6 +5454,58 @@ function GuiBuilder.build()
 		end
 	end
 	return "GUI built into StarterGui (TradingHUD + TradingModals)"
+end
+
+--------------------------------------------------------------------------------
+-- Lazily built panels
+--
+-- Everything under StarterGui replicates to every client on join, whether or
+-- not the player ever opens it. These three are the heaviest panels a session
+-- may never touch, so they are built into the live PlayerGui on first open
+-- instead of shipped to everyone up front.
+--
+-- The same builders run, with the same parent contract, so a lazy panel is
+-- byte-identical to the eager one -- the only difference is when it exists.
+--------------------------------------------------------------------------------
+
+local LAZY_BUILDERS: { [string]: (Instance) -> () } = {
+	RollsPanel = buildRollsPanel,
+	ShopPanel = buildShopPanel,
+	SyndicatePanel = buildSyndicatePanel,
+}
+
+function GuiBuilder.isLazyPanel(name: string): boolean
+	return LAZY_BUILDERS[name] ~= nil
+end
+
+-- Build `name` under `modals` if it is not there yet. Safe to call repeatedly;
+-- the second call is a FindFirstChild and nothing else.
+function GuiBuilder.ensurePanel(modals: Instance, name: string): Instance?
+	local existing = modals:FindFirstChild(name)
+	if existing then
+		return existing
+	end
+	local builder = LAZY_BUILDERS[name]
+	if builder == nil then
+		return nil
+	end
+	builder(modals)
+	local panelInstance = modals:FindFirstChild(name)
+
+	-- Same scroll gutter the eager build applies, scoped to just this subtree.
+	-- Without it a lazily built list loses the outer half of its left border to
+	-- the ScrollingFrame clip, exactly as the eager panels used to.
+	if panelInstance then
+		for _, scroll in panelInstance:GetDescendants() do
+			if scroll:IsA("ScrollingFrame") and scroll:FindFirstChildWhichIsA("UIPadding") == nil then
+				new("UIPadding", {
+					PaddingLeft = UDim.new(0, 6),
+					PaddingTop = UDim.new(0, 6),
+				}, scroll)
+			end
+		end
+	end
+	return panelInstance
 end
 
 return GuiBuilder

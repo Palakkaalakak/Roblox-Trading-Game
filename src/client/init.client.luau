@@ -66,11 +66,40 @@ StoreScreen.wire(modalGui, tooltip, toast)
 EventsScreen.wire(modalGui, tooltip, toast)
 BoardScreen.wire(modalGui, tooltip, toast)
 ProfileScreen.wire(modalGui, tooltip)
-RollsScreen.wire(modalGui, tooltip, toast)
-ShopScreen.wire(modalGui, tooltip, toast)
 FreeGemsScreen.wire(modalGui, toast)
+
+-- Rolls, Shop and Syndicate are wired on FIRST OPEN, not at join. Their panels
+-- are deliberately absent from StarterGui (see GuiBuilder.ensurePanel), so
+-- wiring them here would WaitForChild forever. Every entry point below goes
+-- through ensureLazy, which builds the panel into the live PlayerGui and wires
+-- the screen exactly once.
+local GuiBuilder = require(game:GetService("ReplicatedStorage").Shared.GuiBuilder)
+local lazyWired: { [string]: boolean } = {}
+local function ensureLazy(panelName: string, wireScreen: () -> ())
+	if lazyWired[panelName] then
+		return
+	end
+	lazyWired[panelName] = true
+	GuiBuilder.ensurePanel(modalGui, panelName)
+	wireScreen()
+end
+
+local function ensureRolls()
+	ensureLazy("RollsPanel", function()
+		RollsScreen.wire(modalGui, tooltip, toast)
+	end)
+end
+local function ensureShop()
+	ensureLazy("ShopPanel", function()
+		ShopScreen.wire(modalGui, tooltip, toast)
+	end)
+end
+local function ensureSyndicate()
+	ensureLazy("SyndicatePanel", function()
+		SyndicateScreen.wire(modalGui, toast, tooltip)
+	end)
+end
 WorldLeaderboards.start() -- fills the physical boards standing in the world
-SyndicateScreen.wire(modalGui, toast, tooltip)
 AdminPanel.wire() -- own standalone ScreenGui, not nested in modalGui/hudGui
 HUD.wire(hudGui, {
 	inventory = function()
@@ -83,12 +112,14 @@ HUD.wire(hudGui, {
 		ProfileScreen.openBrowser()
 	end,
 	shop = function()
+		ensureShop()
 		ShopScreen.toggle()
 	end,
 	freeGems = function()
 		FreeGemsScreen.toggle()
 	end,
 	syndicate = function()
+		ensureSyndicate()
 		SyndicateScreen.toggle()
 	end,
 })
@@ -104,6 +135,7 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt)
 	elseif prompt.Name == "EventPrompt" then
 		EventsScreen.open()
 	elseif prompt.Name == RollConfig.PromptName then
+		ensureRolls()
 		RollsScreen.open()
 	elseif prompt.Name == "BoardPrompt" then
 		BoardScreen.open()
