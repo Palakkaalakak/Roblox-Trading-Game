@@ -51,6 +51,10 @@ local gamepassOffers: { [number]: any } = {}
 -- without re-querying Roblox every time the shop opens.
 local priceCache: { [number]: number } = {}
 
+-- Shown for any offer still on the shared stand-in product. Deliberately NOT
+-- cached: the moment an offer gets its real id, its real price should resolve.
+local PLACEHOLDER_PRICE = 99
+
 local function tokenItemId(sku: string): string
 	return "prod_" .. sku
 end
@@ -101,6 +105,13 @@ local function priceInRobux(offer: any): number?
 	if offer.robux then
 		priceCache[id] = offer.robux
 		return offer.robux
+	end
+	-- Offers still pointing at the shared stand-in product all resolve to that
+	-- ONE product's cost, so asking Roblox would print the same number on every
+	-- unpriced card and dress a placeholder up as a real price. Show a flat 99
+	-- until each has its own id, and skip the web call while we are at it.
+	if id == MonetizationConfig.PlaceholderProductId then
+		return PLACEHOLDER_PRICE
 	end
 	if priceCache[id] ~= nil then
 		return priceCache[id]

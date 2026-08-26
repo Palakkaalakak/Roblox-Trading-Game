@@ -46,8 +46,9 @@ export type Offer = {
 	grants: { gems: number?, items: { [string]: number }? },
 	badge: string?,
 	bonusPercent: number?,
-	-- Shelf price in Robux. When set it is the authority and no GetProductInfo
-	-- call is made; see ProductService.priceInRobux.
+	-- Optional shelf price in Robux. When set it is the authority and no
+	-- GetProductInfo call is made; see ProductService.priceInRobux. Left unset
+	-- here so the shop shows whatever the real product actually costs.
 	robux: number?,
 	wasRobux: number?,
 	availableUntil: number?,
@@ -116,19 +117,6 @@ local MonetizationConfig = {
 		-- ── Gem packs ────────────────────────────────────────────────────
 		-- Escalating bonus % gives players a reason to buy the bigger pack;
 		-- the "+N% BONUS" flourish and BEST VALUE ribbon are what sell it.
-		--
-		-- `robux` is the SHELF price and the authority for what the shop shows.
-		-- Every pack currently points at the same PLACEHOLDER_PRODUCT_ID, so
-		-- asking Roblox for the price returned that one product's cost -- 99 --
-		-- for all five, and the ladder read as five identical prices. The field
-		-- short-circuits that lookup (see ProductService.priceInRobux).
-		--
-		-- The ladder is the bonus worked backwards: grants / (1 + bonus) is the
-		-- base gem count, priced at roughly 1 R$ per base gem, so the bonus %
-		-- IS the discount rather than a number stuck on the card.
-		--   handful 100/1.00 = 100 -> 99      pouch 550/1.10 =  500 ->  499
-		--   chest  1200/1.20 = 1000 -> 999    vault 2600/1.30 = 2000 -> 1999
-		--   hoard  6000/1.40 = 4286 -> 4299
 		{
 			id = "gems_handful",
 			kind = "gems",
@@ -139,7 +127,6 @@ local MonetizationConfig = {
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 100 },
-			robux = 99,
 			sortOrder = 1,
 		},
 		{
@@ -152,7 +139,6 @@ local MonetizationConfig = {
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 550 },
-			robux = 499,
 			bonusPercent = 10,
 			sortOrder = 2,
 		},
@@ -166,7 +152,6 @@ local MonetizationConfig = {
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 1200 },
-			robux = 999,
 			bonusPercent = 20,
 			badge = "MOST POPULAR", -- decoy anchor: pulls buyers up the ladder
 			sortOrder = 3,
@@ -181,7 +166,6 @@ local MonetizationConfig = {
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 2600 },
-			robux = 1999,
 			bonusPercent = 30,
 			sortOrder = 4,
 		},
@@ -195,7 +179,6 @@ local MonetizationConfig = {
 			productType = "devproduct",
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 6000 },
-			robux = 4299,
 			bonusPercent = 40,
 			badge = "BEST VALUE",
 			featured = true, -- hero card: anchor high with the biggest pack
