@@ -68,15 +68,21 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- panel edge — the paid shelf was eating the thing it sits on top of.
 	-- One rail row is one feed row, because they are literally the same row.
 	-- 204px against a 509px panel, so a row is ~0.40 of the panel's height.
-	-- Rows are shorter now, so a rail row is ~0.33 of the panel.
-	local FEATURED_ROW_H = 0.335
 	local FEATURED_TOP = 0.302
 	local FEATURED_GAP = 0.012
 	local FEATURED_VISIBLE_ROWS = 3
-	-- The rail may take most of the panel -- it is the paid shelf and the point
-	-- of the screen when anything is featured. The feed keeps enough to show it
-	-- continues below and can be scrolled to.
-	local FEED_MIN_H = 0.10
+	-- Row geometry in PIXELS, mirroring the builder: 0.470 of the panel, clamped
+	-- to 158..226. The rail used to be sized by a fixed scale constant, which
+	-- only matched the row on the one panel height it was tuned against -- on a
+	-- taller panel the scale said one thing and the row's pixel clamp said
+	-- another, so the rail showed a single row no matter how much room existed.
+	local ROW_H_SCALE, ROW_H_MIN, ROW_H_MAX = 0.470, 158, 226
+	local ROW_GAP = 10
+	-- The feed keeps a partial row rather than a whole one: enough to read as
+	-- "there is more below, scroll", which is all it needs to do while the paid
+	-- shelf is on screen. Reserving a full row starved the rail on every panel
+	-- size we actually ship on.
+	local FEED_MIN_PX = 100
 
 	-- The rail is a fixed THREE rows tall and scrolls to reach the rest of the
 	-- five slots. Sizing it to the live count would make the feed underneath
@@ -86,15 +92,22 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		featuredStrip.Visible = visible
 		featuredHeader.Visible = visible
 		featuredDivider.Visible = visible
-		-- Cap the rail at whatever actually fits above a usable feed. Asking for
-		-- three rows on a panel only ~2.5 rows tall would push the feed off the
-		-- bottom entirely, so the rail takes what it can and scrolls for the rest.
-		local roomRows = math.floor((1 - FEATURED_TOP - FEATURED_GAP - FEED_MIN_H - FEED_BOTTOM_GUTTER) / FEATURED_ROW_H)
+		-- Work in pixels off the panel's real height, so the rail shows as many
+		-- rows as genuinely fit on THIS screen and scrolls for the rest.
+		local panelH = panel.AbsoluteSize.Y
+		-- A row is 0.470 of ITS PARENT, so inside the rail it settles at its
+		-- floor rather than at some fraction of the panel. Measuring it against
+		-- the panel returned the 226 ceiling and made the rail think one row
+		-- filled it.
+		local rowH = ROW_H_MIN
+		local roomPx = panelH * (1 - FEATURED_TOP - FEATURED_GAP - FEED_BOTTOM_GUTTER) - FEED_MIN_PX
+		local roomRows = math.floor(roomPx / (rowH + ROW_GAP))
 		local fits = math.max(1, math.min(FEATURED_VISIBLE_ROWS, roomRows))
 		local shown = math.min(count or 0, fits)
 		local railRows = math.max(1, shown)
-		featuredStrip.Size = UDim2.fromScale(FEED_W, railRows * FEATURED_ROW_H)
-		local listY = visible and (FEATURED_TOP + railRows * FEATURED_ROW_H + FEATURED_GAP) or LIST_Y_NO_FEATURED
+		local railPx = railRows * rowH + (railRows - 1) * ROW_GAP + 12
+		featuredStrip.Size = UDim2.new(FEED_W, 0, 0, railPx)
+		local listY = visible and (FEATURED_TOP + (railPx / panelH) + FEATURED_GAP) or LIST_Y_NO_FEATURED
 		list.Position = UDim2.fromScale(FEED_X, listY)
 		list.Size = UDim2.fromScale(FEED_W, 1 - listY - FEED_BOTTOM_GUTTER)
 		emptyLabel.Position = UDim2.fromScale(FEED_X, listY + 0.07)
@@ -697,7 +710,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- and "ASK FIRST" were internal names for the two modes, sitting
 		-- unexplained in the middle of the row -- a player has no way to know
 		-- that "ask first" means their acceptance is a request, not a trade.
-		badge.Text = listing.autoTrade and "Accepting will trigger the trade" or "Accepting sends a request"
+		-- Explicit break so the second line is a phrase, not one orphaned word.
+		badge.Text = listing.autoTrade and "Accepting will\ntrigger the trade" or "Accepting sends\na request"
 		badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
 		-- one density for both sides, driven by whichever side carries more
 		local chipCols = gridColsFor(math.max(#listing.give.items, #listing.want.items))

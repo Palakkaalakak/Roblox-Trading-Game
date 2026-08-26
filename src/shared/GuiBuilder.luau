@@ -1359,10 +1359,15 @@ local function buildBoardPanel(parent: Instance)
 		-- out well past both edges and read as a third loose label rather than
 		-- the button's own small print.
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.892, 0.66),
-		Size = UDim2.fromScale(0.22, 0.15),
+		Position = UDim2.fromScale(0.892, 0.655),
+		Size = UDim2.fromScale(0.235, 0.30),
 		Text = "Trades instantly",
 		TextScaled = true,
+		-- WRAPS onto a second line instead of running past the row's edge. The
+		-- caption is a sentence now, not two words, and unwrapped it either shrank
+		-- to unreadable or spilled off the side.
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Center,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextColor3 = C.Warn,
 	}, row)
@@ -1405,14 +1410,14 @@ local function buildBoardPanel(parent: Instance)
 		Name = "GiveGemsIcon",
 		Image = ICONS.Gem,
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.016, 0.855),
+		Position = UDim2.fromScale(0.016, 0.815),
 		Size = UDim2.fromScale(1, 0.11),
 		ScaleType = Enum.ScaleType.Fit,
 		Visible = false,
 	}, row)
 	square(giveGemsIcon)
 	local giveGemsLbl = label("GiveGemsLabel", {
-		Position = UDim2.fromScale(0.048, 0.85),
+		Position = UDim2.fromScale(0.048, 0.81),
 		Size = UDim2.fromScale(0.263, 0.12),
 		Text = "",
 		TextScaled = true,
@@ -1532,14 +1537,14 @@ local function buildBoardPanel(parent: Instance)
 		Name = "WantGemsIcon",
 		Image = ICONS.Gem,
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.378, 0.855),
+		Position = UDim2.fromScale(0.378, 0.815),
 		Size = UDim2.fromScale(1, 0.11),
 		ScaleType = Enum.ScaleType.Fit,
 		Visible = false,
 	}, row)
 	square(wantGemsIcon)
 	local wantGemsLbl = label("WantGemsLabel", {
-		Position = UDim2.fromScale(0.410, 0.85),
+		Position = UDim2.fromScale(0.410, 0.81),
 		Size = UDim2.fromScale(0.263, 0.12),
 		Text = "",
 		TextScaled = true,
