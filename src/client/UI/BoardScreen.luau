@@ -68,13 +68,15 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- panel edge — the paid shelf was eating the thing it sits on top of.
 	-- One rail row is one feed row, because they are literally the same row.
 	-- 204px against a 509px panel, so a row is ~0.40 of the panel's height.
-	local FEATURED_ROW_H = 0.401
+	-- Rows are shorter now, so a rail row is ~0.33 of the panel.
+	local FEATURED_ROW_H = 0.335
 	local FEATURED_TOP = 0.302
 	local FEATURED_GAP = 0.012
 	local FEATURED_VISIBLE_ROWS = 3
-	-- The feed must keep at least this much of the panel, or the rail eats the
-	-- thing it is supposed to sit on top of.
-	local FEED_MIN_H = 0.28
+	-- The rail may take most of the panel -- it is the paid shelf and the point
+	-- of the screen when anything is featured. The feed keeps enough to show it
+	-- continues below and can be scrolled to.
+	local FEED_MIN_H = 0.10
 
 	-- The rail is a fixed THREE rows tall and scrolls to reach the rest of the
 	-- five slots. Sizing it to the live count would make the feed underneath
@@ -636,6 +638,31 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		refreshBoostInventory()
 	end
 
+	-- Blocking "are you sure?" over the board. Yields the calling thread until
+	-- the player answers, so the accept path stays one straight line instead of
+	-- splitting into callbacks.
+	local confirmPanel = panel:WaitForChild("ConfirmPanel") :: Frame
+	local confirmBody = confirmPanel:WaitForChild("Body") :: TextLabel
+	local confirmYes = confirmPanel:WaitForChild("YesButton") :: TextButton
+	local confirmNo = confirmPanel:WaitForChild("NoButton") :: TextButton
+	local confirmAnswer = Instance.new("BindableEvent")
+	confirmYes.Activated:Connect(function()
+		confirmPanel.Visible = false
+		confirmAnswer:Fire(true)
+	end)
+	confirmNo.Activated:Connect(function()
+		confirmPanel.Visible = false
+		confirmAnswer:Fire(false)
+	end)
+
+	local function askConfirm(listing: any): boolean
+		confirmBody.Text = listing.autoTrade
+				and "This trade goes through straight away and cannot be undone."
+			or "This sends a trade request to the poster."
+		confirmPanel.Visible = true
+		return confirmAnswer.Event:Wait()
+	end
+
 	-- `parent` is the feed by default and the featured rail when a listing is
 	-- featured. Same template, same wiring, same everything -- a featured ad IS
 	-- a normal ad, it just sits in the gold box instead of the feed.
@@ -670,7 +697,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- and "ASK FIRST" were internal names for the two modes, sitting
 		-- unexplained in the middle of the row -- a player has no way to know
 		-- that "ask first" means their acceptance is a request, not a trade.
-		badge.Text = listing.autoTrade and "Accept → trades instantly" or "Accept → sends a request"
+		badge.Text = listing.autoTrade and "Accepting will trigger the trade" or "Accepting sends a request"
 		badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
 		-- one density for both sides, driven by whichever side carries more
 		local chipCols = gridColsFor(math.max(#listing.give.items, #listing.want.items))
@@ -805,6 +832,11 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			action.Text = "Accept"
 			action.BackgroundColor3 = Theme.Good
 			action.Activated:Connect(function()
+				-- Accepting hands over real items and cannot be undone, so it asks
+				-- first rather than resolving on one stray tap.
+				if not askConfirm(listing) then
+					return
+				end
 				local result = invokeAction(function()
 					return Net.invoke("AcceptListing", listing.id)
 				end)

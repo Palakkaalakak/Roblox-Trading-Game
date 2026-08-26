@@ -1176,6 +1176,65 @@ local function buildBoardPanel(parent: Instance)
 	-- ordinary listing row, so a featured ad looks exactly like a normal one --
 	-- paying moves your ad, it does not redraw it.)
 
+	-- "Are you sure?" over the whole board. Accepting a trade hands over real
+	-- items instantly and cannot be undone, so it gets a deliberate second step
+	-- rather than resolving on one stray tap.
+	local confirmPanel = new("Frame", {
+		Name = "ConfirmPanel",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.56, 0.42),
+		BackgroundColor3 = C.BgLight,
+		BorderSizePixel = 0,
+		ZIndex = 60,
+		Visible = false,
+	}, boardPanel)
+	corner(confirmPanel, 14)
+	stroke(confirmPanel, C.Warn, 2)
+	new("UISizeConstraint", { MinSize = Vector2.new(280, 150) }, confirmPanel)
+	local confirmTitle = label("Title", {
+		Position = UDim2.fromScale(0.06, 0.10),
+		Size = UDim2.fromScale(0.88, 0.20),
+		Text = "Are you sure?",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 61,
+	}, confirmPanel)
+	capText(confirmTitle, 24)
+	local confirmBody = label("Body", {
+		Position = UDim2.fromScale(0.06, 0.34),
+		Size = UDim2.fromScale(0.88, 0.26),
+		Text = "This trade goes through straight away.",
+		TextScaled = true,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+		ZIndex = 61,
+	}, confirmPanel)
+	capText(confirmBody, 15)
+	local confirmYes = button("YesButton", {
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.fromScale(0.48, 0.90),
+		Size = UDim2.fromScale(0.40, 0.22),
+		Text = "Yes, trade",
+		TextScaled = true,
+		BackgroundColor3 = C.Good,
+		ZIndex = 61,
+	}, confirmPanel)
+	capText(confirmYes, 18)
+	minTouch(confirmYes, 0, 36)
+	local confirmNo = button("NoButton", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.fromScale(0.52, 0.90),
+		Size = UDim2.fromScale(0.40, 0.22),
+		Text = "Cancel",
+		TextScaled = true,
+		BackgroundColor3 = C.Bad,
+		ZIndex = 61,
+	}, confirmPanel)
+	capText(confirmNo, 18)
+	minTouch(confirmNo, 0, 36)
+
 	-- hard edge between the paid band and the free feed, so the two never read
 	-- as one continuous list. Hidden with the strip.
 	new("Frame", {
@@ -1250,12 +1309,12 @@ local function buildBoardPanel(parent: Instance)
 		-- feed felt crammed rather than scannable. A third of the viewport shows
 		-- three at a time with room between them, which is what makes a feed
 		-- read as a list instead of a stack of slabs.
-		Size = UDim2.new(1, -12, 0.550, 0),
+		Size = UDim2.new(1, -12, 0.470, 0),
 		Visible = false,
 	}, list)
 	new("UISizeConstraint", {
-		MinSize = Vector2.new(0, 189),
-		MaxSize = Vector2.new(math.huge, 270),
+		MinSize = Vector2.new(0, 158),
+		MaxSize = Vector2.new(math.huge, 226),
 	}, row)
 	corner(row, 10)
 	stroke(row, C.Stroke, 1)
@@ -1278,7 +1337,7 @@ local function buildBoardPanel(parent: Instance)
 		-- name started at a different x and the column of names down the feed
 		-- looked ragged against the tiles underneath it.
 		AnchorPoint = Vector2.new(0, 0),
-		Position = UDim2.fromScale(0.042, 0.02),
+		Position = UDim2.fromScale(0.042, 0.005),
 		Size = UDim2.fromScale(0.20, 0.13),
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "PosterName",
@@ -1319,7 +1378,7 @@ local function buildBoardPanel(parent: Instance)
 		-- box alone was 177px against a 133px block, so left-aligned text sat
 		-- visibly left of the tiles it labels even though the frame was centred.
 		AnchorPoint = Vector2.new(0, 0),
-		Position = UDim2.fromScale(0.285, 0.02),
+		Position = UDim2.fromScale(0.285, 0.005),
 		Size = UDim2.fromScale(0.20, 0.13),
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "⚡ BOOSTED · 23h left",
@@ -1327,7 +1386,7 @@ local function buildBoardPanel(parent: Instance)
 		TextColor3 = C.Gold,
 		Visible = false,
 	}, row)
-	capText(rowBoostBadge, 17)
+	capText(rowBoostBadge, 13)
 
 	local giveHolder = new("Frame", {
 		Name = "GiveHolder",
@@ -1335,8 +1394,8 @@ local function buildBoardPanel(parent: Instance)
 		-- Narrower and shorter than before: at 0.295 x 0.62 the two item wells
 		-- plus the verdict filled the row edge to edge with no gutters, which is
 		-- what made the feed feel cramped rather than dense.
-		Position = UDim2.fromScale(0.042, 0.17),
-		Size = UDim2.fromScale(0.185, 0.78),
+		Position = UDim2.fromScale(0.042, 0.145),
+		Size = UDim2.fromScale(0.185, 0.82),
 	}, row)
 	-- square block: a 112x100 holder made every "square" tile 52x47, and the
 	-- row gap between tiles differed from the column gap
@@ -1465,8 +1524,8 @@ local function buildBoardPanel(parent: Instance)
 	local wantHolder = new("Frame", {
 		Name = "WantHolder",
 		BackgroundTransparency = 1,
-		Position = UDim2.fromScale(0.285, 0.17),
-		Size = UDim2.fromScale(0.185, 0.78),
+		Position = UDim2.fromScale(0.285, 0.145),
+		Size = UDim2.fromScale(0.185, 0.82),
 	}, row)
 	new("UIAspectRatioConstraint", { AspectRatio = 1 }, wantHolder)
 	local wantGemsIcon = new("ImageLabel", {
