@@ -136,11 +136,16 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		MarketScreen.hide() -- stop background refreshes while closed
 	end)
 
+	-- Set by renderBoard; cleared here so a teardown can never leave the cache
+	-- claiming a board is on screen when the list is actually empty.
+	local invalidateBoardCache: () -> () = function() end
+
 	local function clearRendered()
 		for _, inst in spawned do
 			inst:Destroy()
 		end
 		table.clear(spawned)
+		invalidateBoardCache()
 	end
 
 	-- "x2 · 1.2k" — count and unit value on one line. Value is what a trader
@@ -902,14 +907,49 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		setFeaturedVisible(shown > 0, shown)
 	end
 
+	-- Rebuilding the feed destroys and re-creates roughly a thousand instances
+	-- (a row carries ~40 descendants, plus up to 18 item tiles). Most refreshes
+	-- return a board identical to the one already on screen -- reopening the
+	-- panel, finishing an unrelated action, a poll that found nothing new -- so
+	-- the expensive part is skipped unless something a player can actually see
+	-- has changed. Anything that alters a row's appearance belongs in this
+	-- signature; scope and tab are in it because switching either changes which
+	-- listings render.
+	local lastSignature: string? = nil
+	invalidateBoardCache = function()
+		lastSignature = nil
+	end
+	local function signatureOf(scopeListings: { any }): string
+		local parts = table.create(#scopeListings + 1)
+		parts[1] = activeScope .. "|" .. activeTab
+		for i, l in scopeListings do
+			parts[i + 1] = table.concat({
+				l.id,
+				tostring(l.status),
+				tostring(l.tier or 0),
+				tostring(l.expiresAt or 0),
+				tostring(l.mine),
+				tostring(l.autoTrade),
+				tostring(#l.interested),
+			}, ",")
+		end
+		return table.concat(parts, ";")
+	end
+
 	local function renderBoard(listings: { any })
-		clearRendered()
 		local scopeListings = {}
 		for _, listing in listings do
 			if listing.kind == "swap" and listing.scope == activeScope then
 				table.insert(scopeListings, listing)
 			end
 		end
+
+		local signature = signatureOf(scopeListings)
+		if signature == lastSignature and #spawned > 0 then
+			return -- identical board already on screen; nothing to rebuild
+		end
+		clearRendered() -- nils lastSignature via invalidateBoardCache
+		lastSignature = signature
 		renderFeatured(scopeListings)
 		for i, listing in scopeListings do
 			renderListing(listing, i)
