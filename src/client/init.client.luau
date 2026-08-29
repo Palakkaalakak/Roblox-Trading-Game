@@ -43,6 +43,7 @@ local FreeGemsScreen = require(UI.FreeGemsScreen)
 local WorldLeaderboards = require(UI.WorldLeaderboards)
 local SyndicateScreen = require(UI.SyndicateScreen)
 local AdminPanel = require(UI.AdminPanel)
+local AfkScreen = require(UI.AfkScreen)
 
 local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
 local hudGui = playerGui:WaitForChild("TradingHUD") :: ScreenGui
@@ -67,6 +68,7 @@ EventsScreen.wire(modalGui, tooltip, toast)
 BoardScreen.wire(modalGui, tooltip, toast)
 ProfileScreen.wire(modalGui, tooltip)
 FreeGemsScreen.wire(modalGui, toast)
+AfkScreen.wire(modalGui, toast)
 
 -- Rolls, Shop and Syndicate are wired on FIRST OPEN, not at join. Their panels
 -- are deliberately absent from StarterGui (see GuiBuilder.ensurePanel), so
@@ -121,6 +123,9 @@ HUD.wire(hudGui, {
 	syndicate = function()
 		ensureSyndicate()
 		SyndicateScreen.toggle()
+	end,
+	afk = function()
+		AfkScreen.toggle()
 	end,
 })
 

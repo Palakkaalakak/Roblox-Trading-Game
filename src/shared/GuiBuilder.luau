@@ -40,6 +40,7 @@ local ICONS = {
 	Shop = "rbxassetid://15402855334", -- coin chest
 	Friends = "rbxassetid://17368071983", -- Simulator Icon Pack / Menus / Friends (syndicates)
 	Robux = "rbxassetid://15403000023", -- Bobux (Robux) icon for price buttons
+	Playtime = "rbxassetid://15937828418", -- Simulator Icon Pack / Playtime (AFK)
 }
 local FONT = Enum.Font.GothamBold
 local FONT_LIGHT = Enum.Font.Gotham
@@ -179,14 +180,19 @@ local function buildHud(parent: Instance)
 
 	-- events + trade board have NO HUD buttons: their world NPCs/pillar are
 	-- the way in (EventPrompt / BoardPrompt proximity prompts)
-	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.77))
-	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.57))
-	iconButton("ProfileButton", ICONS.Player, "PLAYERS", UDim2.fromScale(0.955, 0.47))
+	--
+	-- Seven buttons, evenly spread 0.130..0.830. At the old 0.10 spacing the
+	-- 64px icons sat 3px INTO each other, which read as one crowded strip and
+	-- put each label over its neighbour's art.
+	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.830))
+	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.597))
+	iconButton("ProfileButton", ICONS.Player, "PLAYERS", UDim2.fromScale(0.955, 0.480))
 	-- Robux shop and the (deliberately separate) free-gems screen
-	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.37))
-	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.27))
+	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.363))
+	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.247))
 	-- no RANKS button: leaderboards are the physical boards in the world
-	iconButton("SyndicateButton", ICONS.Friends, "GROUP", UDim2.fromScale(0.955, 0.17))
+	iconButton("SyndicateButton", ICONS.Friends, "GROUP", UDim2.fromScale(0.955, 0.130))
+	iconButton("AfkButton", ICONS.Playtime, "GO AFK", UDim2.fromScale(0.955, 0.713))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
@@ -5152,6 +5158,79 @@ local function buildModals(parent: Instance)
 	-- panels a player may never open in a session (352 instances between them),
 	-- and everything in StarterGui replicates to every client on join. They are
 	-- built on first open instead -- see GuiBuilder.ensurePanel.
+
+	-- AFK: a small, calm panel. It is the screen a player leaves open while they
+	-- are not looking at it, so it says only the two things that matter -- when
+	-- the next payout lands and what it will be -- and offers one button.
+	local afkPanel = panel("AfkPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(400, 348),
+		Visible = false,
+	}, gui)
+	local afkTitle = label("Title", {
+		Position = UDim2.fromOffset(16, 16),
+		Size = UDim2.new(1, -32, 0, 30),
+		Text = "AFK Zone",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 24 }, afkTitle)
+	local afkStatus = label("Status", {
+		Position = UDim2.fromOffset(16, 54),
+		Size = UDim2.new(1, -32, 0, 34),
+		Text = "Earn gems while you are away.",
+		TextScaled = true,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 15 }, afkStatus)
+	local afkTimer = label("Timer", {
+		Position = UDim2.fromOffset(16, 96),
+		Size = UDim2.new(1, -32, 0, 52),
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gem,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 38 }, afkTimer)
+	local afkNext = label("NextReward", {
+		Position = UDim2.fromOffset(16, 152),
+		Size = UDim2.new(1, -32, 0, 26),
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Good,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 18 }, afkNext)
+	local afkEarned = label("Earned", {
+		Position = UDim2.fromOffset(16, 180),
+		Size = UDim2.new(1, -32, 0, 24),
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 15 }, afkEarned)
+	local afkGo = button("GoButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -60),
+		Size = UDim2.fromOffset(220, 46),
+		Text = "Go AFK",
+		TextScaled = true,
+		BackgroundColor3 = C.Good,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 20 }, afkGo)
+	local afkClose = button("CloseButton", {
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -14),
+		Size = UDim2.fromOffset(220, 38),
+		Text = "Close",
+		TextScaled = true,
+		BackgroundColor3 = C.BgLight,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 17 }, afkClose)
 
 	-- Buying straight off a booth shelf: "how many?" then "are you sure?".
 	-- Clicking an item on a stall should be a purchase, not a detour through the

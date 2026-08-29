@@ -114,6 +114,9 @@ local Enums = {
 		"GetAdBoostState", -- () -> {ok, credits, featuredOpen, autoRenew} — owned credits + free featured slots
 		"SetAdAutoRenew", -- (scope, enabled) -> {ok, err?} — per-scope featured auto-renew preference
 		"SetPerkDebug", -- (offerId, enabled) -> {ok, err?} — DEV ONLY: suppress an owned pass's perk
+		"EnterAfk", -- () -> {ok, afk, zoneId?, err?} — take a spot on an AFK pad
+		"LeaveAfk", -- () -> {ok, afk} — stand back up; drops the reward ladder
+		"GetAfkState", -- () -> {ok, afk, ticks?, secondsToNext?, nextReward}
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)
@@ -123,6 +126,7 @@ local Enums = {
 		"TradeSettled", -- (tradeId, receivedItems, receivedGems)
 		"TradeAborted", -- (tradeId, reason)
 		"AdBoostStateChanged", -- () — a boost credit was banked; refetch GetAdBoostState
+		"AfkStateChanged", -- (state) — AFK session started, paid a tick, or ended
 		"Notify", -- (text) — generic notification toast
 		"TradeChat", -- ({tradeId, fromUserId, fromName, text, at})
 		"GroupChat", -- ({groupId, userId, name, text, at}) — already filtered for this reader

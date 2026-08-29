@@ -39,6 +39,7 @@ local ordered = {
 	-- after TradeBoard: a booth's slots ARE its owner's open sell listings
 	{ "Booth", require(Services.BoothService) },
 	{ "Bots", require(Services.BotService) },
+	{ "Afk", require(Services.AfkService) },
 }
 
 for _, entry in ordered do

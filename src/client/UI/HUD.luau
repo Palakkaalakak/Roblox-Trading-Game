@@ -22,6 +22,7 @@ function HUD.wire(
 		shop: (() -> ())?,
 		freeGems: (() -> ())?,
 		syndicate: (() -> ())?,
+		afk: (() -> ())?,
 	}
 )
 	local gemPill = gui:WaitForChild("GemPill") :: Frame
@@ -54,6 +55,11 @@ function HUD.wire(
 	local syndicateButton = gui:WaitForChild("SyndicateButton") :: ImageButton
 	if toggles.syndicate then
 		syndicateButton.Activated:Connect(toggles.syndicate)
+	end
+
+	local afkButton = gui:WaitForChild("AfkButton") :: ImageButton
+	if toggles.afk then
+		afkButton.Activated:Connect(toggles.afk)
 	end
 
 	local debugBtn = gui:WaitForChild("DebugGemsButton") :: ImageButton
