@@ -5144,6 +5144,99 @@ local function buildModals(parent: Instance)
 	-- and everything in StarterGui replicates to every client on join. They are
 	-- built on first open instead -- see GuiBuilder.ensurePanel.
 
+	-- Buying straight off a booth shelf: "how many?" then "are you sure?".
+	-- Clicking an item on a stall should be a purchase, not a detour through the
+	-- booth's management screen.
+	local buyPanel = panel("BoothBuyPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(360, 250),
+		Visible = false,
+	}, gui)
+	local buyTitle = label("Title", {
+		Position = UDim2.fromOffset(16, 14),
+		Size = UDim2.new(1, -32, 0, 28),
+		Text = "Item",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, buyPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 22 }, buyTitle)
+	local buyBody = label("Body", {
+		Position = UDim2.fromOffset(16, 46),
+		Size = UDim2.new(1, -32, 0, 40),
+		Text = "",
+		TextScaled = true,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, buyPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 15 }, buyBody)
+	local amountRow = new("Frame", {
+		Name = "AmountRow",
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(16, 92),
+		Size = UDim2.new(1, -32, 0, 44),
+	}, buyPanel)
+	local minus = button("MinusButton", {
+		Position = UDim2.fromScale(0, 0),
+		Size = UDim2.fromOffset(44, 44),
+		Text = "-",
+		TextScaled = true,
+		BackgroundColor3 = C.BgLight,
+	}, amountRow)
+	new("UITextSizeConstraint", { MaxTextSize = 26 }, minus)
+	local amountBox = new("TextBox", {
+		Name = "AmountBox",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0),
+		Size = UDim2.new(0, 120, 0, 44),
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = C.Text,
+		Text = "1",
+		ClearTextOnFocus = false,
+	}, amountRow)
+	corner(amountBox, 6)
+	new("UITextSizeConstraint", { MaxTextSize = 24 }, amountBox)
+	local plusBtn = button("PlusButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.fromScale(1, 0),
+		Size = UDim2.fromOffset(44, 44),
+		Text = "+",
+		TextScaled = true,
+		BackgroundColor3 = C.BgLight,
+	}, amountRow)
+	new("UITextSizeConstraint", { MaxTextSize = 26 }, plusBtn)
+	local buyTotal = label("Total", {
+		Position = UDim2.fromOffset(16, 142),
+		Size = UDim2.new(1, -32, 0, 26),
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.Gem,
+	}, buyPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 18 }, buyTotal)
+	local buyOk = button("OkButton", {
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(0.5, -6, 1, -16),
+		Size = UDim2.fromOffset(150, 42),
+		Text = "Buy",
+		TextScaled = true,
+		BackgroundColor3 = C.Good,
+	}, buyPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 18 }, buyOk)
+	local buyCancel = button("CancelButton", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0.5, 6, 1, -16),
+		Size = UDim2.fromOffset(150, 42),
+		Text = "Cancel",
+		TextScaled = true,
+		BackgroundColor3 = C.Bad,
+	}, buyPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 18 }, buyCancel)
+
 	-- invite popup
 	local invite = panel("InvitePanel", {
 		AnchorPoint = Vector2.new(0.5, 0),

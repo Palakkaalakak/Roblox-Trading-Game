@@ -50,7 +50,12 @@ local function buildFace(boothId: string, anchor: BasePart): any
 	gui.MaxDistance = 90
 	gui.LightInfluence = 0
 	gui.ResetOnSpawn = false
-	gui.Parent = anchor
+	-- PlayerGui, not the part. A SurfaceGui parented into the workspace renders
+	-- but does NOT take input, so the item tiles could never be clicked no
+	-- matter what they were -- the proximity prompt was the only way in. Parented
+	-- to PlayerGui with the same Adornee it draws in exactly the same place and
+	-- its buttons work.
+	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 
 	local root = Instance.new("Frame")
 	root.Size = UDim2.fromScale(1, 1)
@@ -163,7 +168,8 @@ local function buildFace(boothId: string, anchor: BasePart): any
 		tagline = tagline,
 		grid = grid,
 		empty = empty,
-		cells = {} :: { Frame },
+		boothId = boothId,
+		cells = {} :: { TextButton },
 	}
 	faces[boothId] = face
 	return face
@@ -173,13 +179,32 @@ end
 -- Cells
 --------------------------------------------------------------------------------
 
-local function makeCell(face: any, order: number): Frame
-	local cell = Instance.new("Frame")
+-- fwd decl: cells are built long before these are defined below
+local openBoothById: (boothId: string) -> ()
+local openBuy: (cell: TextButton) -> ()
+
+local function makeCell(face: any, order: number): TextButton
+	-- A BUTTON, not a plain frame. The stock on a booth is the whole point of
+	-- walking up to one, so clicking an item opens the booth the same way the
+	-- proximity prompt does -- players tried to click the item and nothing
+	-- happened, leaving the E prompt as the only way in.
+	local cell = Instance.new("TextButton")
 	cell.Name = "Slot" .. order
 	cell.LayoutOrder = order
 	cell.BackgroundColor3 = Theme.BgLight
 	cell.BorderSizePixel = 0
+	cell.AutoButtonColor = true
+	cell.Text = ""
 	cell.Parent = face.grid
+	cell.Activated:Connect(function()
+		local row = cell:GetAttribute("listingId")
+		if row == nil then
+			-- an empty shelf slot: fall back to opening the booth
+			openBoothById(face.boothId)
+			return
+		end
+		openBuy(cell)
+	end)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0.08, 0)
 	corner.Parent = cell
@@ -291,6 +316,12 @@ local function paint(face: any, data: any)
 		Components.setIcon(icon, row)
 		name.Text = row.name
 		price.Text = ("%d gems  x%d"):format(row.gemsPerCopy, row.remaining)
+		-- everything the buy flow needs, carried on the tile the player clicked
+		cell:SetAttribute("listingId", row.listingId)
+		cell:SetAttribute("itemName", row.name)
+		cell:SetAttribute("gemsPerCopy", row.gemsPerCopy)
+		cell:SetAttribute("remaining", row.remaining)
+		cell:SetAttribute("ownerUserId", data.ownerUserId)
 		cell.BackgroundColor3 = Theme.BgLight
 		cell.BackgroundTransparency = 0
 		edge.Color = Components.rarityColor(row.rarity)
@@ -298,6 +329,7 @@ local function paint(face: any, data: any)
 	end
 	for i = total + 1, #face.cells do
 		face.cells[i].Visible = false
+		face.cells[i]:SetAttribute("listingId", nil)
 	end
 end
 
@@ -389,6 +421,15 @@ function BoothScreen.start()
 		return
 	end
 
+	local function modelFor(boothId: string): Model?
+		for _, model in CollectionService:GetTagged(BoothConfig.Tag) do
+			if model:GetAttribute(BoothConfig.IdAttribute) == boothId then
+				return model
+			end
+		end
+		return nil
+	end
+
 	local function faceFor(boothId: string): any?
 		local existing = faces[boothId]
 		if existing and existing.gui.Parent then
@@ -405,9 +446,31 @@ function BoothScreen.start()
 		return nil
 	end
 
+	-- The prompt says what pressing E will actually DO, and only claiming is
+	-- worth a hold. Set locally: "Manage booth" and "See offers" depend on who
+	-- is looking, so this must not replicate to everyone.
+	local function syncPrompt(data: any)
+		local model = modelFor(data.boothId)
+		local prompt = model and model:FindFirstChild(BoothConfig.PromptName, true)
+		if prompt == nil or not prompt:IsA("ProximityPrompt") then
+			return
+		end
+		if not data.claimed then
+			prompt.ActionText = "Claim booth"
+			prompt.HoldDuration = BoothConfig.ClaimHoldSeconds
+		elseif data.ownerUserId == Players.LocalPlayer.UserId then
+			prompt.ActionText = "Manage booth"
+			prompt.HoldDuration = 0
+		else
+			prompt.ActionText = "See offers"
+			prompt.HoldDuration = 0
+		end
+	end
+
 	local function apply(list: { any })
 		for _, data in list do
 			latest[data.boothId] = data
+			syncPrompt(data)
 			local face = faceFor(data.boothId)
 			if face then
 				paint(face, data)
@@ -457,6 +520,13 @@ function BoothScreen.interact(prompt: ProximityPrompt)
 	if type(boothId) ~= "string" then
 		return
 	end
+	openBoothById(boothId)
+end
+
+-- Claim it if it is free, otherwise open its panel. Shared by the proximity
+-- prompt and by clicking an item on the shelf, so both do exactly the same
+-- thing.
+openBoothById = function(boothId: string)
 	local data = latest[boothId]
 
 	if data == nil or not data.claimed then
@@ -481,6 +551,108 @@ function BoothScreen.interact(prompt: ProximityPrompt)
 	if browseHandler then
 		browseHandler(data)
 	end
+end
+
+--------------------------------------------------------------------------------
+-- Buying off the shelf
+--
+-- Two deliberate steps: how many (only when more than one is in stock), then
+-- are you sure. Clicking a priced item on a stall should end in a purchase, not
+-- in the booth's management screen.
+--------------------------------------------------------------------------------
+
+openBuy = function(cell: TextButton)
+	local gui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	local modals = gui:WaitForChild("TradingModals")
+	local buy = modals:WaitForChild("BoothBuyPanel") :: Frame
+	local title = buy:WaitForChild("Title") :: TextLabel
+	local body = buy:WaitForChild("Body") :: TextLabel
+	local amountRow = buy:WaitForChild("AmountRow") :: Frame
+	local box = amountRow:WaitForChild("AmountBox") :: TextBox
+	local minus = amountRow:WaitForChild("MinusButton") :: TextButton
+	local plus = amountRow:WaitForChild("PlusButton") :: TextButton
+	local totalLbl = buy:WaitForChild("Total") :: TextLabel
+	local ok = buy:WaitForChild("OkButton") :: TextButton
+	local cancel = buy:WaitForChild("CancelButton") :: TextButton
+
+	local listingId = cell:GetAttribute("listingId") :: string
+	local itemName = cell:GetAttribute("itemName") :: string
+	local each = cell:GetAttribute("gemsPerCopy") :: number
+	local remaining = cell:GetAttribute("remaining") :: number
+	if listingId == nil then
+		return
+	end
+
+	local count = 1
+	local confirming = false
+	local conns: { RBXScriptConnection } = {}
+	local function close()
+		for _, c in conns do
+			c:Disconnect()
+		end
+		buy.Visible = false
+	end
+
+	local function render()
+		if confirming then
+			title.Text = "Are you sure?"
+			body.Text = ("Buy %d x %s for %d gems?"):format(count, itemName, count * each)
+			amountRow.Visible = false
+			totalLbl.Text = ""
+			ok.Text = "Yes, buy"
+			return
+		end
+		title.Text = itemName
+		body.Text = ("%d gems each - %d in stock"):format(each, remaining)
+		-- no quantity step when there is only one to buy
+		amountRow.Visible = remaining > 1
+		box.Text = tostring(count)
+		totalLbl.Text = ("Total: %d gems"):format(count * each)
+		ok.Text = "Buy"
+	end
+
+	local function setCount(n: number)
+		count = math.clamp(math.floor(n), 1, math.max(1, remaining))
+		render()
+	end
+
+	table.insert(conns, minus.Activated:Connect(function()
+		setCount(count - 1)
+	end))
+	table.insert(conns, plus.Activated:Connect(function()
+		setCount(count + 1)
+	end))
+	table.insert(conns, box.FocusLost:Connect(function()
+		setCount(tonumber(box.Text) or count)
+	end))
+	table.insert(conns, cancel.Activated:Connect(function()
+		close()
+	end))
+	table.insert(conns, ok.Activated:Connect(function()
+		if not confirming then
+			confirming = true
+			render()
+			return
+		end
+		close()
+		task.spawn(function()
+			local result = Net.invoke("BuyFromListing", listingId, count)
+			if result and result.ok then
+				BoothScreen.toast(("Bought %d x %s."):format(count, itemName), Theme.Good)
+			else
+				BoothScreen.toast(({
+					gone = "That listing just sold out.",
+					insufficient_gems = "Not enough gems.",
+					own_listing = "That's your own stock.",
+					loading = "Still loading your profile.",
+				})[result and result.err] or ("Couldn't buy: " .. tostring(result and result.err)), Theme.Bad)
+			end
+		end)
+	end))
+
+	confirming = false
+	render()
+	buy.Visible = true
 end
 
 -- Set by the bootstrap so booth feedback uses the same toast as everything else.

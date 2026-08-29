@@ -677,12 +677,25 @@ local function moderate(player: Player, targetUserId: any, action: string): any
 					at = i
 				end
 			end
-			local step = (action == "promote") and -1 or 1
-			local target = ladder[(at or 1) + step]
-			-- never step INTO the owner role: ownership transfers deliberately
-			if target and target.id ~= SyndicateConfig.OwnerRoleId then
-				record.members[targetKey].role = target.id
+			-- A role that is not ON the ladder -- a legacy id, or one renamed or
+			-- removed since the member was given it -- left `at` nil, so promote
+			-- indexed ladder[0], found nothing, changed nothing, and still
+			-- reported success. A member joining on a default role the group has
+			-- since renamed hit exactly this and simply could not be promoted.
+			-- An unrecognised role is treated as the bottom rung.
+			if at == nil then
+				at = #ladder
 			end
+			local step = (action == "promote") and -1 or 1
+			local target = ladder[at + step]
+			if target == nil then
+				return nil, (action == "promote") and "already_highest" or "already_lowest"
+			end
+			-- never step INTO the owner role: ownership transfers deliberately
+			if target.id == SyndicateConfig.OwnerRoleId then
+				return nil, "already_highest"
+			end
+			record.members[targetKey].role = target.id
 		end
 		return record
 	end)

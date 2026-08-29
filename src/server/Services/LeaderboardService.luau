@@ -38,6 +38,36 @@ local stores: { [string]: any } = {} -- store name -> adapter
 local readCache: { [string]: { at: number, rows: { any } } } = {}
 local lastWrite: { [number]: number } = {} -- userId -> os.clock of last push
 
+-- Display name for a ranked row.
+--
+-- DataService.nameFor only knows ids this server has SEEN join, so a player
+-- ranked from another server -- which is most of a global board -- resolved to
+-- nil and rendered as "User 12345". Fall back to Roblox itself, and cache the
+-- answer for the session so a board refresh is not one web call per row.
+local nameCache: { [number]: string } = {}
+local function displayNameFor(userId: number): string?
+	local cached = nameCache[userId]
+	if cached then
+		return cached
+	end
+	local seen = DataService.nameFor and DataService.nameFor(userId) or nil
+	if seen then
+		nameCache[userId] = seen
+		return seen
+	end
+	if userId <= 0 then
+		return nil -- bots and placeholders have no Roblox account to ask about
+	end
+	local ok, fetched = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	if ok and type(fetched) == "string" and #fetched > 0 then
+		nameCache[userId] = fetched
+		return fetched
+	end
+	return nil
+end
+
 local function storeFor(name: string): any
 	local s = stores[name]
 	if s == nil then
@@ -180,7 +210,7 @@ local function fetchBoard(boardId: string, scope: string, viewerId: number): any
 			rows[i] = {
 				rank = i,
 				userId = userId,
-				name = DataService.nameFor and DataService.nameFor(userId) or nil,
+				name = displayNameFor(userId),
 				score = entry.value,
 			}
 		end
