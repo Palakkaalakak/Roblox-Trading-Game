@@ -122,32 +122,52 @@ local function rootOf(player: Player): BasePart?
 	return char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
+-- Anchoring the root is the WHOLE freeze. Forcing the humanoid into Physics
+-- state as well looked equivalent but is not: coming back out of it through
+-- GettingUp let the humanoid re-seat itself, and the player was dumped back at
+-- the spawn instead of stepping off the pad they were standing on.
 local function freeze(player: Player, pad: BasePart, slot: number): boolean
 	local root = rootOf(player)
 	if root == nil then
 		return false
 	end
-	local humanoid = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
 	root.CFrame = standingSpot(pad, slot)
 	root.AssemblyLinearVelocity = Vector3.zero
 	root.AssemblyAngularVelocity = Vector3.zero
 	root.Anchored = true
-	if humanoid then
-		-- stops the walk animation playing on the spot
-		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-	end
 	return true
 end
 
+-- Where a player lands when they stand up. AFK pads sit off to the side, so
+-- dropping someone back on one after they said they were done leaves them
+-- stranded next to a pad they just left; the plaza is where the game is.
+local function returnPoint(): CFrame
+	local spawn = workspace:FindFirstChildWhichIsA("SpawnLocation", true)
+	if spawn then
+		return spawn.CFrame + Vector3.new(0, 4, 0)
+	end
+	return CFrame.new(0, 8, 0)
+end
+
+-- Unanchor, then put them back in the plaza. The placement is deferred so it
+-- lands AFTER the unanchor has settled -- setting a CFrame on a part that is
+-- still anchored is silently undone the moment physics takes it back.
 local function unfreeze(player: Player, wasAnchored: boolean)
 	local root = rootOf(player)
-	if root then
-		root.Anchored = wasAnchored
+	if root == nil then
+		return
 	end
-	local humanoid = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
-	if humanoid then
-		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
-	end
+	root.Anchored = wasAnchored
+	root.AssemblyLinearVelocity = Vector3.zero
+	root.AssemblyAngularVelocity = Vector3.zero
+	local target = returnPoint()
+	task.defer(function()
+		if root.Parent then
+			root.CFrame = target
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+	end)
 end
 
 --------------------------------------------------------------------------------
