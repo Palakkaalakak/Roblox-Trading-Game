@@ -3489,7 +3489,7 @@ local function buildSyndicatePanel(parent: Instance)
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -8, 0.5, 0),
-		Size = UDim2.fromOffset(190, 26),
+		Size = UDim2.fromOffset(214, 26),
 	}, memberRow)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -3498,10 +3498,19 @@ local function buildSyndicatePanel(parent: Instance)
 		Padding = UDim.new(0, 4),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 	}, modRow)
-	for i, spec in { { "PromoteButton", "Promote", C.Accent }, { "DemoteButton", "Demote", C.BgLight }, { "KickButton", "Kick", C.Bad } } do
+	-- Widths are per-button because the labels are not the same length. At a
+	-- uniform 60px "Promote to" -- the text the screen actually sets on it --
+	-- ran past its own edge and rendered clipped.
+	for i, spec in
+		{
+			{ "PromoteButton", "Promote", C.Accent, 82 },
+			{ "DemoteButton", "Demote", C.BgLight, 62 },
+			{ "KickButton", "Kick", C.Bad, 54 },
+		}
+	do
 		local b = button(spec[1], {
 			LayoutOrder = i,
-			Size = UDim2.fromOffset(60, 24),
+			Size = UDim2.fromOffset(spec[4], 24),
 			Text = spec[2],
 			TextSize = 11,
 			BackgroundColor3 = spec[3],
