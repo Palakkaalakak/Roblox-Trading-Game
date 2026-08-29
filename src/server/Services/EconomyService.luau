@@ -459,15 +459,44 @@ function EconomyService.reserveOne(itemId: string): (boolean, number)
 	return true, rec.reserveRemaining
 end
 
--- Reserve one copy the LAZY way (in-memory record + dirty flush). For the
+-- Reserve one copy SESSION-LOCALLY (in-memory record, never flushed). For the
 -- market-bot seeding burst only: 500 bots x StarterDraws would be thousands
 -- of synchronous DataStore UpdateAsync calls through reserveOne and blow the
--- request budget (which then starves player profile ops). Bots run
--- leader-local, so the leader's cached record is authoritative here; the
--- flush persists circulating/reserve within the minute. Real players still
--- use the strong reserveOne (cross-server atomic).
-function EconomyService.reserveOneLazy(itemId: string): boolean
+-- request budget (which then starves player profile ops). Bots hold nothing
+-- durable, so their draws MUST die with the session alongside them.
+--
+-- NAMED FOR THE BOT LANE ON PURPOSE. It used to be `reserveOneLazy` and its
+-- comment claimed "dirty flush", which is not what mutateRecordLocal does --
+-- so the debug batch-roll path picked it up for a REAL player. Those copies
+-- landed durably in the profile while the reserve decrement evaporated on
+-- restart, and an item ended up held 49 times against a cap of 48. Anything
+-- granting to a real player wants reserveOne or reserveOneBatched.
+function EconomyService.reserveOneBotLocal(itemId: string): boolean
 	local rec = mutateRecordLocal(itemId, function(old)
+		if (old.reserveRemaining or 0) <= 0 then
+			return nil
+		end
+		old.reserveRemaining -= 1
+		old.circulating += 1
+		old.updatedAt = os.time()
+		return old
+	end)
+	return rec ~= nil
+end
+
+-- Reserve one copy for a REAL player without a DataStore round trip per copy:
+-- in-memory record + dirty flag, persisted by the usual HotFlushIntervalSeconds
+-- flush. For grants that come in bursts (the admin batch roll asks for up to
+-- BatchRollMaxCount at once), where the strong per-copy CAS would fire that
+-- many synchronous writes.
+--
+-- Weaker than reserveOne in the same way mutateRecordLazy is weaker than
+-- mutateRecord: two servers bursting at once can each spend what the durable
+-- record thinks is the last copy, and the flush merges last-writer-wins. That
+-- can overshoot the cap by a few, which is the documented soft-cap tradeoff --
+-- unlike mutateRecordLocal, which loses the decrement ENTIRELY.
+function EconomyService.reserveOneBatched(itemId: string): boolean
+	local rec = mutateRecordLazy(itemId, function(old)
 		if (old.reserveRemaining or 0) <= 0 then
 			return nil
 		end
@@ -516,7 +545,7 @@ function EconomyService.restockCopies(itemId: string, count: number)
 end
 
 -- Lazy counterpart of restockCopies (in-memory + dirty flush) — same rationale
--- as reserveOneLazy/retireCopiesLazy: a synchronous DataStore UpdateAsync per
+-- as reserveOneBotLocal/retireCopiesLazy: a synchronous DataStore UpdateAsync per
 -- craft, across many bots, starves the shared request budget.
 function EconomyService.restockCopiesLazy(itemId: string, count: number)
 	if count <= 0 then
@@ -595,7 +624,7 @@ function EconomyService.allItemIds(): { string }
 end
 
 -- Retire copies the LAZY way (in-memory + dirty flush). For the market-bot
--- craft path only — same rationale as reserveOneLazy: a synchronous DataStore
+-- craft path only — same rationale as reserveOneBotLocal: a synchronous DataStore
 -- UpdateAsync per bot craft, x hundreds of bots, starves the request budget
 -- and stalls player calls.
 function EconomyService.retireCopiesLazy(itemId: string, count: number)

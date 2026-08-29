@@ -218,7 +218,7 @@ local function buyCore(userId: number, itemId: any)
 	-- (leader-local; no per-buy DataStore write) so 500 bots buying store
 	-- stock each sweep can't stall the shared request budget; real players
 	-- keep the strong cross-server CAS.
-	local reserved = if isBot then EconomyService.reserveOneLazy(itemId) else EconomyService.reserveOne(itemId)
+	local reserved = if isBot then EconomyService.reserveOneBotLocal(itemId) else EconomyService.reserveOne(itemId)
 	if not reserved then
 		if isBot then
 			bots().applyDelta(userId, { gems = price }, Enums.GrantSource.Refund)

@@ -676,7 +676,7 @@ local function craftCore(userId: number, eventId: any, rid: any)
 	-- in-memory path (leader-local, no per-craft DataStore write) so a busy
 	-- 500-bot sweep never stalls the shared request budget; players keep the
 	-- strong cross-server CAS.
-	local reserved = if isBot then EconomyService.reserveOneLazy(outId) else EconomyService.reserveOne(outId)
+	local reserved = if isBot then EconomyService.reserveOneBotLocal(outId) else EconomyService.reserveOne(outId)
 	if not reserved then
 		-- fully crafted elsewhere: give everything back
 		local posInputs = {}

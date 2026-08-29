@@ -288,7 +288,7 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 	end
 	-- ...then take the copy out of the reserve. This CAS is what guarantees an
 	-- item can never be distributed beyond its totalSupply.
-	local reserved = if isBot then EconomyService.reserveOneLazy(itemId) else EconomyService.reserveOne(itemId)
+	local reserved = if isBot then EconomyService.reserveOneBotLocal(itemId) else EconomyService.reserveOne(itemId)
 	if not reserved then
 		-- lost the race: give back exactly what was taken
 		if payment then
@@ -380,10 +380,16 @@ end
 -- Weighted by assignmentWeight exactly like a real roll, so the spread looks
 -- like what players actually see.
 --
--- Uses reserveOneLazy (in-memory + dirty flush), NOT the strong CAS: the strong
--- path is one DataStore UpdateAsync per copy, so a 100-roll batch would fire 100
--- synchronous writes and stall every player on the server behind the request
--- budget. Lazy is the same call the bot simulation makes for the same reason.
+-- Uses reserveOneBatched (in-memory + dirty flush), NOT the strong CAS: the
+-- strong path is one DataStore UpdateAsync per copy, so a 100-roll batch would
+-- fire 100 synchronous writes and stall every player on the server behind the
+-- request budget.
+--
+-- NOT the bot lane (reserveOneBotLocal), which is what this used to call by
+-- mistake. Bot draws are never flushed, so every batch-rolled copy landed
+-- durably in the profile while the reserve decrement died with the session --
+-- exhaust a pool this way and the item ends up held more times than its cap
+-- says can exist.
 --
 -- Grants land as ONE inventory delta rather than `count` of them, and are tagged
 -- Starter (not Roll) so debug loot never counts as earned in profile stats.
@@ -433,7 +439,7 @@ function RollService.debugBatchRoll(player: Player, rarity: any, count: any, use
 				break
 			end
 		end
-		if EconomyService.reserveOneLazy(chosen) then
+		if EconomyService.reserveOneBatched(chosen) then
 			tally[chosen] = (tally[chosen] or 0) + 1
 			granted += 1
 		end
