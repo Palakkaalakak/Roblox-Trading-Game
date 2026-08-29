@@ -17,7 +17,6 @@
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
-local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AfkConfig = require(ReplicatedStorage.Shared.Config.AfkConfig)
@@ -37,14 +36,28 @@ type Session = {
 	ticks: number,
 	paid: number, -- rungs that actually granted something
 	anchorWas: boolean,
-	idleSince: number?, -- clock when Player.Idled first reached us
-	refreshing: boolean?, -- a teleport is already in flight
+	lastNudgeAt: number?, -- clock of the last "click the button" nudge sent
 }
 
 local sessions: { [Player]: Session } = {}
 -- zoneId -> pad. Rebuilt on demand so a pad cloned in at run time is picked up
 -- without a restart, which is exactly how these get built.
 local zones: { [string]: BasePart } = {}
+
+-- Seconds spent AFK this session, summed across every sitting -- so it keeps
+-- counting through a leave/re-enter rather than resetting per stretch. Lives
+-- outside Session because it has to survive the session table being nil'd out
+-- on release; cleared on PlayerRemoving so it does not leak.
+local totalAfkSeconds: { [Player]: number } = {}
+
+local function totalAfkFor(player: Player): number
+	local session = sessions[player]
+	local banked = totalAfkSeconds[player] or 0
+	if session == nil then
+		return banked
+	end
+	return banked + (os.clock() - session.since)
+end
 
 --------------------------------------------------------------------------------
 -- Zones
@@ -245,6 +258,7 @@ local function stateFor(player: Player): any
 			afk = false,
 			nextReward = AfkConfig.describe(AfkConfig.rewardFor(1)),
 			tickSeconds = AfkConfig.TickSeconds,
+			totalAfkSeconds = totalAfkFor(player),
 		}
 	end
 	return {
@@ -256,6 +270,7 @@ local function stateFor(player: Player): any
 		secondsToNext = math.max(0, math.floor(session.nextTickAt - os.clock())),
 		nextReward = AfkConfig.describe(AfkConfig.nextReward(session.ticks)),
 		tickSeconds = AfkConfig.TickSeconds,
+		totalAfkSeconds = totalAfkFor(player),
 	}
 end
 
@@ -269,6 +284,9 @@ local function release(player: Player, reason: string)
 	if session == nil then
 		return
 	end
+	-- Bank the elapsed time BEFORE nil-ing the session, or this sitting's
+	-- seconds vanish instead of adding to the session total.
+	totalAfkSeconds[player] = (totalAfkSeconds[player] or 0) + (os.clock() - session.since)
 	sessions[player] = nil
 	unfreeze(player, session.anchorWas)
 	AnalyticsService.log("afk_left", {
@@ -289,45 +307,7 @@ AfkService.release = release
 -- Remotes
 --------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------
--- Staying connected
---
--- Roblox disconnects an idle client at ~20 minutes and offers no way to turn
--- that off. Rather than asking the player to point an autoclicker at the screen,
--- an AFK player is teleported back into the same place before the kick lands: a
--- new client session gets a new idle timer, and the ladder rides along in the
--- teleport data so the round trip costs them nothing.
---------------------------------------------------------------------------------
-
-local function refresh(player: Player, session: Session)
-	if session.refreshing then
-		return
-	end
-	session.refreshing = true
-	local options = Instance.new("TeleportOptions")
-	options:SetTeleportData({
-		afk = true,
-		ticks = session.ticks,
-		paid = session.paid,
-	})
-	AnalyticsService.log("afk_refresh", {
-		userId = player.UserId,
-		zoneId = session.zoneId,
-		ticks = session.ticks,
-	})
-	local ok, err = pcall(function()
-		TeleportService:TeleportAsync(game.PlaceId, { player }, options)
-	end)
-	if not ok then
-		-- Teleports fail in Studio and can fail live. Losing the session is
-		-- worse than losing the refresh, so the player just keeps sitting there
-		-- and takes the kick they would have taken anyway.
-		session.refreshing = false
-		warn(("[Afk] refresh teleport failed for %s: %s"):format(player.Name, tostring(err)))
-	end
-end
-
-local function enter(player: Player, restore: any?): any
+local function enter(player: Player): any
 	if not AfkConfig.Enabled then
 		return { ok = false, err = "disabled" }
 	end
@@ -355,10 +335,8 @@ local function enter(player: Player, restore: any?): any
 		zoneId = zoneId,
 		since = os.clock(),
 		nextTickAt = os.clock() + AfkConfig.TickSeconds,
-		-- A refresh teleport hands the ladder back, so the trip is invisible to
-		-- the player: they do not drop to rung one for staying put.
-		ticks = (restore and tonumber(restore.ticks)) or 0,
-		paid = (restore and tonumber(restore.paid)) or 0,
+		ticks = 0,
+		paid = 0,
 		anchorWas = wasAnchored,
 	}
 	AnalyticsService.log("afk_entered", { userId = player.UserId, zoneId = zoneId })
@@ -383,53 +361,39 @@ function AfkService.Start()
 		return stateFor(player)
 	end)
 	-- Player.Idled only exists on the client, so the client reports it and the
-	-- server decides. Nothing is granted here and nothing is trusted: the worst
-	-- a forged ping can do is teleport the sender back into the same place.
+	-- server decides whether to say anything back. No teleport, no state
+	-- change here -- this cannot be used for anything but telling the player
+	-- to click the button, so there is nothing worth forging.
+	--
+	-- Roblox re-fires Idled every 30 seconds once a client has gone quiet, and
+	-- the client forwards every one of those as a ping. Relaying each as a
+	-- reminder would spam a toast twice a minute, so a reminder only actually
+	-- goes out once IdleNudgeSeconds has passed since the last one (the very
+	-- first ping always qualifies, since lastNudgeAt starts nil).
+	--
+	-- Clicking the button is real input, so on the client Roblox stops firing
+	-- Idled and the pings stop -- that alone is what silences the reminders,
+	-- with no separate "stop reminding" message needed. lastNudgeAt is not
+	-- reset by a click though: it is a plain cooldown since the last reminder,
+	-- not a per-idle-stretch counter, so a player who clicks and goes idle
+	-- again within the cooldown window does not get an extra immediate nudge --
+	-- they still land on the same 10-minute cadence.
 	Net.bindFunction("AfkIdlePing", function(player)
 		local session = sessions[player]
-		if session == nil or not AfkConfig.RefreshOnIdle then
-			return { ok = true }
-		end
-		local now = os.clock()
-		session.idleSince = session.idleSince or now
-		if now - session.idleSince >= AfkConfig.IdleRefreshSeconds then
-			refresh(player, session)
+		if session and AfkConfig.NudgeOnIdle then
+			local now = os.clock()
+			if session.lastNudgeAt == nil or now - session.lastNudgeAt >= AfkConfig.IdleNudgeSeconds then
+				session.lastNudgeAt = now
+				Net.fireClient("AfkIdleNudge", player)
+			end
 		end
 		return { ok = true }
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		sessions[player] = nil -- nothing to unfreeze: the character is going too
+		totalAfkSeconds[player] = nil
 	end)
-
-	-- Coming back from a refresh teleport: put them straight back on a pad with
-	-- the ladder they had. Without this the refresh would read as "the game
-	-- randomly rejoined me and took my progress".
-	local function resumeIfRefreshed(player: Player)
-		local ok, join = pcall(function()
-			return player:GetJoinData()
-		end)
-		local data = ok and join and join.TeleportData or nil
-		if type(data) ~= "table" or data.afk ~= true then
-			return
-		end
-		task.spawn(function()
-			-- wait for a character and a loaded profile before claiming a slot
-			for _ = 1, 60 do
-				if rootOf(player) and DataService.getProfile(player) then
-					break
-				end
-				task.wait(0.5)
-			end
-			if player.Parent and sessions[player] == nil then
-				enter(player, data)
-			end
-		end)
-	end
-	Players.PlayerAdded:Connect(resumeIfRefreshed)
-	for _, player in Players:GetPlayers() do
-		resumeIfRefreshed(player)
-	end
 
 	-- Respawning breaks the session: the anchored body it belonged to is gone.
 	Players.PlayerAdded:Connect(function(player)

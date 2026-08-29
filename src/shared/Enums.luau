@@ -116,8 +116,8 @@ local Enums = {
 		"SetPerkDebug", -- (offerId, enabled) -> {ok, err?} — DEV ONLY: suppress an owned pass's perk
 		"EnterAfk", -- () -> {ok, afk, zoneId?, err?} — take a spot on an AFK pad
 		"LeaveAfk", -- () -> {ok, afk} — stand back up; drops the reward ladder
-		"GetAfkState", -- () -> {ok, afk, ticks?, secondsToNext?, nextReward}
-		"AfkIdlePing", -- () -> {ok} — client saw Player.Idled; server decides on a refresh
+		"GetAfkState", -- () -> {ok, afk, ticks?, secondsToNext?, nextReward, totalAfkSeconds}
+		"AfkIdlePing", -- () -> {ok} — client saw Player.Idled; server relays a nudge back
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)
@@ -128,6 +128,7 @@ local Enums = {
 		"TradeAborted", -- (tradeId, reason)
 		"AdBoostStateChanged", -- () — a boost credit was banked; refetch GetAdBoostState
 		"AfkStateChanged", -- (state) — AFK session started, paid a tick, or ended
+		"AfkIdleNudge", -- () — Roblox will kick you soon; click the on-screen button
 		"Notify", -- (text) — generic notification toast
 		"TradeChat", -- ({tradeId, fromUserId, fromName, text, at})
 		"GroupChat", -- ({groupId, userId, name, text, at}) — already filtered for this reader

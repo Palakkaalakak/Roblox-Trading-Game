@@ -65,17 +65,25 @@ local AfkConfig = {
 	-- get: it fires two minutes after the client goes quiet, then every thirty
 	-- seconds, until the disconnect at roughly twenty.
 	--
-	-- So before that lands, an AFK player is teleported back into the same place.
-	-- A fresh client session starts a fresh idle timer, and the ladder rides
-	-- along in the teleport data so the trip costs them nothing. This uses only
-	-- documented APIs; the other common trick (VirtualUser synthesising clicks)
-	-- is undocumented, marked Not Replicated, and historically scoped to Roblox's
-	-- own testing -- not something to hang a monetised feature on.
-	RefreshOnIdle = true,
-	-- How long a player may sit idle before we refresh them. Comfortably inside
-	-- the ~20 minute kick, and comfortably past the 2 minute mark where Idled
-	-- first fires.
-	IdleRefreshSeconds = 900,
+	-- Two things were tried and rejected before this one:
+	--   * VirtualUser synthesising a click -- undocumented, marked Not
+	--     Replicated, historically scoped to Roblox's own testing. Not
+	--     something to hang a monetised feature on.
+	--   * TeleportAsync back into "the same place" -- without a reserved
+	--     server this lands on a DIFFERENT server instance, which resets the
+	--     session-length clock Roblox uses for discovery/rating. Fixing the
+	--     kick by quietly damaging the game's own numbers is not a fix.
+	--
+	-- So there is no automatic save here. Idled fires, the client tells the
+	-- player to press the on-screen button themselves, and pressing it is
+	-- real input -- the same thing Roblox already accepts from a mouse click
+	-- anywhere else on screen. Honest: the player knows they have to act, and
+	-- nothing about the game's own metrics is touched to make that happen.
+	NudgeOnIdle = true,
+	-- Roblox re-fires Idled every 30s once a client goes quiet; reminding on
+	-- every one of those would be a toast twice a minute. Space real reminders
+	-- out to this, comfortably inside the ~20 minute kick.
+	IdleNudgeSeconds = 600,
 
 	-- A pad the player is not actually standing on is not an AFK session. The
 	-- server re-checks this every tick and drops anyone who has wandered off,

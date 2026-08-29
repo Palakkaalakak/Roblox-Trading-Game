@@ -5176,6 +5176,20 @@ local function buildModals(parent: Instance)
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, afkPanel)
 	new("UITextSizeConstraint", { MaxTextSize = 24 }, afkTitle)
+	-- Total AFK time THIS SESSION, tucked in the panel's own top-right corner.
+	-- Hidden until the player has actually banked time -- a permanent "0:00"
+	-- for someone who has never gone AFK is clutter, not information.
+	local afkTotalTime = label("TotalTime", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 10),
+		Size = UDim2.fromOffset(140, 18),
+		Text = "",
+		TextScaled = true,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = C.TextDim,
+		Visible = false,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 13 }, afkTotalTime)
 	local afkStatus = label("Status", {
 		Position = UDim2.fromOffset(16, 54),
 		Size = UDim2.new(1, -32, 0, 34),

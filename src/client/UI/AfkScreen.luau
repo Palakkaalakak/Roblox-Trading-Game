@@ -31,10 +31,17 @@ local earned: TextLabel
 local goBtn: TextButton
 local toast: (text: string, color: Color3) -> ()
 
+-- Total-time readout tucked in the panel's own top-right corner.
+local totalTimeLabel: TextLabel?
+
 -- Locally predicted countdown. The server pushes the authoritative number on
 -- every tick; between pushes this just counts down so the display does not sit
 -- frozen for ten minutes.
 local localSecondsLeft = 0
+-- Same idea for the session total: the server only confirms it on
+-- enter/leave/tick (up to TickSeconds apart), so it ticks up locally every
+-- second in between and gets corrected whenever a real push lands.
+local localTotalAfkSeconds = 0
 local savedCameraType: Enum.CameraType? = nil
 local savedCameraCFrame: CFrame? = nil
 local cameraConn: RBXScriptConnection? = nil
@@ -123,16 +130,34 @@ local function render()
 	end
 end
 
+-- Corner readout inside the panel: hidden until the player has actually
+-- banked AFK time, then stays visible (frozen) even after they stand back up
+-- -- it is a SESSION total, not a "currently AFK" indicator, which the rest
+-- of the panel already shows.
+local function renderHud()
+	if totalTimeLabel == nil then
+		return
+	end
+	if localTotalAfkSeconds <= 0 then
+		totalTimeLabel.Visible = false
+		return
+	end
+	totalTimeLabel.Visible = true
+	totalTimeLabel.Text = "Session: " .. mmss(localTotalAfkSeconds)
+end
+
 local function applyState(next: any)
 	local wasAfk = state.afk
 	state = next
 	localSecondsLeft = next.secondsToNext or 0
+	localTotalAfkSeconds = next.totalAfkSeconds or localTotalAfkSeconds
 	if next.afk and not wasAfk then
 		holdCamera()
 	elseif wasAfk and not next.afk then
 		releaseCamera()
 	end
 	render()
+	renderHud()
 end
 
 --------------------------------------------------------------------------------
@@ -147,6 +172,7 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 	nextReward = panel:WaitForChild("NextReward") :: TextLabel
 	earned = panel:WaitForChild("Earned") :: TextLabel
 	goBtn = panel:WaitForChild("GoButton") :: TextButton
+	totalTimeLabel = panel:WaitForChild("TotalTime") :: TextLabel
 	local closeBtn = panel:WaitForChild("CloseButton") :: TextButton
 
 	closeBtn.Activated:Connect(function()
@@ -188,9 +214,11 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 	end)
 
 	-- Player.Idled is client-only: it fires two minutes after the client goes
-	-- quiet, then every thirty seconds until Roblox disconnects at ~twenty. We
-	-- just report it; the server decides whether a refresh is due. Reported only
-	-- while actually AFK, so a player idling in the plaza is left alone.
+	-- quiet, then every thirty seconds until Roblox disconnects at ~twenty.
+	-- There is no automatic fix for this -- see AfkConfig for why an autoclick
+	-- (VirtualUser) and a same-place teleport were both rejected -- so the
+	-- honest move is telling the player directly, loud enough to notice even if
+	-- they are looking away from the AFK panel.
 	player.Idled:Connect(function()
 		if not state.afk then
 			return
@@ -198,6 +226,10 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 		task.spawn(function()
 			Net.invoke("AfkIdlePing")
 		end)
+	end)
+
+	Net.on("AfkIdleNudge", function()
+		toast("Roblox will disconnect you soon — click \"Stops Roblox from kicking you\" to stay in.", Theme.Warn)
 	end)
 
 	Net.on("AfkStateChanged", function(next: any)
@@ -214,11 +246,17 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 		end
 	end)
 
-	-- Local countdown between server pushes. One second, and only while the
-	-- panel is actually on screen: an unopened panel has nothing to animate.
+	-- Local countdown between server pushes. One second. The panel's own timer
+	-- only needs to animate while it is on screen, but the HUD corner is a
+	-- persistent readout -- it has to keep ticking even with the panel closed,
+	-- since that is the whole point of putting it in a corner.
 	task.spawn(function()
 		while true do
 			task.wait(1)
+			if state.afk then
+				localTotalAfkSeconds += 1
+				renderHud()
+			end
 			if state.afk and localSecondsLeft > 0 then
 				localSecondsLeft -= 1
 				if panel.Visible then
@@ -229,6 +267,7 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 	end)
 
 	render()
+	renderHud()
 end
 
 function AfkScreen.open()
