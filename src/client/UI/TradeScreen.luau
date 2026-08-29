@@ -20,6 +20,7 @@ local EconomyController = require(script.Parent.Parent.Controllers.EconomyContro
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
 local QuickChatConfig = require(game:GetService("ReplicatedStorage").Shared.Config.QuickChatConfig)
 local Net = require(script.Parent.Parent.Net)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 
 local localPlayer = Players.LocalPlayer
 
@@ -320,7 +321,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 			end
 			api.gemsBox = box
 			local function submit()
-				local n = tonumber(box.Text)
+				local n = Format.parseAmount(box.Text)
 				if n == nil then
 					return
 				end
@@ -370,7 +371,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 					if compose == nil then
 						return
 					end
-					local n = tonumber(box.Text)
+					local n = Format.parseAmount(box.Text)
 					if n then
 						compose.want.gems = math.max(0, math.floor(n))
 					end
@@ -521,26 +522,139 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	local pickerSource: string = "inventory"
 
 	-- what happens when a picker tile is clicked, by (compose, source)
-	local function onPicked(itemId: string, source: string)
+	-- `count` is how many copies to add at once (the green + on a stacked tile).
+	-- Tapping the tile itself is still the one-at-a-time path, count = 1.
+	local function onPicked(itemId: string, source: string, count: number?)
 		-- a quick-chat phrase waiting on an item ("I want your ...") claims the
 		-- pick instead of it going into the offer
 		if TradeScreen._consumeSlotPick(itemId) then
 			picker.Visible = false
 			return
 		end
+		local n = math.max(1, math.floor(count or 1))
 		if compose then
 			local offer = source == "inventory" and compose.give or compose.want
 			if WildcardConfig.isWildcard(itemId) then
 				offer.items[itemId] = 1 -- one token of a kind says it all
 			else
-				offer.items[itemId] = (offer.items[itemId] or 0) + 1
+				offer.items[itemId] = (offer.items[itemId] or 0) + n
 			end
 			picker.Visible = false
 			renderCompose()
 		else
-			TradeController.addItem(itemId)
+			for _ = 1, n do
+				TradeController.addItem(itemId)
+			end
 			picker.Visible = false
 		end
+	end
+
+	-- Bulk-add prompt. Opened by the green + on a tile the player holds more
+	-- than one of, so putting nine of something up is one gesture instead of
+	-- nine taps on the same square.
+	local bulkPrompt: Frame? = nil
+	local bulkStepper: any = nil
+	local bulkTitle: TextLabel? = nil
+	local bulkAdd: TextButton? = nil
+	local bulkConn: RBXScriptConnection? = nil
+
+	local function ensureBulkPrompt()
+		if bulkPrompt then
+			return
+		end
+		local frame = Instance.new("Frame")
+		frame.Name = "BulkAdd"
+		frame.AnchorPoint = Vector2.new(0.5, 0.5)
+		frame.Position = UDim2.fromScale(0.5, 0.5)
+		frame.Size = UDim2.fromOffset(260, 132)
+		frame.BackgroundColor3 = Theme.Panel
+		frame.BorderSizePixel = 0
+		frame.ZIndex = 40
+		frame.Visible = false
+		frame.Parent = picker
+		local fc = Instance.new("UICorner")
+		fc.CornerRadius = Theme.Corner
+		fc.Parent = frame
+		local fs = Instance.new("UIStroke")
+		fs.Color = Theme.Stroke
+		fs.Thickness = 1
+		fs.Parent = frame
+
+		local title = Instance.new("TextLabel")
+		title.Name = "Title"
+		title.BackgroundTransparency = 1
+		title.Position = UDim2.fromOffset(14, 12)
+		title.Size = UDim2.new(1, -28, 0, 22)
+		title.Font = Theme.Font
+		title.TextScaled = true
+		title.TextColor3 = Theme.TextPrimary
+		title.TextXAlignment = Enum.TextXAlignment.Left
+		title.TextTruncate = Enum.TextTruncate.AtEnd
+		title.ZIndex = 41
+		title.Parent = frame
+		Instance.new("UITextSizeConstraint", title).MaxTextSize = 16
+
+		local stepperHost = Instance.new("Frame")
+		stepperHost.Name = "StepperHost"
+		stepperHost.BackgroundTransparency = 1
+		stepperHost.Position = UDim2.fromOffset(14, 44)
+		stepperHost.Size = UDim2.new(1, -28, 0, 34)
+		stepperHost.ZIndex = 41
+		stepperHost.Parent = frame
+		local stepper = Components.quantityStepper(stepperHost, { value = 1, min = 1, max = 1, zIndex = 42 })
+
+		local cancel = Instance.new("TextButton")
+		cancel.Name = "Cancel"
+		cancel.AnchorPoint = Vector2.new(0, 1)
+		cancel.Position = UDim2.new(0, 14, 1, -12)
+		cancel.Size = UDim2.new(0.5, -18, 0, 30)
+		cancel.BackgroundColor3 = Theme.BgLight
+		cancel.Font = Theme.Font
+		cancel.TextSize = 13
+		cancel.TextColor3 = Theme.TextDim
+		cancel.Text = "Cancel"
+		cancel.ZIndex = 41
+		cancel.Parent = frame
+		Instance.new("UICorner", cancel).CornerRadius = Theme.CornerSmall
+
+		local add = Instance.new("TextButton")
+		add.Name = "Add"
+		add.AnchorPoint = Vector2.new(1, 1)
+		add.Position = UDim2.new(1, -14, 1, -12)
+		add.Size = UDim2.new(0.5, -18, 0, 30)
+		add.BackgroundColor3 = Theme.Good
+		add.Font = Theme.Font
+		add.TextSize = 13
+		add.TextColor3 = Theme.TextPrimary
+		add.Text = "Add"
+		add.ZIndex = 41
+		add.Parent = frame
+		Instance.new("UICorner", add).CornerRadius = Theme.CornerSmall
+
+		cancel.Activated:Connect(function()
+			frame.Visible = false
+		end)
+
+		bulkPrompt = frame
+		bulkStepper = stepper
+		bulkTitle = title
+		bulkAdd = add
+	end
+
+	local function openBulkAdd(itemId: string, source: string, name: string, available: number)
+		ensureBulkPrompt()
+		local frame = bulkPrompt :: Frame
+		;(bulkTitle :: TextLabel).Text = ("Add %s"):format(name)
+		bulkStepper.setMax(available)
+		bulkStepper.set(available)
+		if bulkConn then
+			bulkConn:Disconnect()
+		end
+		bulkConn = (bulkAdd :: TextButton).Activated:Connect(function()
+			frame.Visible = false
+			onPicked(itemId, source, bulkStepper.get())
+		end)
+		frame.Visible = true
 	end
 
 	local function clearPicker()
@@ -617,6 +731,27 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				tile.Activated:Connect(function()
 					onPicked(itemId, source)
 				end)
+				-- Stacked holdings get a green + in the top-left: one tap to say
+				-- how many, instead of tapping the square that many times.
+				if (entry.count or 0) > 1 then
+					local bulk = Instance.new("TextButton")
+					bulk.Name = "BulkAdd"
+					bulk.Position = UDim2.fromOffset(3, 3)
+					bulk.Size = UDim2.fromOffset(20, 20)
+					bulk.BackgroundColor3 = Theme.Good
+					bulk.Font = Theme.Font
+					bulk.TextSize = 15
+					bulk.TextColor3 = Theme.TextPrimary
+					bulk.Text = "+"
+					bulk.ZIndex = (tile.ZIndex or 1) + 3
+					bulk.Parent = tile
+					Instance.new("UICorner", bulk).CornerRadius = Theme.CornerSmall
+					local available = entry.count
+					local label = entry.name or itemId
+					bulk.Activated:Connect(function()
+						openBulkAdd(itemId, source, label, available)
+					end)
+				end
 				tooltip.attach(tile, function()
 					if entry.wildcard then
 						return WildcardConfig.snapshot(itemId), nil

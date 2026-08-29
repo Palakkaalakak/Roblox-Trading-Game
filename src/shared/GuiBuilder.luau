@@ -186,7 +186,7 @@ local function buildHud(parent: Instance)
 	-- put each label over its neighbour's art.
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.830))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.597))
-	iconButton("ProfileButton", ICONS.Player, "PLAYERS", UDim2.fromScale(0.955, 0.480))
+	iconButton("ProfileButton", ICONS.Player, "PROFILES", UDim2.fromScale(0.955, 0.480))
 	-- Robux shop and the (deliberately separate) free-gems screen
 	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.363))
 	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.247))

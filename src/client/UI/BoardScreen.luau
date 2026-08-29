@@ -25,6 +25,11 @@ local ShopScreen = require(script.Parent.ShopScreen)
 
 local BoardScreen = {}
 
+-- Set by the bootstrap to a function that lazily wires the shop and THEN opens
+-- it at a section. Lives here rather than reaching into ShopScreen so this
+-- module does not have to know how the shop gets built.
+BoardScreen.shopOpener = nil :: ((section: string) -> ())?
+
 function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, color: Color3) -> ())
 	MarketScreen.wire(gui, tooltip, toast)
 
@@ -355,9 +360,19 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local function openShopAtBoosts(scope: string)
 		panel.Visible = false
 		MarketScreen.hide()
+		local section = TradeAdConfig.shopSection(scope)
+		-- Route through the opener the bootstrap installed, NOT ShopScreen
+		-- directly. The shop is wired lazily on first open, and openAt only
+		-- exists after wire() has run -- so calling it straight off the module
+		-- hit a nil and did nothing at all, which is why "Get boosts" silently
+		-- failed for anyone who had not already opened the shop by hand.
+		if BoardScreen.shopOpener then
+			BoardScreen.shopOpener(section)
+			return
+		end
 		local openAt = (ShopScreen :: any).openAt
 		if openAt then
-			openAt(TradeAdConfig.shopSection(scope))
+			openAt(section)
 		end
 	end
 

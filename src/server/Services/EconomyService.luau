@@ -835,14 +835,19 @@ function EconomyService.applyResetToProfile(profile: any, gen: number): boolean
 		-- for that slot, and a milestone reward already claimed against items
 		-- that no longer exist can never be claimed again after a future wipe.
 		-- Purchased permanents are the one thing this does NOT touch:
-		-- UniqueCraftSlots was bought with gems, and gems are untouched by a
-		-- reset, so the slot stays bought.
+		-- UniqueCraftSlots stays bought.
 		profile.StarterGranted = false
 		profile.StarterGrantId = ""
 		profile.UniqueCrafts = {}
 		profile.UniqueCraftNextAt = {}
 		profile.Crafting = nil
 	end
+	-- Gems go too. A reset that wipes every item but leaves balances intact is
+	-- not a reset -- the surviving gems are pure purchasing power against a
+	-- freshly emptied economy, so whoever was richest before simply buys the
+	-- new supply out. The starter grant is re-armed above, so a wiped player
+	-- comes back to the same footing as a new one.
+	profile.Gems = 0
 	profile.EconomyGen = gen
 	return true
 end

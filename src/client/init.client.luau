@@ -101,6 +101,16 @@ local function ensureSyndicate()
 		SyndicateScreen.wire(modalGui, toast, tooltip)
 	end)
 end
+
+-- "Get boosts" on the trade board has to build the shop before opening it --
+-- ShopScreen.openAt only exists once wire() has run.
+BoardScreen.shopOpener = function(section: string)
+	ensureShop()
+	local openAt = (ShopScreen :: any).openAt
+	if openAt then
+		openAt(section)
+	end
+end
 WorldLeaderboards.start() -- fills the physical boards standing in the world
 AdminPanel.wire() -- own standalone ScreenGui, not nested in modalGui/hudGui
 HUD.wire(hudGui, {

@@ -217,6 +217,60 @@ local function fetchBoard(boardId: string, scope: string, viewerId: number): any
 		readCache[name] = { at = os.clock(), rows = rows }
 	end
 
+	-- LIVE OVERLAY. The stored value is only as fresh as the last staggered
+	-- write (WriteIntervalSeconds) plus the read cache on top, so a player who
+	-- just traded sees their old number and calls it broken. For anyone loaded
+	-- on THIS server the profile is authoritative and current, so their score is
+	-- recomputed from it and the board re-sorted around the corrected values.
+	--
+	-- Copied, not mutated in place: rows is the cached table, and writing
+	-- through it would poison the cache with one server's live view.
+	local live = {}
+	for _, other in Players:GetPlayers() do
+		local profile = DataService.getProfile(other)
+		if profile then
+			live[other.UserId] = scoreFor(board.id, profile)
+		end
+	end
+
+	local merged = {}
+	local seen = {}
+	for _, row in rows do
+		local liveScore = live[row.userId]
+		merged[#merged + 1] = {
+			userId = row.userId,
+			name = row.name,
+			score = liveScore or row.score,
+		}
+		seen[row.userId] = true
+	end
+	-- An online player whose stored score has not landed yet (or was cleared by
+	-- a reset) is still a real contender -- include them rather than waiting for
+	-- the next write to make them visible.
+	for userId, liveScore in live do
+		if not seen[userId] and liveScore > 0 then
+			merged[#merged + 1] = {
+				userId = userId,
+				name = displayNameFor(userId),
+				score = liveScore,
+			}
+		end
+	end
+	table.sort(merged, function(a, b)
+		if a.score == b.score then
+			return a.userId < b.userId -- stable, so equal scores do not shuffle
+		end
+		return a.score > b.score
+	end)
+	rows = {}
+	for i, row in merged do
+		if i > LeaderboardConfig.TopCount then
+			break
+		end
+		row.rank = i
+		rows[i] = row
+	end
+
 	-- the viewer's own rank, pinned even when they're off the visible page, so
 	-- there is always a personal number on screen
 	local you = nil
@@ -227,7 +281,11 @@ local function fetchBoard(boardId: string, scope: string, viewerId: number): any
 		end
 	end
 	if you == nil then
-		local own = storeFor(name):GetAsync(tostring(viewerId))
+		-- their live profile first, for the same reason as the overlay above
+		local own = live[viewerId]
+		if own == nil then
+			own = storeFor(name):GetAsync(tostring(viewerId))
+		end
 		you = { rank = nil, score = own or 0, onBoard = false }
 	end
 

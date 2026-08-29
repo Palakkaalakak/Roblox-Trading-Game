@@ -9,21 +9,22 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local Theme = require(script.Parent.Theme)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 
 local Components = {}
 
 local PLACEHOLDER_IMAGE = "rbxasset://textures/ui/GuiImagePlaceholder.png"
 
--- "N/A" for missing data, k-formatting for big numbers.
+-- "N/A" for missing data, abbreviated for big numbers.
+--
+-- This used to carry its own "%.1fk" formatter, which disagreed with
+-- Format.abbrev everywhere else: 1300 read "1.3k" here and "1.3K" elsewhere,
+-- and 1000 read "1.0k" instead of "1K". One formatter now.
 local function statText(stat: any): string
 	if stat == nil or stat.state ~= "Known" or stat.value == nil then
 		return "N/A"
 	end
-	local v = stat.value
-	if v >= 1000 then
-		return string.format("%.1fk", v / 1000)
-	end
-	return tostring(v)
+	return Format.abbrev(stat.value)
 end
 Components.statText = statText
 
@@ -48,7 +49,10 @@ end
 -- (future event-only items — none exist yet).
 function Components.storeCostText(snapshot: any?): string
 	if snapshot and snapshot.storeCost then
-		return tostring(snapshot.storeCost)
+		-- abbrev, matching Est. Value and RAP on the same card. It used to print
+		-- the raw number, so one card read "Est. Value: 1.3K / Store Cost: 1300"
+		-- and the two looked like different quantities.
+		return Format.abbrev(snapshot.storeCost)
 	end
 	return "N/A (Event Item)"
 end
@@ -61,7 +65,7 @@ function Components.existenceText(snapshot: any?): string
 	if snapshot == nil or snapshot.totalSupply == nil then
 		return "? in existence"
 	end
-	return tostring(snapshot.totalSupply) .. " in existence"
+	return Format.abbrev(snapshot.totalSupply) .. " in existence"
 end
 
 -- Fill an ItemTile (template clone) from a snapshot + owned count.
@@ -469,7 +473,7 @@ function Components.quantityStepper(parent: Instance, opts: {
 		apply(current + 1)
 	end)
 	box.FocusLost:Connect(function()
-		apply(tonumber(box.Text) or current)
+		apply(Format.parseAmount(box.Text) or current)
 	end)
 
 	apply(current)

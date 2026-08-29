@@ -19,10 +19,16 @@ local Net = require(script.Parent.Parent.Net)
 
 local AdminPanel = {}
 
--- A blind click on something that resets every online player's economy is
--- worth one extra step. Arms on the first click, fires on a second click
--- within this window; anything after the window re-arms instead of firing.
-local CONFIRM_WINDOW_SECONDS = 4
+-- Wiping every player's economy deserves more than a reflex. THREE clicks, and
+-- each one only counts once REQUIRED_GAP_SECONDS has passed since the last --
+-- a triple-click, or any impatient burst, does not arm it. Clicking early is
+-- not an error, it just does not advance the count; going quiet past the window
+-- drops it back to zero.
+local REQUIRED_CLICKS = 3
+local REQUIRED_GAP_SECONDS = 3
+-- Long enough to make three deliberate clicks comfortably, short enough that a
+-- half-armed button does not sit waiting forever.
+local ARM_WINDOW_SECONDS = 12
 
 function AdminPanel.wire()
 	if not (DebugConfig.AdminUserNames and DebugConfig.AdminUserNames[Players.LocalPlayer.Name]) then
@@ -71,16 +77,28 @@ function AdminPanel.wire()
 	result.Text = ""
 	result.Parent = gui
 
-	local armedAt: number? = nil
+	local clicks = 0
+	local lastClickAt = 0
+
+	local function disarm()
+		clicks = 0
+		lastClickAt = 0
+		btn.Text = "ADMIN: RESET ECONOMY"
+		btn.BackgroundColor3 = Theme.Bad
+		result.Text = ""
+	end
 
 	local function reset()
-		btn.Text = "RESETTING…"
-		btn.BackgroundColor3 = Theme.BgLight
-		result.Text = ""
+		-- Fire and forget. The reset walks every item and every profile ever
+		-- seen, so the round trip can take a while; blocking the button on it
+		-- left the admin staring at "RESETTING…" with no idea whether anything
+		-- was happening. The server does the work regardless of whether we wait,
+		-- so report that it STARTED immediately and let the outcome land later.
+		disarm()
+		result.Text = "Reset started — running in the background."
+		result.TextColor3 = Theme.Good
 		task.spawn(function()
 			local res = Net.invoke("AdminResetEconomy")
-			btn.Text = "ADMIN: RESET ECONOMY"
-			btn.BackgroundColor3 = Theme.Bad
 			if res and res.ok then
 				result.Text = ("Reset %d items, wiped %d player(s)."):format(res.reset or 0, res.wiped or 0)
 				result.TextColor3 = Theme.Good
@@ -95,21 +113,48 @@ function AdminPanel.wire()
 
 	btn.Activated:Connect(function()
 		local now = os.clock()
-		if armedAt and (now - armedAt) < CONFIRM_WINDOW_SECONDS then
-			armedAt = nil
+		local sinceLast = now - lastClickAt
+
+		-- Gone quiet for too long: this is a fresh attempt, not a continuation.
+		if clicks > 0 and sinceLast > ARM_WINDOW_SECONDS then
+			clicks = 0
+		end
+
+		-- Too soon after the previous counted click. Deliberately NOT a reset of
+		-- progress -- an admin double-tapping by accident should not have to
+		-- start over, they just have to slow down.
+		if clicks > 0 and sinceLast < REQUIRED_GAP_SECONDS then
+			result.Text = ("Wait %.0fs, then click again (%d/%d)."):format(
+				REQUIRED_GAP_SECONDS - sinceLast,
+				clicks,
+				REQUIRED_CLICKS
+			)
+			result.TextColor3 = Theme.Warn
+			return
+		end
+
+		clicks += 1
+		lastClickAt = now
+
+		if clicks >= REQUIRED_CLICKS then
 			reset()
 			return
 		end
-		armedAt = now
-		btn.Text = "CLICK AGAIN TO CONFIRM"
-		result.Text = "Resets the ENTIRE economy for every player, online or not."
+
+		btn.Text = ("CLICK %d MORE TIME%s"):format(
+			REQUIRED_CLICKS - clicks,
+			(REQUIRED_CLICKS - clicks) == 1 and "" or "S"
+		)
+		result.Text = ("Wipes the ENTIRE economy AND every gem balance, online or not. (%d/%d)"):format(
+			clicks,
+			REQUIRED_CLICKS
+		)
 		result.TextColor3 = Theme.Warn
+
 		task.spawn(function()
-			task.wait(CONFIRM_WINDOW_SECONDS)
-			if armedAt == now then
-				armedAt = nil
-				btn.Text = "ADMIN: RESET ECONOMY"
-				result.Text = ""
+			task.wait(ARM_WINDOW_SECONDS)
+			if clicks > 0 and clicks < REQUIRED_CLICKS and lastClickAt == now then
+				disarm()
 			end
 		end)
 	end)

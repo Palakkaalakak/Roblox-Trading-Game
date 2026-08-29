@@ -29,6 +29,7 @@ local BoothConfig = require(ReplicatedStorage.Shared.Config.BoothConfig)
 local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 
 local BoothPanel = {}
 
@@ -929,8 +930,8 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 			toast("Pick an item first.", Theme.Bad)
 			return
 		end
-		local count = math.floor(tonumber(composerCount.Text) or 0)
-		local gems = math.floor(tonumber(composerPrice.Text) or 0)
+		local count = math.floor(Format.parseAmount(composerCount.Text) or 0)
+		local gems = math.floor(Format.parseAmount(composerPrice.Text) or 0)
 		if count < 1 or gems < 1 then
 			toast("Set how many, and a price of at least 1 gem.", Theme.Bad)
 			return

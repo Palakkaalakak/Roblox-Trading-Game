@@ -24,6 +24,7 @@ local DebugConfig = require(ReplicatedStorage.Shared.Config.DebugConfig)
 local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 
 local RollsScreen = {}
 
@@ -181,7 +182,7 @@ local function buildDevBatchRoll(panel: Frame, showReveal: (any) -> ())
 	-- simply a second batch. Gating it made the DataStore round trip read as a
 	-- cooldown.
 	goBtn.Activated:Connect(function()
-		local n = math.floor(tonumber(countBox.Text) or 0)
+		local n = math.floor(Format.parseAmount(countBox.Text) or 0)
 		if n < 1 then
 			result.Text = "Enter a count of 1 or more."
 			result.TextColor3 = Theme.Bad

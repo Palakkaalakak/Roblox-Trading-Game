@@ -20,6 +20,7 @@ local RunService = game:GetService("RunService")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local BoothConfig = require(ReplicatedStorage.Shared.Config.BoothConfig)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 local Net = require(script.Parent.Parent.Net)
 
 local BoothScreen = {}
@@ -247,17 +248,31 @@ local function makeCell(face: any, order: number): TextButton
 	name.Parent = cell
 	Instance.new("UITextSizeConstraint", name).MaxTextSize = 18
 
+	-- The price is the CALL TO ACTION, so it looks like one: a solid green
+	-- button across the bottom of the tile rather than a dim subtitle under the
+	-- name. Same shape the shop uses for its buy buttons, so a stall reads as
+	-- somewhere you can actually purchase.
+	--
+	-- A TextLabel, not a TextButton: the whole cell is already the button (see
+	-- makeCell), and nesting a second one would swallow the click that opens the
+	-- buy flow.
 	local price = Instance.new("TextLabel")
 	price.Name = "Price"
-	price.BackgroundTransparency = 1
-	price.Position = UDim2.fromScale(0.05, 0.77)
-	price.Size = UDim2.fromScale(0.9, 0.17)
+	price.BackgroundColor3 = Theme.Good
+	price.BackgroundTransparency = 0
+	price.BorderSizePixel = 0
+	price.AnchorPoint = Vector2.new(0.5, 1)
+	price.Position = UDim2.fromScale(0.5, 0.965)
+	price.Size = UDim2.fromScale(0.9, 0.2)
 	price.Font = Theme.Font
 	price.TextScaled = true
-	price.TextColor3 = Theme.Gem
+	price.TextColor3 = Theme.TextPrimary
 	price.Text = ""
 	price.Parent = cell
-	Instance.new("UITextSizeConstraint", price).MaxTextSize = 18
+	local priceCorner = Instance.new("UICorner")
+	priceCorner.CornerRadius = UDim.new(0.25, 0)
+	priceCorner.Parent = price
+	Instance.new("UITextSizeConstraint", price).MaxTextSize = 16
 
 	table.insert(face.cells, cell)
 	return cell
@@ -314,8 +329,10 @@ local function paint(face: any, data: any)
 		icon.Visible = true
 		plus.Visible = false
 		Components.setIcon(icon, row)
-		name.Text = row.name
-		price.Text = ("%d gems  x%d"):format(row.gemsPerCopy, row.remaining)
+		-- The button says what it costs; the stock count moves up beside the
+		-- name, where it is information rather than part of the price.
+		price.Text = ("%s gems"):format(Format.abbrev(row.gemsPerCopy))
+		name.Text = row.remaining > 1 and ("%s  x%d"):format(row.name, row.remaining) or row.name
 		-- everything the buy flow needs, carried on the tile the player clicked
 		cell:SetAttribute("listingId", row.listingId)
 		cell:SetAttribute("itemName", row.name)
@@ -623,7 +640,7 @@ openBuy = function(cell: TextButton)
 		setCount(count + 1)
 	end))
 	table.insert(conns, box.FocusLost:Connect(function()
-		setCount(tonumber(box.Text) or count)
+		setCount(Format.parseAmount(box.Text) or count)
 	end))
 	table.insert(conns, cancel.Activated:Connect(function()
 		close()

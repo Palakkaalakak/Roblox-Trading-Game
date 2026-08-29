@@ -739,7 +739,7 @@ function SyndicateScreen.wire(gui: ScreenGui, toast: (text: string, color: Color
 			openPicker()
 			return
 		end
-		local count = tonumber(countBox.Text)
+		local count = Format.parseAmount(countBox.Text)
 		if count == nil or count < 1 then
 			toast("Enter how many you need.", Theme.Bad)
 			return

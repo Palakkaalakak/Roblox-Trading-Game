@@ -61,4 +61,40 @@ function Format.abbrev(n: number): string
 	return (negative and "-" or "") .. text .. SUFFIXES[index]
 end
 
+-- The INVERSE of abbrev, for text the player types. "3k" -> 3000, "1.5m" ->
+-- 1500000, "2,500" -> 2500, "  400 " -> 400.
+--
+-- Players who read "1.3K" everywhere reasonably try to type it back. Without
+-- this, tonumber("3k") is nil and the box silently rejects a perfectly clear
+-- amount. Case-insensitive, tolerates commas/spaces and a trailing suffix.
+--
+-- Returns nil for anything it cannot read, so callers keep their existing
+-- "bad input" path rather than silently getting a wrong number.
+local PARSE_SUFFIXES = { k = 1e3, m = 1e6, b = 1e9, t = 1e12 }
+
+function Format.parseAmount(text: string?): number?
+	if text == nil then
+		return nil
+	end
+	local cleaned = tostring(text):lower():gsub("[%s,]", "")
+	if cleaned == "" then
+		return nil
+	end
+	-- plain number first: no suffix to interpret
+	local plain = tonumber(cleaned)
+	if plain then
+		return math.floor(plain)
+	end
+	local numberPart, suffix = cleaned:match("^(%-?%d*%.?%d+)(%a)$")
+	if numberPart == nil then
+		return nil
+	end
+	local multiplier = PARSE_SUFFIXES[suffix]
+	local base = tonumber(numberPart)
+	if multiplier == nil or base == nil then
+		return nil
+	end
+	return math.floor(base * multiplier)
+end
+
 return Format

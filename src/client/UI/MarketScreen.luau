@@ -17,6 +17,7 @@ local Net = require(script.Parent.Parent.Net)
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
 local NotificationController = require(script.Parent.Parent.Controllers.NotificationController)
+local Format = require(ReplicatedStorage.Shared.Util.Format)
 
 local MarketScreen = {}
 
@@ -248,7 +249,7 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				stock.Text = isAsk and (remaining .. " still for sale") or ("still wants " .. remaining)
 				return
 			end
-			local n = math.clamp(math.floor(tonumber(countBox.Text) or 0), 0, remaining)
+			local n = math.clamp(math.floor(Format.parseAmount(countBox.Text) or 0), 0, remaining)
 			if n < 1 then
 				stock.Text = isAsk and (remaining .. " for sale") or ("wants " .. remaining .. " more")
 			elseif isAsk then
@@ -284,7 +285,7 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 			end
 			countBox:GetPropertyChangedSignal("Text"):Connect(updateStock)
 			action.Activated:Connect(function()
-				local n = math.floor(tonumber(countBox.Text) or 0)
+				local n = math.floor(Format.parseAmount(countBox.Text) or 0)
 				if n < 1 then
 					toast(isAsk and "Enter how many to buy." or "Enter how many to sell.", Theme.Bad)
 					return
@@ -490,8 +491,8 @@ function MarketScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 		local countBox = wantRow:WaitForChild("CountBox") :: TextBox
 		local gemsBox = wantRow:WaitForChild("GemsBox") :: TextBox
-		local count = math.floor(tonumber(countBox.Text) or 0)
-		local gems = math.floor(tonumber(gemsBox.Text) or 0)
+		local count = math.floor(Format.parseAmount(countBox.Text) or 0)
+		local gems = math.floor(Format.parseAmount(gemsBox.Text) or 0)
 		if count < 1 or gems < 1 then
 			toast("Fill in both numbers first.", Theme.Bad)
 			return
