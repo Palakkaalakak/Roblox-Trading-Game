@@ -17,6 +17,7 @@
 
 local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
+local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local AfkConfig = require(ReplicatedStorage.Shared.Config.AfkConfig)
@@ -36,6 +37,8 @@ type Session = {
 	ticks: number,
 	paid: number, -- rungs that actually granted something
 	anchorWas: boolean,
+	idleSince: number?, -- clock when Player.Idled first reached us
+	refreshing: boolean?, -- a teleport is already in flight
 }
 
 local sessions: { [Player]: Session } = {}
@@ -286,7 +289,45 @@ AfkService.release = release
 -- Remotes
 --------------------------------------------------------------------------------
 
-local function enter(player: Player): any
+--------------------------------------------------------------------------------
+-- Staying connected
+--
+-- Roblox disconnects an idle client at ~20 minutes and offers no way to turn
+-- that off. Rather than asking the player to point an autoclicker at the screen,
+-- an AFK player is teleported back into the same place before the kick lands: a
+-- new client session gets a new idle timer, and the ladder rides along in the
+-- teleport data so the round trip costs them nothing.
+--------------------------------------------------------------------------------
+
+local function refresh(player: Player, session: Session)
+	if session.refreshing then
+		return
+	end
+	session.refreshing = true
+	local options = Instance.new("TeleportOptions")
+	options:SetTeleportData({
+		afk = true,
+		ticks = session.ticks,
+		paid = session.paid,
+	})
+	AnalyticsService.log("afk_refresh", {
+		userId = player.UserId,
+		zoneId = session.zoneId,
+		ticks = session.ticks,
+	})
+	local ok, err = pcall(function()
+		TeleportService:TeleportAsync(game.PlaceId, { player }, options)
+	end)
+	if not ok then
+		-- Teleports fail in Studio and can fail live. Losing the session is
+		-- worse than losing the refresh, so the player just keeps sitting there
+		-- and takes the kick they would have taken anyway.
+		session.refreshing = false
+		warn(("[Afk] refresh teleport failed for %s: %s"):format(player.Name, tostring(err)))
+	end
+end
+
+local function enter(player: Player, restore: any?): any
 	if not AfkConfig.Enabled then
 		return { ok = false, err = "disabled" }
 	end
@@ -314,8 +355,10 @@ local function enter(player: Player): any
 		zoneId = zoneId,
 		since = os.clock(),
 		nextTickAt = os.clock() + AfkConfig.TickSeconds,
-		ticks = 0,
-		paid = 0,
+		-- A refresh teleport hands the ladder back, so the trip is invisible to
+		-- the player: they do not drop to rung one for staying put.
+		ticks = (restore and tonumber(restore.ticks)) or 0,
+		paid = (restore and tonumber(restore.paid)) or 0,
 		anchorWas = wasAnchored,
 	}
 	AnalyticsService.log("afk_entered", { userId = player.UserId, zoneId = zoneId })
@@ -339,10 +382,54 @@ function AfkService.Start()
 	Net.bindFunction("GetAfkState", function(player)
 		return stateFor(player)
 	end)
+	-- Player.Idled only exists on the client, so the client reports it and the
+	-- server decides. Nothing is granted here and nothing is trusted: the worst
+	-- a forged ping can do is teleport the sender back into the same place.
+	Net.bindFunction("AfkIdlePing", function(player)
+		local session = sessions[player]
+		if session == nil or not AfkConfig.RefreshOnIdle then
+			return { ok = true }
+		end
+		local now = os.clock()
+		session.idleSince = session.idleSince or now
+		if now - session.idleSince >= AfkConfig.IdleRefreshSeconds then
+			refresh(player, session)
+		end
+		return { ok = true }
+	end)
 
 	Players.PlayerRemoving:Connect(function(player)
 		sessions[player] = nil -- nothing to unfreeze: the character is going too
 	end)
+
+	-- Coming back from a refresh teleport: put them straight back on a pad with
+	-- the ladder they had. Without this the refresh would read as "the game
+	-- randomly rejoined me and took my progress".
+	local function resumeIfRefreshed(player: Player)
+		local ok, join = pcall(function()
+			return player:GetJoinData()
+		end)
+		local data = ok and join and join.TeleportData or nil
+		if type(data) ~= "table" or data.afk ~= true then
+			return
+		end
+		task.spawn(function()
+			-- wait for a character and a loaded profile before claiming a slot
+			for _ = 1, 60 do
+				if rootOf(player) and DataService.getProfile(player) then
+					break
+				end
+				task.wait(0.5)
+			end
+			if player.Parent and sessions[player] == nil then
+				enter(player, data)
+			end
+		end)
+	end
+	Players.PlayerAdded:Connect(resumeIfRefreshed)
+	for _, player in Players:GetPlayers() do
+		resumeIfRefreshed(player)
+	end
 
 	-- Respawning breaks the session: the anchored body it belonged to is gone.
 	Players.PlayerAdded:Connect(function(player)

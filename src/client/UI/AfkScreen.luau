@@ -153,6 +153,13 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 		panel.Visible = false
 	end)
 
+	-- Intentionally inert. Roblox's idle kick watches for input, not for what
+	-- the input DID, so a button that handles the click and then does nothing is
+	-- the entire feature. Connected rather than left bare so it still lights up
+	-- under the cursor and reads as pressable.
+	local clickHere = panel:WaitForChild("ClickHereButton") :: TextButton
+	clickHere.Activated:Connect(function() end)
+
 	goBtn.Activated:Connect(function()
 		if state.afk then
 			local result = Net.invoke("LeaveAfk")
@@ -178,6 +185,19 @@ function AfkScreen.wire(gui: ScreenGui, toastFn: (text: string, color: Color3) -
 				disabled = "AFK zones are switched off right now.",
 			})[result.err] or ("Couldn't go AFK: " .. tostring(result.err)), Theme.Bad)
 		end
+	end)
+
+	-- Player.Idled is client-only: it fires two minutes after the client goes
+	-- quiet, then every thirty seconds until Roblox disconnects at ~twenty. We
+	-- just report it; the server decides whether a refresh is due. Reported only
+	-- while actually AFK, so a player idling in the plaza is left alone.
+	player.Idled:Connect(function()
+		if not state.afk then
+			return
+		end
+		task.spawn(function()
+			Net.invoke("AfkIdlePing")
+		end)
 	end)
 
 	Net.on("AfkStateChanged", function(next: any)

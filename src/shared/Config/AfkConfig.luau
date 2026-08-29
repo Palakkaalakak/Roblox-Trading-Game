@@ -57,6 +57,26 @@ local AfkConfig = {
 	-- and back in to farm the top rung forever.
 	ResetLadderOnLeave = true,
 
+	-- STAYING CONNECTED.
+	--
+	-- Roblox's idle kick watches for INPUT -- mouse, keyboard, touch, gamepad --
+	-- and nothing else. Sitting on a pad earning rewards counts for nothing, and
+	-- there is no API to switch the kick off. Player.Idled is the only signal we
+	-- get: it fires two minutes after the client goes quiet, then every thirty
+	-- seconds, until the disconnect at roughly twenty.
+	--
+	-- So before that lands, an AFK player is teleported back into the same place.
+	-- A fresh client session starts a fresh idle timer, and the ladder rides
+	-- along in the teleport data so the trip costs them nothing. This uses only
+	-- documented APIs; the other common trick (VirtualUser synthesising clicks)
+	-- is undocumented, marked Not Replicated, and historically scoped to Roblox's
+	-- own testing -- not something to hang a monetised feature on.
+	RefreshOnIdle = true,
+	-- How long a player may sit idle before we refresh them. Comfortably inside
+	-- the ~20 minute kick, and comfortably past the 2 minute mark where Idled
+	-- first fires.
+	IdleRefreshSeconds = 900,
+
 	-- A pad the player is not actually standing on is not an AFK session. The
 	-- server re-checks this every tick and drops anyone who has wandered off,
 	-- which is what stops a spoofed "I am AFK" from paying out.

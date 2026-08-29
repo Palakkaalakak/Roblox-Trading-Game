@@ -5165,7 +5165,7 @@ local function buildModals(parent: Instance)
 	local afkPanel = panel("AfkPanel", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(400, 348),
+		Size = UDim2.fromOffset(400, 386),
 		Visible = false,
 	}, gui)
 	local afkTitle = label("Title", {
@@ -5213,9 +5213,36 @@ local function buildModals(parent: Instance)
 		TextColor3 = C.TextDim,
 	}, afkPanel)
 	new("UITextSizeConstraint", { MaxTextSize = 15 }, afkEarned)
+	-- A target for an autoclicker, and nothing else. Roblox kicks a genuinely
+	-- idle client after ~20 minutes, which would end the very session this
+	-- screen exists to keep alive. This button deliberately does NOTHING when
+	-- pressed: it is somewhere safe to aim a clicker, so the alternative is not
+	-- aiming it at a button that sells something.
+	local afkClicker = button("ClickHereButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromOffset(200, 214),
+		Size = UDim2.fromOffset(340, 46),
+		Text = "Point your autoclicker here",
+		TextScaled = true,
+		BackgroundColor3 = C.BgLight,
+		AutoButtonColor = true,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 16 }, afkClicker)
+	stroke(afkClicker, C.Stroke, 1)
+	local afkClickerHint = label("ClickHereHint", {
+		Position = UDim2.fromOffset(30, 262),
+		Size = UDim2.new(1, -60, 0, 18),
+		Text = "Stops Roblox from kicking you",
+		TextScaled = true,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = C.TextDim,
+	}, afkPanel)
+	new("UITextSizeConstraint", { MaxTextSize = 12 }, afkClickerHint)
+
 	local afkGo = button("GoButton", {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -60),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromOffset(200, 290),
 		Size = UDim2.fromOffset(220, 46),
 		Text = "Go AFK",
 		TextScaled = true,
@@ -5223,9 +5250,9 @@ local function buildModals(parent: Instance)
 	}, afkPanel)
 	new("UITextSizeConstraint", { MaxTextSize = 20 }, afkGo)
 	local afkClose = button("CloseButton", {
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -14),
-		Size = UDim2.fromOffset(220, 38),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromOffset(200, 344),
+		Size = UDim2.fromOffset(220, 32),
 		Text = "Close",
 		TextScaled = true,
 		BackgroundColor3 = C.BgLight,

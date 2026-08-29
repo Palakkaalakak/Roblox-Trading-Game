@@ -117,6 +117,7 @@ local Enums = {
 		"EnterAfk", -- () -> {ok, afk, zoneId?, err?} — take a spot on an AFK pad
 		"LeaveAfk", -- () -> {ok, afk} — stand back up; drops the reward ladder
 		"GetAfkState", -- () -> {ok, afk, ticks?, secondsToNext?, nextReward}
+		"AfkIdlePing", -- () -> {ok} — client saw Player.Idled; server decides on a refresh
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)
