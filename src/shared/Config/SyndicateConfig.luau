@@ -213,9 +213,22 @@ function SyndicateConfig.rolesOf(record: any): { any }
 end
 
 function SyndicateConfig.roleById(record: any, roleId: string): any?
-	for _, role in SyndicateConfig.rolesOf(record) do
+	local roles = SyndicateConfig.rolesOf(record)
+	for _, role in roles do
 		if role.id == roleId then
 			return role
+		end
+	end
+	-- Case-insensitive second pass, for members already stamped with a
+	-- differently-cased id ("Member" against the floor role "member"). Those
+	-- rows resolved to no role at all, which read as "outranked by everyone"
+	-- and hid every moderation button on them.
+	if type(roleId) == "string" then
+		local lowered = roleId:lower()
+		for _, role in roles do
+			if type(role.id) == "string" and role.id:lower() == lowered then
+				return role
+			end
 		end
 	end
 	return nil

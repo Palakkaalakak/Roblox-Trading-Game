@@ -590,7 +590,12 @@ function SyndicateService.join(player: Player, syndicateId: any): any
 		if record.policy == "Request" and not invited then
 			return nil, "request_required"
 		end
-		record.members[key] = { role = "Member", joinedAt = now(), xp = 0 }
+		-- MemberRoleId, not the literal "Member". The floor role's id is
+		-- lowercase, so a joiner stamped with "Member" matched no role on the
+		-- ladder: roleById returned nil, outranks was false, and EVERY
+		-- moderation button was hidden for them -- the owner could not promote,
+		-- demote or kick anyone who had just joined.
+		record.members[key] = { role = SyndicateConfig.MemberRoleId, joinedAt = now(), xp = 0 }
 		return record
 	end)
 	if committed == nil then
