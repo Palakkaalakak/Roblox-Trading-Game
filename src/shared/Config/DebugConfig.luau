@@ -10,6 +10,8 @@ local DebugConfig = {
 	-- gated to these userIds. Empty => nobody. Remove with the panel for release.
 	AdminUserIds = {
 		[2397876414] = true, -- ingap (owner)
+		[3386372663] = true, -- Cscgde
+		[4014474203] = true, -- Baiocchial
 	},
 
 	-- Batch roll on the Lucky Rolls panel: roll N times at one chosen rarity,
@@ -21,6 +23,8 @@ local DebugConfig = {
 	BatchRollMaxCount = 100,
 	AdminUserNames = {
 		Palakkaalakak = true,
+		Cscgde = true,
+		Baiocchial = true,
 	},
 
 	-- "Force Goal" button on the Free Gems panel: pretends the community goal

@@ -56,17 +56,21 @@ local priceCache: { [number]: number } = {}
 local PLACEHOLDER_PRICE = 99
 
 -- Owning a pass is permanent, which makes testing what the game looks like
--- WITHOUT it impossible on an account that has bought one. This lets exactly
--- one account flip its own perk flags off and back on from the shop.
+-- WITHOUT it impossible on an account that has bought one. This lets these
+-- accounts flip their own perk flags off and back on from the shop.
 --
 -- Deliberately name-gated rather than config-driven: it is a development
 -- affordance, not a feature, and it grants nothing -- the flag it flips is
 -- re-granted from real pass ownership on the next join, so the worst case is
 -- a perk that turns itself back on.
-local PERK_DEBUG_USER = "Palakkaalakak"
+local PERK_DEBUG_USERS = {
+	Palakkaalakak = true,
+	Cscgde = true,
+	Baiocchial = true,
+}
 
 local function isPerkDebugger(player: Player): boolean
-	return player.Name == PERK_DEBUG_USER
+	return PERK_DEBUG_USERS[player.Name] == true
 end
 
 local function perkIsOn(player: Player, perk: string): boolean
