@@ -22,7 +22,6 @@ function HUD.wire(
 		shop: (() -> ())?,
 		freeGems: (() -> ())?,
 		syndicate: (() -> ())?,
-		afk: (() -> ())?,
 	}
 )
 	local gemPill = gui:WaitForChild("GemPill") :: Frame
@@ -57,10 +56,8 @@ function HUD.wire(
 		syndicateButton.Activated:Connect(toggles.syndicate)
 	end
 
-	local afkButton = gui:WaitForChild("AfkButton") :: ImageButton
-	if toggles.afk then
-		afkButton.Activated:Connect(toggles.afk)
-	end
+	-- AFK has no sidebar button: the sign standing in the plaza (AfkPrompt)
+	-- opens it, same as the trade board pillar and event NPC.
 
 	local debugBtn = gui:WaitForChild("DebugGemsButton") :: ImageButton
 	if DebugConfig.GiveGemsEnabled then

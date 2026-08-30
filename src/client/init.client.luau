@@ -134,9 +134,6 @@ HUD.wire(hudGui, {
 		ensureSyndicate()
 		SyndicateScreen.toggle()
 	end,
-	afk = function()
-		AfkScreen.toggle()
-	end,
 })
 
 -- world prompts: store NPC / event NPC / rolls NPC / trade board pillar
@@ -154,6 +151,8 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt)
 		RollsScreen.open()
 	elseif prompt.Name == "BoardPrompt" then
 		BoardScreen.open()
+	elseif prompt.Name == "AfkPrompt" then
+		AfkScreen.toggle()
 	elseif prompt.Name == BoothConfig.PromptName then
 		BoothScreen.interact(prompt)
 	end

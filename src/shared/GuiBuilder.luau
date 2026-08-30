@@ -178,21 +178,23 @@ local function buildHud(parent: Instance)
 		return btn
 	end
 
-	-- events + trade board have NO HUD buttons: their world NPCs/pillar are
-	-- the way in (EventPrompt / BoardPrompt proximity prompts)
+	-- events + trade board + AFK have NO HUD buttons: their world NPCs/pillar/
+	-- sign are the way in (EventPrompt / BoardPrompt / AfkPrompt proximity
+	-- prompts). AFK used to have a sidebar button, but a corner icon is easy
+	-- to miss for something that plants you in the world -- a sign standing
+	-- in the plaza is unambiguous the way the board pillar already is.
 	--
-	-- Seven buttons, evenly spread 0.130..0.830. At the old 0.10 spacing the
+	-- Six buttons, evenly spread 0.130..0.830. At the old 0.10 spacing the
 	-- 64px icons sat 3px INTO each other, which read as one crowded strip and
 	-- put each label over its neighbour's art.
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.830))
-	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.597))
-	iconButton("ProfileButton", ICONS.Player, "PROFILES", UDim2.fromScale(0.955, 0.480))
+	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.690))
+	iconButton("ProfileButton", ICONS.Player, "PROFILES", UDim2.fromScale(0.955, 0.550))
 	-- Robux shop and the (deliberately separate) free-gems screen
-	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.363))
-	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.247))
+	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.410))
+	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.270))
 	-- no RANKS button: leaderboards are the physical boards in the world
 	iconButton("SyndicateButton", ICONS.Friends, "GROUP", UDim2.fromScale(0.955, 0.130))
-	iconButton("AfkButton", ICONS.Playtime, "GO AFK", UDim2.fromScale(0.955, 0.713))
 	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
