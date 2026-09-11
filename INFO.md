@@ -164,7 +164,16 @@ Large numbers are always abbreviated in the UI (1,300 gems reads "1.3K," not the
 
 ## Other systems
 
-**Player profiles** — viewable by others, with privacy toggles applied at write time so private data never enters the public-readable snapshot in the first place. Up to 6 showcase items and 3 stat chips, both configurable, both requiring the player to actually own/qualify for what they display.
+**Player profiles** — a browsable public page for every player, viewable whether they're online, offline, or on a different server entirely, built around one deliberate rule: privacy is enforced by *omission at write time*, not by filtering at read time. Hidden sections are never written into the public record in the first place, so there's no code path that could accidentally leak them later.
+
+What a profile shows:
+- **Showcase** — up to 6 items on display. If the player hasn't picked any, it defaults to their 6 scarcest owned items (fewest copies in existence, ties broken deterministically) — so an empty profile still shows off something interesting rather than nothing. Only items still actually owned resolve; selling a showcased item quietly drops it.
+- **Stat chips** — up to 3, chosen from a menu of 9: Portfolio Value, Trades, Gems Earned, Mythical+ Owned, Celestials Owned, Distinct Items, Items Crafted, Friends Invited, Gems. Defaults to Portfolio Value / Trades / Mythical+ Owned if never customized. "Mythical+ Owned" deliberately counts Mythical *and* every tier above it (Godly, Celestial) — a note in the code explains this was a real gap once Godly/Celestial were added above Mythical and the chip briefly undercounted a player's two rarest tiers; "Celestials Owned" exists separately for players who want to flex the single top tier on its own.
+- **A status line** — up to 60 characters, filtered through Roblox's text moderation before it's ever stored.
+- **Portfolio Value** itself, shown as a headline number unless hidden.
+- **Two independent privacy toggles**: hide portfolio value, hide showcase. Either can be off while the other stays on.
+
+Profile reads are deliberately lock-free — no session lock, just a plain cached read — specifically so an offline or cross-server player's profile stays viewable instead of erroring. Writes are debounced (4 seconds after an inventory or gem change) since trading can mutate a player's inventory many times a minute and writing the public snapshot on every single change would be wasteful.
 
 **Notifications** — deliberately offline-only; a player currently in the game gets nothing from this system (the live UI already shows current state, and toasting every board event was judged noise). An offline player gets a durable queued notification replayed at next login, plus a real push notification through Roblox's own notification API for opted-in players (subject to Roblox's hard platform limit of one push per player per day per experience).
 
