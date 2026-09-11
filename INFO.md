@@ -214,7 +214,22 @@ A few systems are fully implemented and wired end-to-end but intentionally disab
 - **AFK zone reward payout** — the AFK system itself (zones, timers, escalating payout schedule) is fully built; only the actual reward type (items vs. gems vs. roll credits vs. banked trade-ad boosts) hasn't been chosen yet.
 - **Real Robux product IDs** — gem packs and some ad-slot dev products are still on placeholder IDs pending the store going live.
 
-## Open ideas under consideration
+## Open idea: a guided first-profit strategy
 
-- **A guided first-profit strategy.** Right now the game teaches its core loop entirely through mechanics rather than screens — Unique Craft, for instance, is explicitly designed to teach "the four ways to get an item" without a word of tutorial. There's no formal walkthrough yet that hands a brand-new player one concrete, repeatable strategy for turning their starter bundle into their first real profit. Whether that should be an explicit tutorial flow, or just better in-context nudging on top of what already exists (Unique Craft, the weighted/asymmetric starter bundle), is an open question.
-- **Bots as a new-player liquidity backstop.** A full bot-driven market simulation exists in the codebase (hundreds of agents with distinct trading personalities — value-driven buyers, trend chasers, hoarders, crafters, collectors, and pure market-makers who quote both sides purely for liquidity) but is currently off while the economy is tuned directly against real player behavior. The idea under consideration isn't reviving that full simulation — it's specifically using a small, targeted presence purely for liquidity, so a brand-new player always has *someone* to trade with in their first few minutes, even at 2 AM on a quiet server, rather than depending on real player traffic being enough from day one.
+This needs real research, not a one-line note. Right now the game teaches its entire core loop through mechanics rather than screens — nothing explicitly walks a brand-new player through turning their starter bundle into their first real profit. What exists today that already points in this direction, without being a tutorial:
+
+- **The starter bundle is deliberately asymmetric** (5 weighted draws, not a fixed kit), specifically so two new players land on different portfolios and have something worth trading with each other on day one.
+- **Unique Craft** hands a new player a cheap, concrete shopping list (2–3 common/rare items) priced well below what the output is worth, with nobody else in the market currently competing for those same parts — the closest thing the game has to "here is a guaranteed profitable trade, go make it."
+- **The Alchemist's Lab** is the one recipe station that's always cheap and always on, by design, as a no-fail on-ramp.
+- **The Store's timed 35%-off sales** are, mechanically, free profit if bought and held — a first flip that requires no trading skill at all, just knowing to look.
+
+None of these are surfaced together as a strategy — a player has to already understand the economy to notice that Unique Craft is a guaranteed-profitable trade, or that a Store sale is underpriced. There's no moment in the first session that says "here's how you turn your starting items into more value than you started with, and here's why it worked."
+
+What's genuinely open and worth researching against comparable games:
+- Does this need to be an explicit tutorial/quest flow, or can it be solved with better in-context nudging on top of what already exists (surfacing *why* a Unique Craft or a Store sale is a good trade, not just that one exists)?
+- What do successful Roblox trading/collector games do in the first 5–10 minutes to get a brand-new player their first successful, self-understood trade — not just their first item?
+- Is there a risk that an explicit "guaranteed profit" tutorial teaches the wrong lesson (that trading is a solved puzzle rather than a live market), and if so how do other games avoid that while still onboarding effectively?
+
+## Open idea: bots as a new-player liquidity backstop
+
+A full bot-driven market simulation exists in the codebase — hundreds of agents with distinct trading personalities (value-driven buyers, trend chasers, hoarders, crafters, collectors, and pure market-makers who quote both sides purely for liquidity) — but it's currently switched off while the economy is tuned directly against real player behavior rather than simulated behavior. The idea under consideration is *not* reviving that full simulation. It's specifically using a small, targeted presence purely for liquidity, so a brand-new player always has *someone* to trade with in their first few minutes, even at 2 AM on a quiet server, rather than the game's usefulness depending on real player traffic already being high enough. Worth researching: how do other low-population-risk trading games solve the cold-start problem where a new player's first session has nobody to trade with?
