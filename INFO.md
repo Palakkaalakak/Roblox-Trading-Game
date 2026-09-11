@@ -95,3 +95,21 @@ Large numbers are always abbreviated in the UI (1,300 gems reads "1.3K," not the
 ## Other systems
 
 Player profiles (viewable by others, with privacy toggles), offline notifications (plus real push notifications for opted-in players), and an admin/debug layer (hardcoded admin user list, debug gem grants, batch-roll testing tool) that's meant to be stripped before release.
+
+## Built for ongoing content — the live-ops backbone
+
+The crafting/event system was deliberately architected as an engine for a constant stream of updates, not a one-time content drop:
+
+- **Seasonal/limited events** are a first-class category with a hard end date baked into config (add a new event, give it recipes and an end timestamp, done — no code changes). Once an event ends, its items are frozen forever ("reobtainable" flips off), which is what makes each season feel genuinely limited-time rather than always-repeatable.
+- **Rotating recipes** cycle a subset of a larger recipe pool on a fixed timer (currently a handful active out of a pool of six, every 10 minutes) with zero stored state — purely a deterministic function of the clock, so every server agrees automatically and there's nothing to break on rotation.
+- **Sold-out replacement** — when a permanent recipe's capped output sells out, it's automatically swapped for a pre-authored "spare" recipe at the next boundary, so a popular recipe going dry doesn't leave a dead station; new ones can just be authored and dropped in.
+- New items, new recipes, and new seasonal events are all pure config additions on top of this — the intent is that content updates are mostly data, not new code.
+
+## Built but currently switched off (ready to launch)
+
+A few systems are fully implemented and wired end-to-end but intentionally disabled pending a decision or more polish:
+
+- **Milestones & communal goals** — a personal craft-count reward track and a daily server-wide craft-count goal. Both just need `enabled = true` and reward tuning.
+- **Bot-driven market simulation** — hundreds of AI trading agents with distinct personalities, built to keep the market feeling alive with few real players online. Currently off while the game is tuned around real player behavior first; could be revisited once there's a real low-population problem to solve.
+- **AFK zone reward payout** — the AFK system itself (zones, timers, escalating payout schedule) is fully built; only the actual reward type (items vs. gems vs. roll credits vs. banked trade-ad boosts) hasn't been chosen yet.
+- **Real Robux product IDs** — gem packs and some ad-slot dev products are still on placeholder IDs pending the store going live.
