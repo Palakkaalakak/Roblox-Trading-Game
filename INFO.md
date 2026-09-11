@@ -90,7 +90,7 @@ Large numbers are always abbreviated in the UI (1,300 gems reads "1.3K," not the
 
 ## Other systems
 
-Player profiles (viewable by others, with privacy toggles), offline notifications (plus real push notifications for opted-in players), and an admin/debug layer (hardcoded admin user list, debug gem grants, batch-roll testing tool) that's meant to be stripped before release.
+Player profiles (viewable by others, with privacy toggles), and offline notifications (plus real push notifications for opted-in players).
 
 ## Built for ongoing content — the live-ops backbone
 
