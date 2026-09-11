@@ -86,7 +86,7 @@ Six rarity tiers (Common → Rare → Legendary → Mythical → Godly → Celes
 
 ## Market simulation (bots)
 
-The codebase includes an elaborate bot-driven market simulator (hundreds of agents with different trading personalities — value hunters, trend chasers, hoarders, crafters, collectors, market makers) meant to keep the economy feeling alive with few real players online. It currently exists but is switched off; the game is tuned around real player behavior.
+A bot-driven market simulator — hundreds of agents with distinct trading personalities (value hunters, trend chasers, hoarders, crafters, collectors, market makers) — keeps the economy liquid and active-feeling when real player counts are low. Currently switched off while the economy is tuned directly against real player behavior; it's a deployed lever, not a cut feature.
 
 ## Interface conventions
 
