@@ -129,6 +129,42 @@ local Items = {
 		{ min = 45, max = 78 }, -- Celestial
 	},
 
+	-- ROLL POOL ROTATION. A pool used to retire only once EVERY item in it hit
+	-- zero reserve. That is far too late: the advertised odds break the moment
+	-- the FIRST item runs out.
+	--
+	-- Why the first one and not the last: a roll picks a rarity by the tier's
+	-- authored odds, then picks an item inside that rarity by assignment weight.
+	-- While every item still has at least one copy, that distribution is exactly
+	-- what the odds card claims — and it stays exact no matter how lopsided the
+	-- remaining COUNTS get, because counts are not weights. One item down to a
+	-- single copy changes nothing. But an item at ZERO drops out of its rarity's
+	-- weight split entirely, and its share is silently absorbed by whatever else
+	-- is in that rarity. That is a probability change nobody agreed to, and it is
+	-- farmable: drain the item you don't want and the rest get likelier.
+	--
+	-- So the rule is simply: a pool is replaced as soon as any of its items is
+	-- exhausted. Counts do not move probability; an empty slot does.
+	RollPoolRotation = {
+		-- How often a server re-checks the active pool for an exhausted item.
+		-- The roll and starter-draw paths also poke it on the spot, so this is
+		-- only the backstop for copies leaving by some other route.
+		CheckIntervalSeconds = 45,
+
+		-- A retired pool is not dead. Consumed copies are redistributed, not
+		-- destroyed — crafting inputs and roll item-payments hand them back to
+		-- the item they came from, which is the pool they came from. So a pool
+		-- that was retired for running an item dry slowly refills, and once it
+		-- has recovered this fraction of the total supply it was minted with it
+		-- becomes eligible to be the active pool again.
+		--
+		-- Eligibility ALSO requires every one of its items to hold at least one
+		-- copy: reviving a pool with a hole in it would break the advertised
+		-- odds on the very first roll, which is the thing rotation exists to
+		-- prevent. Recovery is the gate; completeness is the invariant.
+		RevivalStockFraction = 0.2,
+	},
+
 	-- Name generation for rotated pools.
 	NameAdjectives = {
 		"Ancient", "Frozen", "Gilded", "Shadow", "Solar", "Storm", "Ember",

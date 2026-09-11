@@ -39,6 +39,12 @@ local function bots(): any
 	return require(script.Parent.BotService)
 end
 
+-- Lazy, same as bots(): rolls are what drain the pool, so this is the natural
+-- place to re-measure the mix, but PoolService is a peer service.
+local function pools(): any
+	return require(script.Parent.PoolService)
+end
+
 function RollService.tierById(id: string): any?
 	for _, tier in RollConfig.Tiers do
 		if tier.id == id then
@@ -61,46 +67,87 @@ end
 -- the specific item is chosen by supply weight among that rarity's rollable
 -- items (reserve left, value at/above the tier floor).
 --
--- Returns the per-item entries { itemId, rarity, weight } and the resolved
--- per-rarity percentages. If a window rarity has no eligible item right now
--- (all sold out, or all below the floor), its share is redistributed across
--- the rarities that DO have stock, so the odds always sum to 100 and match
--- what can actually drop.
-local function drawTable(tier: any): ({ any }, { [string]: number })
+-- Returns the per-item entries { itemId, rarity, weight }, the resolved
+-- per-rarity percentages, and the window rarities that are STARVED.
+--
+-- Two different reasons a rarity can have nothing to give, and they must not be
+-- treated the same:
+--
+--   BELOW FLOOR — it has stock, but none of it is worth floorFrac * gems. That
+--     is the floor doing its job (see RollConfig), it is permanent-ish for the
+--     tier, and its share is redistributed across the rarities that can pay.
+--
+--   STARVED — it has no reserve left at all. Redistributing THAT share is how
+--     a 12-gem Basic roll (96% common) turned into an 80%-rare roll the moment
+--     the commons ran dry: drain one rarity and every other rarity's odds
+--     inflate, which is both a cheat and trivially farmable. A starved rarity
+--     therefore KEEPS its authored share and simply cannot be paid out — a roll
+--     that lands on it is refused and refunded (see pick/rollCore) while
+--     PoolService mints a corrective pool. Nobody's odds improve by draining.
+local function drawTable(tier: any): ({ any }, { [string]: number }, { string })
 	local floor = RollService.floorFor(tier)
 	local inWindow: { [string]: boolean } = {}
 	for _, r in tier.window do
 		inWindow[r] = true
 	end
 
-	-- rollable items grouped by rarity
+	-- THE ACTIVE POOL IS THE ROLLABLE SET. Not every registered item: a retired
+	-- pool's leftovers are dormant until that pool is revived (PoolService keeps
+	-- them and brings the pool back once restocks refill it past its revival
+	-- threshold). Drawing from the whole registry instead is what made rotation
+	-- toothless — rotation watches the ACTIVE pool for an item hitting zero, so
+	-- if retired pools were also rollable their items would drain to zero and
+	-- skew each rarity's weight split with nothing to trigger a rotation.
+	--
+	-- Scoped this way the guarantee is exact: every item you can roll is in the
+	-- current pool, and the instant one of them is exhausted the pool is
+	-- replaced. Remaining COUNTS never enter the maths — the split inside a
+	-- rarity is by assignmentWeight, which is fixed at mint from totalSupply —
+	-- so draining an item to its last copy does not make anything else likelier.
+	local pool = pools().getCurrentPool()
+	local poolItemIds: { string } = pool and pool.itemIds or {}
+
+	-- rollable items grouped by rarity, plus whether the rarity has ANY reserve
+	-- (the floor is not applied to hasStock — that is the whole distinction)
 	local byRarity: { [string]: { { itemId: string, weight: number } } } = {}
-	for itemId, item in EconomyService.allItems() do
-		if (item.assignmentWeight or 0) > 0 and item.rarity and inWindow[item.rarity] then
+	local hasStock: { [string]: boolean } = {}
+	for _, itemId in poolItemIds do
+		local item = EconomyService.getItem(itemId)
+		if item and (item.assignmentWeight or 0) > 0 and item.rarity and inWindow[item.rarity] then
 			local snap = EconomyService.snapshot(itemId)
-			if snap and (snap.reserveRemaining or 0) > 0 and EconomyService.valueOf(itemId) >= floor then
-				local group = byRarity[item.rarity]
-				if group == nil then
-					group = {}
-					byRarity[item.rarity] = group
+			if snap and (snap.reserveRemaining or 0) > 0 then
+				hasStock[item.rarity] = true
+				if EconomyService.valueOf(itemId) >= floor then
+					local group = byRarity[item.rarity]
+					if group == nil then
+						group = {}
+						byRarity[item.rarity] = group
+					end
+					table.insert(group, { itemId = itemId, weight = math.max(item.assignmentWeight, 1) })
 				end
-				table.insert(group, { itemId = itemId, weight = math.max(item.assignmentWeight, 1) })
 			end
 		end
 	end
 
-	-- resolve per-rarity odds: authored share, but only over rarities that have
-	-- stock, renormalized to 100
+	local starved: { string } = {}
+	for _, rarity in tier.window do
+		if not hasStock[rarity] then
+			table.insert(starved, rarity)
+		end
+	end
+
+	-- resolve per-rarity odds. A starved rarity is kept in the denominator so it
+	-- cannot hand its share to anyone; only floor-excluded rarities drop out.
 	local activeTotal = 0
 	for _, rarity in tier.window do
-		if byRarity[rarity] then
+		if byRarity[rarity] or not hasStock[rarity] then
 			activeTotal += tier.odds[rarity] or 0
 		end
 	end
 	local rarityPct: { [string]: number } = {}
 	if activeTotal > 0 then
 		for _, rarity in tier.window do
-			if byRarity[rarity] then
+			if byRarity[rarity] or not hasStock[rarity] then
 				rarityPct[rarity] = (tier.odds[rarity] or 0) / activeTotal * 100
 			end
 		end
@@ -121,7 +168,7 @@ local function drawTable(tier: any): ({ any }, { [string]: number })
 			})
 		end
 	end
-	return entries, rarityPct
+	return entries, rarityPct, starved
 end
 
 -- Odds for a tier: per-item drop chances. The UI rolls these up by rarity, so
@@ -158,33 +205,86 @@ end
 -- Pick an item for this tier. `ticket` drives the draw: real players get a
 -- random one, bots pass a derived integer so the whole simulation stays
 -- deterministic and reproducible.
-function RollService.pick(tier: any, ticket: number?): string?
-	local entries = drawTable(tier)
-	if #entries == 0 then
-		return nil
+--
+-- RARITY FIRST, then the item inside it. Drawing flat over per-item entries
+-- gives the same answer only while every rarity is stocked; going rarity-first
+-- makes the starved case exact. A draw that lands on a starved rarity returns
+-- (nil, "restocking") rather than sliding into a neighbouring rarity, so the
+-- advertised odds stay literally true and draining a rarity buys nothing. Only
+-- that fraction of rolls is refused, not the whole tier: if Mythical is out on
+-- a Basic roll, 0.2% of rolls bounce and get refunded, the other 99.8% pay out
+-- exactly as the card says.
+function RollService.pick(tier: any, ticket: number?): (string?, string?)
+	local entries, rarityPct, starved = drawTable(tier)
+
+	local starvedSet: { [string]: boolean } = {}
+	for _, rarity in starved do
+		starvedSet[rarity] = true
 	end
+
 	local total = 0
-	for _, e in entries do
-		total += e.pct
+	for _, pct in rarityPct do
+		total += pct
 	end
 	if total <= 0 then
-		return nil
+		return nil, "restocking"
 	end
+
 	local r: number
 	if ticket then
 		r = ((ticket * 2654435761) % 4294967296) / 4294967296
 	else
 		r = math.random()
 	end
+
+	-- 1. the rarity, over the authored (floor-adjusted) shares
 	local point = r * total
 	local running = 0
-	for _, e in entries do
-		running += e.pct
-		if point < running then
-			return e.itemId
+	local chosen: string? = nil
+	for _, rarity in tier.window do
+		local pct = rarityPct[rarity]
+		if pct then
+			running += pct
+			if point < running then
+				chosen = rarity
+				break
+			end
 		end
 	end
-	return entries[#entries].itemId
+	if chosen == nil then
+		for _, rarity in tier.window do
+			if rarityPct[rarity] then
+				chosen = rarity
+			end
+		end
+	end
+	if chosen == nil or starvedSet[chosen] then
+		return nil, "restocking"
+	end
+
+	-- 2. the item inside that rarity, by supply weight
+	local inRarity = {}
+	local sum = 0
+	for _, e in entries do
+		if e.rarity == chosen then
+			table.insert(inRarity, e)
+			sum += e.pct
+		end
+	end
+	if #inRarity == 0 or sum <= 0 then
+		return nil, "restocking"
+	end
+	-- reuse the same draw value, rescaled inside the rarity, so a bot's ticket
+	-- stays a pure function of its input
+	local inner = ((point - (running - (rarityPct[chosen] or 0))) / (rarityPct[chosen] or 1)) * sum
+	local acc = 0
+	for _, e in inRarity do
+		acc += e.pct
+		if inner < acc then
+			return e.itemId, nil
+		end
+	end
+	return inRarity[#inRarity].itemId, nil
 end
 
 -- Item payment shape: { [itemId]: count }, bounded. Every id must be a real
@@ -263,12 +363,17 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 		paidValue = total
 	end
 
-	local itemId = RollService.pick(tier, ticket)
+	local itemId, pickErr = RollService.pick(tier, ticket)
 	if itemId == nil then
-		-- nothing in reserve clears this tier's value floor right now: either
-		-- the whole pool is distributed, or only sub-floor items remain
-		local anyLeft = #rollableIds() > 0
-		return { ok = false, err = anyLeft and "no_reward_available" or "nothing_left" }
+		-- "restocking": the draw landed on a rarity with no reserve left. The
+		-- roll is refused rather than nudged into a neighbouring rarity, which
+		-- is what keeps the advertised odds honest — see pick(). Nothing has
+		-- been charged yet (the charge is below), so there is nothing to refund.
+		-- Poke the pool: a starved rarity is exactly what rotation exists to fix.
+		task.spawn(function()
+			pools().checkRotation()
+		end)
+		return { ok = false, err = pickErr or "restocking" }
 	end
 
 	-- charge first (validates funds/ownership atomically)...
@@ -329,6 +434,12 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 
 	local item = EconomyService.getItem(itemId)
 	EconomyService.broadcastStats({ itemId })
+	-- This roll just moved a copy out of the mix. Cheap when there is no drift,
+	-- and it is what lets a pool be replaced on composition rather than waiting
+	-- for the periodic sweep.
+	task.spawn(function()
+		pools().checkRotation()
+	end)
 	AnalyticsService.log("roll", {
 		userId = userId,
 		tier = tier.id,

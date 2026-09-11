@@ -579,6 +579,12 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			refresh()
 		elseif result.err == "nothing_left" then
 			toast("Every rollable item is fully distributed!", Theme.Warn)
+		elseif result.err == "restocking" then
+			-- the draw landed on a rarity that just ran dry. Nothing was charged,
+			-- and a fresh pool is already being minted — say so rather than
+			-- quietly handing out a different rarity.
+			toast("That rarity just sold out — restocking, roll again in a moment.", Theme.Warn)
+			refresh()
 		else
 			toast("Roll failed: " .. tostring(result.err), Theme.Bad)
 		end
