@@ -84,10 +84,6 @@ Config-driven, all in one place. Gem packs (escalating bonus % per tier), gamepa
 
 Six rarity tiers (Common → Rare → Legendary → Mythical → Godly → Celestial), derived from each item's total supply cap. Base value roughly doubles per tier. New players get a small weighted starter bundle. Beyond the rotating starter pool, dozens more items exist purely as crafting/event outputs, each with its own supply cap.
 
-## Market simulation (bots)
-
-A bot-driven market simulator — hundreds of agents with distinct trading personalities (value hunters, trend chasers, hoarders, crafters, collectors, market makers) — keeps the economy liquid and active-feeling when real player counts are low. Currently switched off while the economy is tuned directly against real player behavior; it's a deployed lever, not a cut feature.
-
 ## Interface conventions
 
 Large numbers are always abbreviated in the UI (1,300 gems reads "1.3K," not the raw number), and any numeric input box accepts shorthand typing — typing "3k" into a quantity or price field resolves to 3000 automatically. Destructive admin actions (full economy reset) require 3 separate clicks spaced at least 3 seconds apart within a 12-second window, rather than a single confirm dialog, specifically to make it hard to trigger by accident.
@@ -110,6 +106,5 @@ The crafting/event system was deliberately architected as an engine for a consta
 A few systems are fully implemented and wired end-to-end but intentionally disabled pending a decision or more polish:
 
 - **Milestones & communal goals** — a personal craft-count reward track and a daily server-wide craft-count goal. Both just need `enabled = true` and reward tuning.
-- **Bot-driven market simulation** — hundreds of AI trading agents with distinct personalities, built to keep the market feeling alive with few real players online. Currently off while the game is tuned around real player behavior first; could be revisited once there's a real low-population problem to solve.
 - **AFK zone reward payout** — the AFK system itself (zones, timers, escalating payout schedule) is fully built; only the actual reward type (items vs. gems vs. roll credits vs. banked trade-ad boosts) hasn't been chosen yet.
 - **Real Robux product IDs** — gem packs and some ad-slot dev products are still on placeholder IDs pending the store going live.
