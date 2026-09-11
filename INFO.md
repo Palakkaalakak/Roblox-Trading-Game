@@ -6,6 +6,8 @@ An exhaustive overview of a Roblox item-trading economy game. "TBD Trading" is a
 
 There is no combat, no obstacle course, no simulator-clicker loop. The entire game is: obtain items (gacha "rolls," crafting, or a fixed-price store), hold a collection whose value moves with a live supply/demand economy, and trade — directly with another player, via a public trade board, or via player-run shop booths.
 
+**The core hook, the actual reason to play at all, is Community Rewards** (detailed fully under Monetization below): gems accumulated in the game are meant to eventually be redeemable, for players who reach a threshold and pass review, for real Robux paid out through the developers' group. Everything else in the game — the economy, the trading, the crafting ladder, the syndicates — is the vehicle for that. Without a real payoff at the top, there's no strong answer to "why actually play this over anything else"; Community Rewards is meant to be that answer. It's also the reason the in-game economy is so strictly locked down (gems can only ever be minted by a real purchase or a rewarded-ad watch, never by any gameplay action) — that invariant is what makes the eventual payout mathematically safe for the developers to offer at all, since a deliberately lopsided buy/redeem exchange rate guarantees the total ever paid out can never exceed the total actually spent by players.
+
 ## The plaza — what the world actually looks like
 
 The game world is one open plaza (a single low-poly Roblox baseplate area, no zones/floors to unlock), populated with **physical, walk-up NPCs and structures** rather than menu buttons for everything:
@@ -37,6 +39,9 @@ Landing flashes a bright payoff pop timed to the exact instant the reel stops, t
 3. Trade — 1:1 direct trades, the public trade board (swap / bulk-buy / sell-shop listings), or booths.
 4. Spend gems to roll/craft more, or spend Robux to boost trade-ad visibility or buy cosmetics.
 5. Syndicates, leaderboards, and milestones sit on top and reward doing steps 1–4.
+6. Build up gems toward the Community Rewards threshold — the actual long-term payoff loop everything above feeds into.
+
+Framing matters here, worth researching directly: buying gems isn't pitched to players as a purely selfish transaction ("pay us, get gems"), it's closer to a donation-drive appeal — spending supports the game/community, and the eventual Community Rewards payout is the shared thing that spending makes possible, not just a personal purchase. That's a different psychological pitch than a standard gem-shop upsell, closer to how creator/charity donation drives frame giving as supporting something bigger than the individual transaction, and it's worth researching how other games or platforms successfully pull that off without it reading as manipulative.
 
 ## The economy engine
 
