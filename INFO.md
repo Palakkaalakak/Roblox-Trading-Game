@@ -81,7 +81,18 @@ Config-driven, all in one place. Gem packs (escalating bonus % per tier), gamepa
 
 ## Items & rarity
 
-Six rarity tiers (Common → Rare → Legendary → Mythical → Godly → Celestial), derived from each item's total supply cap. Base value roughly doubles per tier. New players get a small weighted starter bundle. Beyond the rotating starter pool, dozens more items exist purely as crafting/event outputs, each with its own supply cap.
+Six rarity tiers (Common → Rare → Legendary → Mythical → Godly → Celestial), derived from each item's total supply cap. Base value roughly doubles per tier. Beyond the rotating starter pool, dozens more items exist purely as crafting/event outputs, each with its own supply cap.
+
+New players get a small starter bundle (5 weighted draws) rather than a fixed kit. That's deliberate asymmetry, not noise: because it's *weighted* rather than uniform, two new players end up with meaningfully different portfolios — one got luckier than the other — which means there's immediately something worth trading between them on day one, instead of everyone starting with an identical kit that nobody wants to swap.
+
+## Scam safeguards
+
+The trading systems are built so a player can't be robbed by trusting the wrong person:
+
+- **Direct trades are fully escrowed with hard state-machine invariants** — changing an offer resets both sides' confirmations (kills last-second swaps after you've agreed), confirming is only legal in the open-negotiation state, and both items are locked in before either side is credited. Once settlement begins it can't be aborted and must finish; a stuck settlement is retried until it completes rather than left half-done. Nobody can accept a trade and simply not pay.
+- **Booth listings can't be swapped out from under a buyer.** The listing itself IS the offer — price and item are immutable the moment it's posted. A seller who changes their mind can only cancel, which just makes a pending buy fail with "gone" and charges the buyer nothing. There's deliberately no purchase-confirmation delay, because unlike games where a seller can silently swap what's on display between a buyer reading it and clicking, there's nothing here to protect against — a delay would only punish honest buyers.
+- **Players standing near a booth go semi-transparent**, so nobody can body-block a stall and hide its stock from other shoppers.
+- **The trade board's no-escrow design is safe by construction, not by trust**: a listing is a promise, and taking it either succeeds atomically or fails and charges nobody — there's no window where one side pays and the other doesn't.
 
 ## Interface conventions
 
@@ -107,3 +118,8 @@ A few systems are fully implemented and wired end-to-end but intentionally disab
 - **Milestones & communal goals** — a personal craft-count reward track and a daily server-wide craft-count goal. Both just need `enabled = true` and reward tuning.
 - **AFK zone reward payout** — the AFK system itself (zones, timers, escalating payout schedule) is fully built; only the actual reward type (items vs. gems vs. roll credits vs. banked trade-ad boosts) hasn't been chosen yet.
 - **Real Robux product IDs** — gem packs and some ad-slot dev products are still on placeholder IDs pending the store going live.
+
+## Open ideas under consideration
+
+- **A guided first-profit strategy.** Right now the game teaches its core loop entirely through mechanics rather than screens — Unique Craft, for instance, is explicitly designed to teach "the four ways to get an item" (roll, store, board, direct trade) without a word of tutorial. There's no formal walkthrough yet that hands a brand-new player one concrete, repeatable strategy for turning their starter bundle into their first real profit. Whether that should be an explicit tutorial flow, or just better in-context nudging on top of what already exists (Unique Craft, the weighted/asymmetric starter bundle), is an open question worth researching against how other trading games solve first-session retention.
+- **Bots as a new-player liquidity backstop.** The existing bot market simulator (built, currently off) has a "maker" archetype whose entire purpose is liquidity — quoting both sides of the market so other archetypes (crafters especially) always have someone to trade with. The idea under consideration isn't reviving the full simulation, but specifically using a small, targeted presence of that kind — enough that a brand-new player always has *someone* to trade with in their first few minutes, even at 2 AM on a quiet server, rather than depending on real player traffic being enough from day one.
