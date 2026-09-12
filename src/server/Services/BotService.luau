@@ -422,7 +422,7 @@ local function buildContext(itemIds: { string }, book: any)
 	local now = os.time()
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
-			local outId = CraftingService.outputIdFor(recipe.output.sku)
+			local outId = CraftingService.recipeOutputId(recipe)
 			local cost = recipe.gems or 0
 			for inId, count in recipe.inputs do
 				cost += fair(inId) * count
@@ -703,7 +703,7 @@ local function pass(bot: any, book: any, itemIds: { string }, ctx: any, sweep: n
 	local now = os.time()
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
-			local outId = CraftingService.outputIdFor(recipe.output.sku)
+			local outId = CraftingService.recipeOutputId(recipe)
 			local outSnap = EconomyService.snapshot(outId)
 			if outSnap and (outSnap.reserveRemaining or 0) > 0 then
 				local cost = recipe.gems or 0

@@ -150,13 +150,21 @@ return {
 
 		["replacement: every authored spare produces something new"] = function()
 			local existing: { [string]: boolean } = {}
+			-- itemId-based recipes (sacrifice-style, routed at an existing item)
+			-- have no sku to protect from reuse -- their whole point is
+			-- targeting an item that already exists, so they're excluded here
+			-- rather than crashing on a nil table key.
 			for _, event in EventConfig.Events do
 				for _, recipe in event.recipes do
-					existing[recipe.output.sku] = true
+					if not recipe.output.itemId then
+						existing[recipe.output.sku] = true
+					end
 				end
 			end
 			for _, recipe in EventConfig.RotatingRecipes.Pool do
-				existing[recipe.output.sku] = true
+				if not recipe.output.itemId then
+					existing[recipe.output.sku] = true
+				end
 			end
 			for _, spare in EventConfig.Replacement.SparePool do
 				assert(

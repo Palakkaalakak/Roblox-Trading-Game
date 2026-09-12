@@ -54,12 +54,21 @@ local function outputItemId(sku: string): string
 	return "evt_" .. sku
 end
 
--- A recipe's output id. Normally "evt_<sku>", but a Unique Craft names an item
+-- A recipe's output id. Normally "evt_<sku>", but a Unique Craft or a
+-- sacrifice-style recipe (see EconomyConfig.SacrificeEfficiency) names an item
 -- that ALREADY exists, so it carries an explicit itemId and we use that — the
 -- craft then draws on that item's own reserve and cap like any other source.
+--
+-- EXPORTED: this is the one place that resolution happens. Every caller
+-- outside this file (BotService, UniqueCraftService, ...) must go through
+-- CraftingService.recipeOutputId rather than re-deriving "evt_" .. sku
+-- itself — a local sku-only version of this logic is exactly what crashed on
+-- the first itemId-based static recipe (four separate call sites, across two
+-- files, all assumed every recipe.output has a sku).
 local function recipeOutputId(recipe: any): string
 	return recipe.output.itemId or outputItemId(recipe.output.sku)
 end
+CraftingService.recipeOutputId = recipeOutputId
 
 --------------------------------------------------------------------------------
 -- Recipe graph sanity
@@ -268,6 +277,14 @@ local GENERATED_VARIANTS = 6 -- bounded, so every possible output can be registe
 -- authored SparePool is exhausted. Deterministic and bounded, which is what
 -- lets Init register every output these can ever produce.
 function CraftingService.generatedSpares(recipe: any): { any }
+	if recipe.output.itemId then
+		-- Targets an EXISTING item (see addOutput's matching guard) rather
+		-- than minting a fresh "evt_"-prefixed one, so there's no `sku` to
+		-- derive a numbered variant from, and no reason to want one: the
+		-- target item's own reserve is refilled by every other craft/roll
+		-- that redistributes into it, not by a sold-out-replacement swap.
+		return {}
+	end
 	local out = {}
 	for n = 1, GENERATED_VARIANTS do
 		local inputs = {}
@@ -352,7 +369,7 @@ function CraftingService.substitute(recipe: any, now: number): any
 	if not (rep and rep.enabled) then
 		return recipe
 	end
-	if not isSoldOut(outputItemId(recipe.output.sku)) then
+	if not isSoldOut(recipeOutputId(recipe)) then
 		return recipe
 	end
 
@@ -367,7 +384,7 @@ function CraftingService.substitute(recipe: any, now: number): any
 	local offset = #recipe.rid + windowIdx
 	for step = 0, #candidates - 1 do
 		local candidate = candidates[((offset + step) % #candidates) + 1]
-		if not isSoldOut(outputItemId(candidate.output.sku)) then
+		if not isSoldOut(recipeOutputId(candidate)) then
 			return candidate
 		end
 	end
@@ -435,7 +452,7 @@ end
 function CraftingService.liveProducerOf(itemId: string, now: number): { name: string, availableNow: boolean, rotatesAt: number? }?
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
-			if outputItemId(recipe.output.sku) == itemId then
+			if recipeOutputId(recipe) == itemId then
 				return { name = event.name, availableNow = true }
 			end
 		end
@@ -443,7 +460,7 @@ function CraftingService.liveProducerOf(itemId: string, now: number): { name: st
 	local rot = EventConfig.RotatingRecipes
 	if rot and rot.enabled then
 		for _, recipe in rot.Pool do
-			if outputItemId(recipe.output.sku) == itemId then
+			if recipeOutputId(recipe) == itemId then
 				return {
 					name = "Rotating Recipes",
 					availableNow = false,
@@ -672,13 +689,43 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		return { ok = false, err = chargeErr } -- insufficient_items / insufficient_gems
 	end
 
-	-- take one output copy from the uncrafted reserve. Bots use the lazy
-	-- in-memory path (leader-local, no per-craft DataStore write) so a busy
-	-- 500-bot sweep never stalls the shared request budget; players keep the
-	-- strong cross-server CAS.
-	local reserved = if isBot then EconomyService.reserveOneBotLocal(outId) else EconomyService.reserveOne(outId)
-	if not reserved then
-		-- fully crafted elsewhere: give everything back
+	-- Take output copies from the uncrafted reserve. `output.count` (default 1)
+	-- is what makes SACRIFICE recipes possible alongside ordinary CRAFT ones:
+	-- a craft is many-cheap-in, one-expensive-out; a sacrifice is the inverse,
+	-- one-expensive-in, many-cheap-out. Same reservation mechanism either way —
+	-- only the direction of the value differential (and which side has count
+	-- > 1) differs, so no separate code path is needed for the two shapes.
+	--
+	-- Reserved one at a time rather than in a single batched call: reserve is
+	-- the strong cross-server CAS, and mid-batch exhaustion is a real
+	-- possibility for a multi-copy output (unlike a single-copy craft, where
+	-- "sold out" is all-or-nothing). Partial success is unwound below exactly
+	-- like a full failure — a player either gets the whole batch or a full
+	-- refund, never a partial output count they didn't ask for.
+	--
+	-- Bots use the lazy in-memory path (leader-local, no per-craft DataStore
+	-- write) so a busy 500-bot sweep never stalls the shared request budget;
+	-- players keep the strong cross-server CAS.
+	local outputCount = math.max(1, math.floor(recipe.output.count or 1))
+	local reservedCount = 0
+	for _ = 1, outputCount do
+		local ok = if isBot then EconomyService.reserveOneBotLocal(outId) else EconomyService.reserveOne(outId)
+		if not ok then
+			break
+		end
+		reservedCount += 1
+	end
+	if reservedCount < outputCount then
+		-- undo whatever we did manage to reserve — restockCopies is the exact
+		-- inverse of reserveOne (moves circulating back to reserve), so this is
+		-- safe even at reservedCount == 0 (restocking 0 copies is a no-op).
+		if reservedCount > 0 then
+			if isBot then
+				EconomyService.restockCopiesLazy(outId, reservedCount)
+			else
+				EconomyService.restockCopies(outId, reservedCount)
+			end
+		end
 		local posInputs = {}
 		for itemId, count in recipe.inputs do
 			posInputs[itemId] = count
@@ -716,7 +763,7 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		end
 	end)
 
-	delta({ items = { [outId] = 1 } }, Enums.GrantSource.Craft)
+	delta({ items = { [outId] = outputCount } }, Enums.GrantSource.Craft)
 	if player then
 		task.spawn(function()
 			DataService.saveNow(player)
@@ -752,7 +799,7 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		output = outId,
 		gems = recipe.gems or 0,
 	})
-	return { ok = true, output = { itemId = outId, name = recipe.output.name } }
+	return { ok = true, output = { itemId = outId, name = recipe.output.name, count = outputCount } }
 end
 
 local MAX_CRAFT_BATCH = EventConfig.MaxCraftBatch
@@ -812,6 +859,16 @@ function CraftingService.Init()
 	-- any rotation window resolve on any server
 	local defs = {}
 	local function addOutput(recipe: any, poolId: string)
+		if recipe.output.itemId then
+			-- Targets an EXISTING item (a sacrifice-style recipe routed at a
+			-- real pool item via output.itemId, same pattern
+			-- UniqueCraftService.asRecipe uses) -- that item is already
+			-- registered by whatever put it in the economy in the first
+			-- place. Registering it again here, under a second
+			-- "evt_"-prefixed id derived from a sku it doesn't have, is what
+			-- crashed Init (outputItemId(nil) -> "evt_" .. nil).
+			return
+		end
 		table.insert(defs, {
 			itemId = outputItemId(recipe.output.sku),
 			poolId = poolId,
@@ -869,7 +926,7 @@ function CraftingService.Start()
 	task.spawn(function()
 		for _, event in CraftingService.activeEvents(os.time()) do
 			for _, recipe in event.recipes do
-				EconomyService.snapshot(outputItemId(recipe.output.sku))
+				EconomyService.snapshot(recipeOutputId(recipe))
 			end
 		end
 	end)

@@ -66,7 +66,7 @@ local function producedIds(now: number): { [string]: boolean }
 	local CraftingService = require(script.Parent.CraftingService)
 	for _, event in CraftingService.activeEvents(now) do
 		for _, recipe in event.recipes do
-			produced["evt_" .. recipe.output.sku] = true
+			produced[CraftingService.recipeOutputId(recipe)] = true
 		end
 	end
 	-- Generated sold-out replacements ("... Mk3") are internal machinery, not

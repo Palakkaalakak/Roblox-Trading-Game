@@ -53,6 +53,23 @@ local EconomyConfig = {
 	-- something worth more than they were.
 	CraftValuePremium = 1.10,
 
+	-- The inverse of CraftValuePremium, for SACRIFICE recipes (one expensive
+	-- item in, several cheap EXISTING items out via output.count -- see
+	-- CraftingService.craftCore). A craft mints value because the game
+	-- controls the output's seed price; a sacrifice's output is an ordinary
+	-- item with its own live Value, so there's nothing to seed -- the lossiness
+	-- has to be authored in by hand, at recipe-design time, against current
+	-- prices: pick `output.count` so
+	--   count * outputItem.Value  <=  inputItem.Value * SacrificeEfficiency
+	-- A ratio below 1.0 on purpose: a lossless breakdown would make
+	-- Craft-then-Sacrifice-then-Craft a value-laundering loop with no cost,
+	-- which defeats the entire point of Value being fundamentals-only and
+	-- never inflatable by activity alone. This is a design guideline enforced
+	-- by whoever authors a sacrifice recipe, not a runtime multiplier — a
+	-- recipe's `count` is a fixed number in config, and live prices drift
+	-- after authoring the same way a craft's premium can drift out of date.
+	SacrificeEfficiency = 0.85,
+
 	-- Minimum-data thresholds. Below these a stat is StatState.NA and the UI
 	-- must render "N/A" (never 0/blank/null).
 	MinSamples = {

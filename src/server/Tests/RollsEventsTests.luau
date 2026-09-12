@@ -94,11 +94,11 @@ return {
 			local activeOutputs = {}
 			for _, event in CraftingService.activeEvents(now) do
 				for _, recipe in event.recipes do
-					activeOutputs["evt_" .. recipe.output.sku] = true
+					activeOutputs[CraftingService.recipeOutputId(recipe)] = true
 				end
 			end
 			for _, recipe in EventConfig.RotatingRecipes.Pool do
-				local outId = "evt_" .. recipe.output.sku
+				local outId = CraftingService.recipeOutputId(recipe)
 				local info = CraftingService.liveProducerOf(outId, now)
 				assert(info ~= nil, outId .. " must resolve to SOME producer info")
 				eq(info.availableNow, activeOutputs[outId] == true, outId .. " availableNow must match this window's actual picks")

@@ -158,6 +158,32 @@ local EventConfig: any = {
 						imageId = "rbxassetid://15403027709", -- bomb
 					},
 				},
+				-- INVERSE SACRIFICE: one expensive EXISTING item in, several
+				-- copies of a cheap EXISTING item out (output.count, see
+				-- CraftingService.craftCore) -- the other direction of value
+				-- flow from the rest of the ladder. Turns an unwanted rare into
+				-- liquidity instead of it sitting dead in an inventory.
+				--
+				-- `itemId` (not `sku`) on the output targets the REAL Copper
+				-- Coin item rather than minting a new "evt_"-prefixed one --
+				-- same pattern UniqueCraftService.asRecipe uses to route a craft
+				-- at an item that already exists. `count = 13` was picked
+				-- against current prices per EconomyConfig.SacrificeEfficiency:
+				-- Crimson Crown (Legendary, base 130) x 0.85 / Copper Coin
+				-- (Common, base 8) = 13.8, floored. Re-tune count if either
+				-- rarity's StoreCostByRarity or totalSupply ever changes.
+				{
+					rid = "liquidate_crown",
+					tier = 2,
+					blurb = "Melt one crown down to coin. What it was worth, mostly.",
+					inputs = { ["itm_1_8_crimson_crown"] = 1 },
+					output = {
+						itemId = "itm_1_2_copper_coin",
+						name = "Copper Coin",
+						imageId = "rbxassetid://15402844695",
+						count = 13,
+					},
+				},
 			},
 		},
 
@@ -724,19 +750,27 @@ local function producers(): { [string]: { name: string, category: string } }
 	if producerIndex then
 		return producerIndex
 	end
+	-- A recipe's produced id: normally "evt_<sku>", but a recipe routed at an
+	-- EXISTING item (via output.itemId — see CraftingService.recipeOutputId,
+	-- the single other place this same resolution has to happen) uses that
+	-- item's real id instead. There's no sku to prefix in that case.
+	local function producedId(recipe: any): string
+		return recipe.output.itemId or ("evt_" .. recipe.output.sku)
+	end
+
 	local index: { [string]: { name: string, category: string } } = {}
 	for _, event in EventConfig.Events do
 		if event.enabled then
 			local category = (event.endsAt or event.startsAt) and "limited" or "permanent"
 			for _, recipe in event.recipes do
-				index["evt_" .. recipe.output.sku] = { name = event.name, category = category }
+				index[producedId(recipe)] = { name = event.name, category = category }
 			end
 		end
 	end
 	local rot = EventConfig.RotatingRecipes
 	if rot and rot.enabled then
 		for _, recipe in rot.Pool do
-			index["evt_" .. recipe.output.sku] = { name = "Rotating Recipes", category = "rotating" }
+			index[producedId(recipe)] = { name = "Rotating Recipes", category = "rotating" }
 		end
 	end
 	-- Spares stand in for sold-out PERMANENT recipes, so they inherit that
@@ -744,7 +778,7 @@ local function producers(): { [string]: { name: string, category: string } }
 	local rep = EventConfig.Replacement
 	if rep and rep.enabled then
 		for _, recipe in rep.SparePool do
-			index["evt_" .. recipe.output.sku] = { name = "Restocked Recipes", category = "permanent" }
+			index[producedId(recipe)] = { name = "Restocked Recipes", category = "permanent" }
 		end
 	end
 	producerIndex = index

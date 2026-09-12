@@ -846,8 +846,14 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				if result.ok then
 					local made = result.made or 1
 					local name = result.output and result.output.name or recipe.output.name
-					if made > 1 then
-						toast(("Made %d x %s!"):format(made, name), Theme.Good)
+					-- perCraft > 1 is a SACRIFICE-shaped recipe (one expensive input,
+					-- several cheap copies out) rather than a batch of `made` separate
+					-- crafts -- the two multiply, so a batched sacrifice must report
+					-- the true total, not just the per-call count.
+					local perCraft = (result.output and result.output.count) or 1
+					local total = made * perCraft
+					if total > 1 then
+						toast(("Made %d x %s!"):format(total, name), Theme.Good)
 					else
 						toast(("Made %s!"):format(name), Theme.Good)
 					end

@@ -136,6 +136,16 @@ local eventRecipeIndex: { [string]: { inputs: { [string]: number }, gems: number
 local function buildEventRecipeIndex()
 	local index: { [string]: any } = {}
 	local function add(recipe: any)
+		if recipe.output.itemId then
+			-- Targets an EXISTING item (a sacrifice-style recipe routed at a
+			-- real pool item via output.itemId — see
+			-- CraftingService.recipeOutputId, the canonical resolution this
+			-- mirrors). That item already has its own value source (store
+			-- price or rarity ladder); seeding it from "cost to make it via
+			-- this one recipe" would be both wrong (its price shouldn't hinge
+			-- on an occasional liquidation recipe) and has no sku to key by.
+			return
+		end
 		index["evt_" .. recipe.output.sku] = { inputs = recipe.inputs, gems = recipe.gems or 0 }
 	end
 	for _, event in EventConfig.Events do
