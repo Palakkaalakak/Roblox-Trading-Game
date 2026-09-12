@@ -139,12 +139,14 @@ end
 
 -- Pure given its candidate lists and a seeded Random, so the shape of an offer
 -- is testable without a live economy.
+-- `owned` is accepted for signature/call-site compatibility (callers still
+-- pass the player's inventory) but no longer consulted here — see the note
+-- below the input-picking loop for why.
 function UniqueCraftService.buildOffer(outputs: { any }, inputs: { any }, rng: Random, at: number, owned: { [string]: number }?): any?
 	if #outputs == 0 or #inputs == 0 then
 		return nil
 	end
 	local settings = cfg()
-	local have = owned or {}
 
 	-- INPUTS FIRST, OUTPUT TO SUIT. Sizing counts from the output's value made a
 	-- Godly ask for 25x of everything, which no new player can reach. Picking a
@@ -164,7 +166,7 @@ function UniqueCraftService.buildOffer(outputs: { any }, inputs: { any }, rng: R
 	local cheapCount = math.max(math.min(#pool, math.ceil(#pool * 0.6)), 1)
 
 	local kinds = rng:NextInteger(settings.InputKinds.min, settings.InputKinds.max)
-	local chosen, inputValue, anyShortfall = {}, 0, false
+	local chosen, inputValue = {}, 0
 	local picked = 0
 	for _ = 1, kinds do
 		local candidate = pool[rng:NextInteger(1, cheapCount)]
@@ -173,19 +175,22 @@ function UniqueCraftService.buildOffer(outputs: { any }, inputs: { any }, rng: R
 			chosen[candidate.itemId] = count
 			inputValue += candidate.value * count
 			picked += 1
-			if count > (have[candidate.itemId] or 0) then
-				anyShortfall = true
-			end
 		end
 	end
 	if picked == 0 or inputValue <= 0 then
 		return nil
 	end
-	-- An offer fillable from the shelf teaches nothing and moves nothing: the
-	-- whole point is to send the player out to buy or trade for the parts.
-	if not anyShortfall and owned ~= nil then
-		return nil
-	end
+	-- Inputs are drawn from the general cheap-leaning pool, not filtered to what
+	-- the player already owns, so whether this list happens to be immediately
+	-- fillable is incidental, not something to force either way. An offer the
+	-- player can complete right now is a legitimate outcome (instant payoff,
+	-- especially valuable for a fresh player whose starter bundle happens to
+	-- cover it, or a player liquidating a rare into commons via a
+	-- Dilute-shaped offer) exactly as much as one that sends them to the
+	-- market is. Forcing every offer to require a trip out used to be the
+	-- rule; it no longer is — both are correct, and which one shows up is
+	-- just whatever the random draw against the player's real holdings
+	-- produces.
 
 	-- Now find an output worth enough that the inputs cost InputValueFraction of
 	-- it -- i.e. the craft is visibly worth doing from numbers already on screen.
