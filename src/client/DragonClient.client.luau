@@ -1,5 +1,5 @@
 --!strict
--- Dragon client: animates every WestDragon, double-tap-Space flight, R fireball.
+-- Dragon client: animates every WestDragon, double-tap-Space flight, hold-R charged fireball + its VFX.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -11,6 +11,10 @@ local Config = require(Dragon:WaitForChild("DragonConfig"))
 local remotes = ReplicatedStorage:WaitForChild("DragonRemotes")
 local flightR = remotes:WaitForChild("Flight") :: RemoteEvent
 local fireballR = remotes:WaitForChild("Fireball") :: RemoteEvent
+local chargeR = remotes:WaitForChild("Charge") :: RemoteEvent
+local fxR = remotes:WaitForChild("FireballFX") :: RemoteEvent
+local DragonFX = require(Dragon:WaitForChild("DragonFX"))
+local FB = Config.FIREBALL
 
 local player = Players.LocalPlayer
 local rigs: { [Model]: DragonRig.Rig } = {}
@@ -32,7 +36,10 @@ local flying = false
 local lv: LinearVelocity? = nil
 local ao: AlignOrientation? = nil
 local lastTap = 0
-local lastFire = 0
+local lastFire = -math.huge
+local charging = false
+local chargeStart = 0
+local charges: { [Model]: { stop: () -> () } } = {}
 
 local function dragonChar(): (Model?, BasePart?, Humanoid?)
 	local char = player.Character
@@ -95,7 +102,63 @@ end
 
 player:GetAttributeChangedSignal("DragonCancelFlight"):Connect(stopFlight)
 
-player:GetAttributeChangedSignal("DragonCancelFlight"):Connect(stopFlight)
+-- Fireball: tap R = base shot; hold R to charge (auto-fires at MAX_CHARGE). Server computes the
+-- charge from its own DragonChargeStart attribute; this only sends start + aim direction.
+local function aimDir(char: Model, from: Vector3): Vector3
+	local cam = workspace.CurrentCamera
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { char, DragonFX.root() }
+	local m = UserInputService:GetMouseLocation()
+	local ray = cam:ViewportPointToRay(m.X, m.Y)
+	local hit = workspace:Raycast(ray.Origin, ray.Direction * 1500, params)
+	local target = if hit then hit.Position else ray.Origin + ray.Direction * 1500
+	local d = target - from
+	return if d.Magnitude > 0.01 then d.Unit else ray.Direction
+end
+
+local function releaseCharge()
+	if not charging then
+		return
+	end
+	charging = false
+	local char = dragonChar()
+	local dragon = char and char:FindFirstChild("WestDragon")
+	local mouth = dragon and DragonRig.mouthCFrame(dragon)
+	if char and mouth then
+		lastFire = os.clock()
+		fireballR:FireServer(aimDir(char, mouth.Position))
+	end
+end
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.R then
+		releaseCharge()
+	end
+end)
+
+-- Fireball VFX for every shot in the server (launch -> projectile, explode -> impact).
+local shots: { [number]: DragonFX.Shot } = {}
+fxR.OnClientEvent:Connect(function(kind: string, id: number, ...: any)
+	local a, b, c, d, e, f, g = ...
+	if kind == "launch" then
+		local origin, dir, speed, D, t0, range, power = a, b, c, d, e, f, g
+		DragonFX.muzzle(origin, dir, D, power)
+		shots[id] = DragonFX.projectile(origin, dir, speed, D, t0, range, power)
+		local cam = workspace.CurrentCamera
+		if (cam.CFrame.Position - origin).Magnitude < 250 then
+			DragonFX.shake(0.25 + 0.6 * power)
+		end
+	elseif kind == "explode" then
+		local pos, normal, R, grounded, power = a, b, c, d, e
+		local s = shots[id]
+		if s then
+			s.stop()
+			shots[id] = nil
+		end
+		DragonFX.explode(pos, normal, R, grounded, power)
+	end
+end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
@@ -114,22 +177,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			lastTap = now
 		end
 	elseif input.KeyCode == Enum.KeyCode.R then
-		local char = dragonChar()
-		local head = char and char:FindFirstChild("WestDragon") and char.WestDragon:FindFirstChild("Head")
-		if not (char and head and head:IsA("BasePart")) or os.clock() - lastFire < Config.FIREBALL.COOLDOWN then
-			return
+		if dragonChar() and not charging and os.clock() - lastFire >= FB.COOLDOWN then
+			charging = true
+			chargeStart = os.clock()
+			chargeR:FireServer()
 		end
-		lastFire = os.clock()
-		local cam = workspace.CurrentCamera
-		local params = RaycastParams.new()
-		params.FilterDescendantsInstances = { char }
-		params.FilterType = Enum.RaycastFilterType.Exclude
-		-- Aim at the mouse cursor, not screen centre.
-		local m = UserInputService:GetMouseLocation()
-		local ray = cam:ViewportPointToRay(m.X, m.Y)
-		local hit = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
-		local target = if hit then hit.Position else ray.Origin + ray.Direction * 500
-		fireballR:FireServer((target - head.Position).Unit)
 	end
 end)
 
@@ -172,6 +224,37 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
+	-- Local charge: auto-fire at max, caster rumble while charging.
+	if charging then
+		if not dragonChar() then
+			charging = false
+		else
+			local held = os.clock() - chargeStart
+			if held >= FB.MAX_CHARGE then
+				releaseCharge()
+			else
+				DragonFX.shake(0.03 + 0.12 * held / FB.MAX_CHARGE)
+			end
+		end
+	end
+
+	-- Camera rides higher while a dragon (it is ~5x a character).
+	local myHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if myHum then
+		local want = if dragonChar() then Vector3.new(0, Config.CAMERA_HEIGHT, 0) else Vector3.zero
+		if myHum.CameraOffset ~= want then
+			myHum.CameraOffset = want
+		end
+	end
+
+	-- Charge orbs for every charging dragon (DragonChargeStart replicates from the server).
+	for ch, h in pairs(charges) do
+		if not ch.Parent or ch:GetAttribute("DragonChargeStart") == nil or not ch:FindFirstChild("WestDragon") then
+			h.stop()
+			charges[ch] = nil
+		end
+	end
+
 	-- Animate all dragons (replicated models, local time).
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
@@ -191,9 +274,20 @@ RunService.RenderStepped:Connect(function(dt)
 				cur += (target - cur) * math.clamp(dt * 5, 0, 1)
 				pitches[model] = cur
 				DragonRig.animate(rig, t, speed, isFlying, cur)
+				local cs = char:GetAttribute("DragonChargeStart")
 				local ft = char:GetAttribute("DragonFireTime")
 				local since = if typeof(ft) == "number" then now - ft else 99
-				DragonRig.setJaw(rig, if since >= 0 and since < 0.4 then math.sin(since / 0.4 * math.pi) * 0.6 else 0)
+				if typeof(cs) == "number" then
+					if not charges[char] then
+						local m = model
+						charges[char] = DragonFX.charge(function()
+							return if m.Parent then DragonRig.mouthCFrame(m) else nil
+						end, cs, FB.MAX_CHARGE, FB.BALL_D)
+					end
+					DragonRig.setJaw(rig, 0.2 + 0.4 * math.clamp((now - cs) / FB.MAX_CHARGE, 0, 1))
+				else
+					DragonRig.setJaw(rig, if since >= 0 and since < 0.4 then math.sin(since / 0.4 * math.pi) * 0.6 else 0)
+				end
 			end
 		end
 	end

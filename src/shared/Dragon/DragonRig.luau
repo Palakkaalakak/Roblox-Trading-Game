@@ -17,21 +17,30 @@ export type Rig = {
 	motors: { [string]: Motor6D },
 	weld: Weld,
 	baseC0: CFrame,
+	scale: number, -- studs per design unit
 }
 
--- Finds the imported dragon wherever it lives by locating a MeshPart named like a joint
--- (ignores the old stripped "RPG Dragon" copy that has none of them).
+-- Finds the imported dragon. Prefers a Model named "Full Model" (the user's import: MeshParts
+-- nested in per-part "*_Node" models), then any container holding the joint MeshParts.
+-- Ignores the old stripped "RPG Dragon" copy (DragonWestModel), which has none of them.
 local cachedSource: Instance? = nil
 function DragonRig.findSource(): Instance?
 	if cachedSource and cachedSource.Parent then
 		return cachedSource
 	end
-	for _, svc in ipairs({ game:GetService("ReplicatedStorage"), game:GetService("ServerStorage"), workspace }) do
+	local services = { game:GetService("ReplicatedStorage"), game:GetService("ServerStorage"), workspace }
+	for _, svc in ipairs(services) do
+		local full = svc:FindFirstChild("Full Model")
+		if full and full:FindFirstChild("Torso", true) then
+			cachedSource = full
+			return full
+		end
+	end
+	for _, svc in ipairs(services) do
 		local m = svc:FindFirstChild("L_Wing_Membrane_4", true)
 		if m and m:IsA("MeshPart") and m.Parent then
-			-- Parts may be nested in per-part "*_Node" models: climb to the outermost model.
 			local root: Instance = m.Parent
-			while root.Parent and root.Parent:IsA("Model") and root.Parent ~= workspace do
+			while root.Parent and root.Parent ~= svc and not root:FindFirstChild("Torso", true) do
 				root = root.Parent
 			end
 			cachedSource = root
@@ -39,6 +48,25 @@ function DragonRig.findSource(): Instance?
 		end
 	end
 	return nil
+end
+
+local function findMesh(root: Instance, name: string): MeshPart?
+	for _, d in ipairs(root:GetDescendants()) do
+		if d.Name == name and d:IsA("MeshPart") then
+			return d
+		end
+	end
+	return nil
+end
+
+-- Mouth tip of a built dragon, facing forward (-Z = where the dragon looks).
+-- Parts keep design axes (+Z = dragon forward), so the snout is at +Z of the Head part.
+function DragonRig.mouthCFrame(model: Instance): CFrame?
+	local head = model:FindFirstChild("Head")
+	if not (head and head:IsA("BasePart")) then
+		return nil
+	end
+	return head.CFrame * CFrame.new(0, -head.Size.Y * 0.12, head.Size.Z * 0.5) * CFrame.Angles(0, math.pi, 0)
 end
 
 -- sourceRoot: where the imported MeshParts live (nil -> placeholder blocks).
@@ -51,18 +79,18 @@ function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: numbe
 	local jointFrames: { [string]: CFrame } = {}
 
 	-- Honour the imported size: scale = (imported Torso size / manifest Torso size) * scale.
-	local srcTorso = sourceRoot and sourceRoot:FindFirstChild("Torso", true)
-	if srcTorso and srcTorso:IsA("BasePart") then
+	local srcTorso = sourceRoot and findMesh(sourceRoot, "Torso")
+	if srcTorso then
 		scale *= srcTorso.Size.Y / Joints[1].size.Y
 	end
 
 	for _, j in ipairs(Joints) do
-		local src = sourceRoot and sourceRoot:FindFirstChild(j.name, true)
+		local src = sourceRoot and findMesh(sourceRoot, j.name)
 		local p: BasePart
-		if src and src:IsA("MeshPart") then
+		if src then
 			p = src:Clone()
 			for _, c in ipairs(p:GetChildren()) do
-				if c:IsA("Script") or c:IsA("LocalScript") or c:IsA("Weld") or c:IsA("Motor6D") then
+				if c:IsA("BaseScript") or c:IsA("JointInstance") or c:IsA("Constraint") or c:IsA("WeldConstraint") then
 					c:Destroy()
 				end
 			end
@@ -110,7 +138,7 @@ function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: numbe
 	weld.C0 = base
 	weld:SetAttribute("BaseC0", base)
 	weld.Parent = torso
-	return { model = model, motors = motors, weld = weld, baseC0 = base }
+	return { model = model, motors = motors, weld = weld, baseC0 = base, scale = scale }
 end
 
 -- Rebuild the lookup from an already-built dragon (clients animate replicated dragons).
@@ -127,7 +155,8 @@ function DragonRig.wrap(model: Model): Rig?
 		end
 	end
 	local base = weld:GetAttribute("BaseC0")
-	return { model = model, motors = motors, weld = weld, baseC0 = if typeof(base) == "CFrame" then base else weld.C0 }
+	local scale = (torso :: BasePart).Size.Y / Joints[1].size.Y
+	return { model = model, motors = motors, weld = weld, baseC0 = if typeof(base) == "CFrame" then base else weld.C0, scale = scale }
 end
 
 local function rot(m: Motor6D?, x: number, y: number, z: number)
@@ -170,7 +199,7 @@ function DragonRig.animate(rig: Rig, t: number, speed: number, flying: boolean, 
 	end
 	rot(m.Head, 0, 0, 0)
 
-	local bob = if flying then math.sin(t * hz * math.pi * 2) * 0.35 else math.sin(t * 7) * 0.12 * walk
+	local bob = (if flying then math.sin(t * hz * math.pi * 2) * 0.35 else math.sin(t * 7) * 0.12 * walk) * rig.scale
 	rig.weld.C0 = rig.baseC0 * CFrame.new(0, bob, 0) * CFrame.Angles(pitch, 0, 0)
 end
 

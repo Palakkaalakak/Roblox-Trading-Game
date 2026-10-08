@@ -1,10 +1,11 @@
 --!strict
--- Dragon form (build/weld the rig onto the character), flight flag, and fireball (server-side damage).
+-- Dragon form (build/weld the rig onto the character), flight flag, and the chargeable fireball.
+-- Fireball: the server simulates the projectile (spherecast) and applies damage to other players;
+-- every client renders the VFX from FireballFX "launch"/"explode" events (DragonFX).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local Debris = game:GetService("Debris")
-local TweenService = game:GetService("TweenService")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Dragon = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Dragon")
 local DragonRig = require(Dragon:WaitForChild("DragonRig"))
@@ -19,8 +20,23 @@ local function mk(name: string): RemoteEvent
 	r.Parent = remotes
 	return r
 end
-local transformR, flightR, fireballR = mk("Transform"), mk("Flight"), mk("Fireball")
+local transformR, flightR = mk("Transform"), mk("Flight")
+local chargeR, fireballR, fxR = mk("Charge"), mk("Fireball"), mk("FireballFX")
 remotes.Parent = ReplicatedStorage
+
+-- The imported dragon ("Full Model") sits unanchored in Workspace: anchor it and park it in
+-- ServerStorage so it neither falls nor shows. The rig clones its MeshParts per transform.
+do
+	local src = DragonRig.findSource()
+	if src and src:IsDescendantOf(workspace) then
+		for _, d in ipairs(src:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored = true
+			end
+		end
+		src.Parent = ServerStorage
+	end
+end
 
 local lastFire: { [Player]: number } = {}
 
@@ -56,13 +72,7 @@ local function setForm(player: Player, on: boolean)
 	end
 	local existing = char:FindFirstChild("WestDragon")
 	if on and not existing then
-		local rig = DragonRig.build(
-			DragonRig.findSource(),
-			hrp,
-			hum.HipHeight + hrp.Size.Y / 2,
-			Config.SCALE,
-			Config.TEXTURE_ID
-		)
+		local rig = DragonRig.build(DragonRig.findSource(), hrp, hum.HipHeight + hrp.Size.Y / 2, Config.SCALE, Config.TEXTURE_ID)
 		rig.model.Parent = char
 		setCharacterHidden(char, true)
 		char:SetAttribute("DragonForm", true)
@@ -71,6 +81,7 @@ local function setForm(player: Player, on: boolean)
 		setCharacterHidden(char, false)
 		char:SetAttribute("DragonForm", nil)
 		char:SetAttribute("DragonFlying", nil)
+		char:SetAttribute("DragonChargeStart", nil)
 	end
 end
 
@@ -91,167 +102,114 @@ flightR.OnServerEvent:Connect(function(player: Player, on: any)
 	end
 end)
 
-local function puff(pos: Vector3, size: number, c0: Color3, c1: Color3, life: number, rise: number, neon: boolean)
-	local p = Instance.new("Part")
-	p.Shape = Enum.PartType.Ball
-	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch = true, false, false, false
-	p.Material = if neon then Enum.Material.Neon else Enum.Material.SmoothPlastic
-	p.Color = c0
-	p.Size = Vector3.one * size
-	p.Position = pos
-	p.Parent = workspace
-	TweenService:Create(p, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = Vector3.one * size * (if neon then 0.15 else 1.8),
-		Color = c1,
-		Transparency = 1,
-		Position = pos + Vector3.new(0, rise, 0),
-	}):Play()
-	Debris:AddItem(p, life + 0.1)
+-- Fireball -------------------------------------------------------------------------------------
+local function dragonOf(char: Model?): Model?
+	local d = char and char:FindFirstChild("WestDragon")
+	return if d and d:IsA("Model") then d else nil
 end
 
-local YEL, ORG, RED = Color3.fromRGB(255, 214, 20), Color3.fromRGB(255, 118, 0), Color3.fromRGB(225, 35, 15)
-local BLK = Color3.fromRGB(20, 20, 24)
+local function coolingDown(player: Player): boolean
+	return os.clock() - (lastFire[player] or -math.huge) < FB.COOLDOWN
+end
 
-local function explode(caster: Player, pos: Vector3)
-	-- Flash core + expanding fireball + shockwave ring (cel-shaded solid shapes).
-	puff(pos, 10, Color3.new(1, 1, 0.8), YEL, 0.25, 0, true)
-	local ball = Instance.new("Part")
-	ball.Shape = Enum.PartType.Ball
-	ball.Anchored, ball.CanCollide, ball.CanQuery, ball.CanTouch = true, false, false, false
-	ball.Material = Enum.Material.Neon
-	ball.Color = ORG
-	ball.Size = Vector3.one * 5
-	ball.Position = pos
-	ball.Parent = workspace
-	local hl = Instance.new("Highlight")
-	hl.FillTransparency, hl.OutlineColor, hl.OutlineTransparency = 1, BLK, 0
-	hl.Parent = ball
-	TweenService:Create(ball, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-		Size = Vector3.one * FB.RADIUS * 1.8,
-		Color = RED,
-		Transparency = 0.85,
-	}):Play()
-	Debris:AddItem(ball, 0.6)
-
-	local ring = Instance.new("Part")
-	ring.Shape = Enum.PartType.Cylinder
-	ring.Anchored, ring.CanCollide, ring.CanQuery, ring.CanTouch = true, false, false, false
-	ring.Material = Enum.Material.Neon
-	ring.Color = YEL
-	ring.Size = Vector3.new(0.6, 4, 4)
-	ring.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)
-	ring.Parent = workspace
-	TweenService:Create(ring, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = Vector3.new(0.6, FB.RADIUS * 2.6, FB.RADIUS * 2.6),
-		Transparency = 1,
-	}):Play()
-	Debris:AddItem(ring, 0.6)
-
-	-- Flame puffs, black smoke, and debris cubes flying outward.
-	local rng = Random.new()
-	for _ = 1, 8 do
-		local o = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0, 1), rng:NextNumber(-1, 1)) * FB.RADIUS * 0.5
-		puff(pos + o, rng:NextNumber(5, 8), YEL, RED, 0.6, 5, true)
+-- Start charging: the attribute replicates so every client renders the charge orb.
+chargeR.OnServerEvent:Connect(function(player: Player)
+	local char = player.Character
+	if not (char and dragonOf(char)) or coolingDown(player) then
+		return
 	end
-	for _ = 1, 6 do
-		local o = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0, 1), rng:NextNumber(-1, 1)) * FB.RADIUS * 0.4
-		task.delay(0.15, puff, pos + o, rng:NextNumber(6, 9), BLK, BLK, 1.2, 10, false)
+	if char:GetAttribute("DragonChargeStart") == nil then
+		char:SetAttribute("DragonChargeStart", workspace:GetServerTimeNow())
 	end
-	for _ = 1, 10 do
-		local c = Instance.new("Part")
-		c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch = true, false, false, false
-		c.Material = Enum.Material.SmoothPlastic
-		c.Color = Color3.fromRGB(35, 40, 70)
-		c.Size = Vector3.one * rng:NextNumber(0.8, 1.6)
-		c.CFrame = CFrame.new(pos) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0)
-		c.Parent = workspace
-		local dir = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0.3, 1.2), rng:NextNumber(-1, 1)).Unit
-		TweenService:Create(c, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			CFrame = c.CFrame + dir * rng:NextNumber(10, FB.RADIUS * 1.4) * 1,
-			Transparency = 1,
-		}):Play()
-		Debris:AddItem(c, 0.8)
-	end
+end)
 
+local function damageAround(caster: Player, pos: Vector3, radius: number, damage: number)
 	for _, p in ipairs(Players:GetPlayers()) do
-		local c = p.Character
-		local h = c and c:FindFirstChildOfClass("Humanoid")
-		local r = c and c:FindFirstChild("HumanoidRootPart")
-		if p ~= caster and h and r and h.Health > 0 then
-			if ((r :: BasePart).Position - pos).Magnitude <= FB.RADIUS then
-				h:TakeDamage(FB.DAMAGE)
+		if p ~= caster then
+			local c = p.Character
+			local h = c and c:FindFirstChildOfClass("Humanoid")
+			local r = c and c:FindFirstChild("HumanoidRootPart")
+			if c and h and r and r:IsA("BasePart") and h.Health > 0 then
+				local reach = radius + (if c:GetAttribute("DragonForm") then Config.DRAGON_HIT_BODY else 0)
+				if (r.Position - pos).Magnitude <= reach then
+					h:TakeDamage(damage)
+				end
 			end
 		end
 	end
 end
+
+local nextId = 0
 
 fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any)
 	local char = player.Character
-	local head = char and char:FindFirstChild("WestDragon") and char.WestDragon:FindFirstChild("Head")
-	if not (char and head and head:IsA("BasePart") and typeof(dirArg) == "Vector3") then
+	local dragon = dragonOf(char)
+	local mouth = dragon and DragonRig.mouthCFrame(dragon)
+	if not (char and mouth and typeof(dirArg) == "Vector3" and dirArg.Magnitude > 0.1) or coolingDown(player) then
 		return
 	end
-	if dirArg.Magnitude < 0.1 then
-		return
-	end
-	local now = os.clock()
-	if now - (lastFire[player] or -math.huge) < FB.COOLDOWN then
-		return
-	end
-	lastFire[player] = now
-	char:SetAttribute("DragonFireTime", workspace:GetServerTimeNow())
+	lastFire[player] = os.clock()
+	local now = workspace:GetServerTimeNow()
+	local start = char:GetAttribute("DragonChargeStart")
+	char:SetAttribute("DragonChargeStart", nil)
+	char:SetAttribute("DragonFireTime", now)
 
+	-- Charge 0..1 scales size x1..x2, speed x1..x1.5, damage x1..x3.
+	local c = if typeof(start) == "number" then math.clamp((now - start) / FB.MAX_CHARGE, 0, 1) else 0
+	local size = 1 + c
+	local speed = FB.SPEED * (1 + 0.5 * c)
+	local damage = FB.DAMAGE * (1 + 2 * c)
+	local radius = FB.RADIUS * size
+	local D = FB.BALL_D * size
 	local dir = dirArg.Unit
-	local pos = head.Position + dir * 5
-	-- Layered cel-style ball: black-outlined orange shell with a yellow core.
-	local ball = Instance.new("Part")
-	ball.Shape = Enum.PartType.Ball
-	ball.Size = Vector3.one * 5
-	ball.Material = Enum.Material.Neon
-	ball.Color = ORG
-	ball.Anchored, ball.CanCollide, ball.CanQuery, ball.CanTouch = true, false, false, false
-	ball.Position = pos
-	local hl = Instance.new("Highlight")
-	hl.FillTransparency, hl.OutlineColor, hl.OutlineTransparency = 1, BLK, 0
-	hl.Parent = ball
-	local core = Instance.new("Part")
-	core.Shape = Enum.PartType.Ball
-	core.Size = Vector3.one * 2.8
-	core.Material = Enum.Material.Neon
-	core.Color = YEL
-	core.Anchored, core.CanCollide, core.CanQuery, core.CanTouch = true, false, false, false
-	core.Position = pos
-	core.Parent = workspace
-	local light = Instance.new("PointLight")
-	light.Color, light.Range, light.Brightness = ORG, 26, 3
-	light.Parent = ball
-	ball.Parent = workspace
+	local origin = mouth.Position + dir * D * 0.6
+
+	nextId += 1
+	local id = nextId
+	fxR:FireAllClients("launch", id, origin, dir, speed, D, now, FB.RANGE, c)
 
 	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = { char, ball, core }
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	local travelled, acc = 0, 0
+	params.FilterDescendantsInstances = { char }
+	local pos = origin
 	local conn: RBXScriptConnection
-	conn = RunService.Heartbeat:Connect(function(dt)
-		local step = FB.SPEED * dt
-		local hit = workspace:Raycast(pos, dir * step, params)
-		travelled += step
-		pos = if hit then hit.Position else pos + dir * step
-		ball.Position, core.Position = pos, pos
-		acc += dt
-		if acc > 0.03 then
-			acc = 0
-			-- tapered tail of flame puffs behind the ball, plus the odd black smoke wisp
-			puff(pos - dir * 1.5, 4, ORG, RED, 0.35, 1, true)
-			if math.random() < 0.25 then
-				puff(pos - dir * 3, 3, BLK, BLK, 0.7, 3, false)
+	conn = RunService.Heartbeat:Connect(function()
+		local dist = math.min(speed * (workspace:GetServerTimeNow() - now), FB.RANGE)
+		local target = origin + dir * dist
+		local delta = target - pos
+		local hitPos: Vector3? = nil
+		local normal = -dir
+		local grounded = false
+		if delta.Magnitude > 0.01 then
+			local hit = workspace:Spherecast(pos, D * 0.45, delta, params)
+			if hit then
+				hitPos = hit.Position + hit.Normal * D * 0.3
+				normal = hit.Normal
+				grounded = hit.Normal.Y > 0.6
+			else
+				-- Direct hit on another player (dragons are non-collidable, so test by distance).
+				local step = delta.Unit
+				for _, p in ipairs(Players:GetPlayers()) do
+					local pc = p.Character
+					local r = pc and pc:FindFirstChild("HumanoidRootPart")
+					if p ~= player and pc and r and r:IsA("BasePart") then
+						local along = math.clamp((r.Position - pos):Dot(step), 0, delta.Magnitude)
+						local closest = pos + step * along
+						local reach = D * 0.5 + (if pc:GetAttribute("DragonForm") then Config.DRAGON_HIT_BODY else 2.5)
+						if (closest - r.Position).Magnitude <= reach then
+							hitPos = closest
+							break
+						end
+					end
+				end
 			end
 		end
-		if hit or travelled >= FB.RANGE then
+		pos = target
+		if hitPos or dist >= FB.RANGE then
 			conn:Disconnect()
-			ball:Destroy()
-			core:Destroy()
-			explode(player, pos)
+			local at = hitPos or pos
+			fxR:FireAllClients("explode", id, at, normal, radius, grounded, c)
+			damageAround(player, at, radius, damage)
 		end
 	end)
 end)
