@@ -1,6 +1,6 @@
 --!strict
 return {
-	SCALE = 1.5, -- studs per design unit (wingspan ~19 units)
+	SCALE = 1, -- multiplier on the imported size (1 = as imported)
 	-- Upload Obsidian_West_asset_pack/Dragon_Color.png and paste the rbxassetid here (optional if imported textures survive).
 	TEXTURE_ID = "",
 	SOURCE_MODEL_NAME = "DragonWestModel", -- ReplicatedStorage model holding imported MeshParts named like the joints

@@ -28,6 +28,12 @@ function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: numbe
 	local frames: { [string]: CFrame } = {}
 	local jointFrames: { [string]: CFrame } = {}
 
+	-- Honour the imported size: scale = (imported Torso size / manifest Torso size) * scale.
+	local srcTorso = sourceRoot and sourceRoot:FindFirstChild("Torso", true)
+	if srcTorso and srcTorso:IsA("BasePart") then
+		scale *= srcTorso.Size.Y / Joints[1].size.Y
+	end
+
 	for _, j in ipairs(Joints) do
 		local src = sourceRoot and sourceRoot:FindFirstChild(j.name, true)
 		local p: BasePart

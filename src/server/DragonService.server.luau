@@ -57,7 +57,7 @@ local function setForm(player: Player, on: boolean)
 	local existing = char:FindFirstChild("WestDragon")
 	if on and not existing then
 		local rig = DragonRig.build(
-			ReplicatedStorage:FindFirstChild(Config.SOURCE_MODEL_NAME),
+			ReplicatedStorage:FindFirstChild(Config.SOURCE_MODEL_NAME) or ReplicatedStorage:FindFirstChild("Full Model"),
 			hrp,
 			hum.HipHeight + hrp.Size.Y / 2,
 			Config.SCALE,
