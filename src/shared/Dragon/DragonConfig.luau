@@ -1,7 +1,9 @@
 --!strict
 return {
 	SCALE = 2, -- multiplier on the imported size (1 = as imported)
-	VFX_SCALE = 2, -- transformation VFX (DragonWestVFXCore) size multiplier
+	VFX_SCALE = 2, -- minimum; the driver raises it so the sphere always swallows the dragon
+	DRAGON_EXTENT = 12, -- farthest point of the dragon from its centre, design units (wing tip / tail)
+	SPHERE_MARGIN = 1.35, -- sphere radius must be at least this x the dragon reach at the blast -- transformation VFX (DragonWestVFXCore) size multiplier
 	REVERSE_SPHERE_SPEED = 2.5, -- revert: sphere part of the reversed VFX plays this much faster
 	CAMERA_HEIGHT = 6, -- Humanoid.CameraOffset.Y while a dragon
 	DRAGON_ZOOM = 44, -- camera distance right after transforming

@@ -63,7 +63,7 @@ end
 -- VFX scale-up. Core.step writes properties as a pure function of t, so after each step every
 -- property it just (re)wrote is scaled about the ground point. A per-instance cache of the value
 -- we last wrote tells "freshly written by step" (rescale) apart from "untouched" (leave).
-local K: number = Config.VFX_SCALE
+local K: number = Config.VFX_SCALE -- recalculated per play so the black sphere always swallows the dragon
 local cache: { [Instance]: { [string]: any } } = setmetatable({}, { __mode = "k" }) :: any
 
 local function scaleNS(ns: NumberSequence): NumberSequence
@@ -172,6 +172,41 @@ local function settleZoom(dragon: boolean)
 	end
 end
 
+-- Measures the black sphere at the blast (t = SWAP_T) on an unscaled throwaway build.
+local rawSphereR: number? = nil
+local function sphereRadius(groundPos: Vector3): number
+	if rawSphereR then
+		return rawSphereR
+	end
+	local tmp = Instance.new("Folder")
+	tmp.Name = "DragonVFXCalibrate"
+	tmp.Parent = workspace
+	local r = 25.5 -- module's documented ball radius, used if nothing dark is found
+	local ok = pcall(function()
+		local st = Core.build(tmp, groundPos)
+		Core.step(st, SWAP_T, workspace.CurrentCamera.CFrame.Position)
+		local best = 0
+		for _, d in ipairs(tmp:GetDescendants()) do
+			if d:IsA("BasePart") then
+				local c = d.Color
+				if (c.R + c.G + c.B) / 3 < 0.12 and d.Transparency < 0.95 then
+					best = math.max(best, math.max(d.Size.X, d.Size.Y, d.Size.Z) / 2)
+				end
+			end
+		end
+		if best > 4 and best < 200 then
+			r = best
+		end
+		Core.destroy(st)
+	end)
+	tmp:Destroy()
+	if not ok then
+		warn("[DragonTransformDriver] sphere calibration failed; assuming radius " .. r)
+	end
+	rawSphereR = r
+	return r
+end
+
 local walkSpeed: number? = nil -- the character's normal speed, captured before the first transform
 
 local function play(forward: boolean)
@@ -200,6 +235,12 @@ local function play(forward: boolean)
 	local folder = Instance.new("Folder")
 	folder.Name = "DragonVFX"
 	folder.Parent = workspace
+	-- Dragon reach from the torso (design units * scale) must sit inside the sphere with margin.
+	local need = Config.DRAGON_EXTENT * Config.SCALE * Config.SPHERE_MARGIN
+	K = math.max(Config.VFX_SCALE, need / sphereRadius(groundPos))
+	if RunService:IsStudio() then
+		print(string.format("[DragonTransformDriver] sphere raw r=%.1f K=%.2f -> sphere r=%.1f, dragon reach=%.1f", sphereRadius(groundPos), K, sphereRadius(groundPos) * K, Config.DRAGON_EXTENT * Config.SCALE))
+	end
 	local state = Core.build(folder, groundPos)
 	rescale(folder, groundPos)
 	local cam = workspace.CurrentCamera
