@@ -44,6 +44,19 @@ end
 
 local lastFire: { [Player]: { [string]: number } } = {}
 
+-- One place for all damage rules:
+--  * players in dragon form take (1 - DRAGON_RESIST) of the damage and cannot be one-shot;
+--  * a normal (non-dragon) player hit by a FULLY charged shot is killed outright.
+local function hurt(h: Humanoid, targetChar: Model, amount: number, fullCharge: boolean)
+	if targetChar:GetAttribute("DragonForm") then
+		h:TakeDamage(amount * (1 - Config.DRAGON_RESIST))
+	elseif fullCharge then
+		h:TakeDamage(h.MaxHealth + 1)
+	else
+		h:TakeDamage(amount)
+	end
+end
+
 local function setCharacterHidden(char: Model, hidden: boolean)
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:IsA("BillboardGui") then
@@ -144,6 +157,17 @@ local function setForm(player: Player, on: boolean)
 			dbg(player.Name, "died -> dragon destroyed")
 			rig.model:Destroy()
 		end)
+		-- Transformation blast: everyone caught in it loses 15% of max health (reduced by dragon resist).
+		for _, other in ipairs(Players:GetPlayers()) do
+			local oc = other.Character
+			local oh = oc and oc:FindFirstChildOfClass("Humanoid")
+			local orr = oc and oc:FindFirstChild("HumanoidRootPart")
+			if other ~= player and oc and oh and orr and orr:IsA("BasePart") and oh.Health > 0 and (orr.Position - hrp.Position).Magnitude <= Config.TRANSFORM_BLAST_RADIUS then
+				local dmg = oh.MaxHealth * Config.TRANSFORM_DAMAGE_PCT
+				oh:TakeDamage(if oc:GetAttribute("DragonForm") then dmg * (1 - Config.DRAGON_RESIST) else dmg)
+				dbg(other.Name, "caught in transformation blast:", string.format("%.0f dmg", dmg))
+			end
+		end
 		setCharacterHidden(char, true)
 		char:SetAttribute("DragonForm", true)
 		local n = 0
@@ -211,7 +235,7 @@ chargeR.OnServerEvent:Connect(function(player: Player, moveArg: any)
 	end
 end)
 
-local function damageAround(caster: Player, pos: Vector3, radius: number, damage: number)
+local function damageAround(caster: Player, pos: Vector3, radius: number, damage: number, fullCharge: boolean)
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= caster then
 			local c = p.Character
@@ -220,7 +244,7 @@ local function damageAround(caster: Player, pos: Vector3, radius: number, damage
 			if c and h and r and r:IsA("BasePart") and h.Health > 0 then
 				local reach = radius + (if c:GetAttribute("DragonForm") then Config.DRAGON_HIT_BODY else 0)
 				if (r.Position - pos).Magnitude <= reach then
-					h:TakeDamage(damage)
+					hurt(h, c, damage, fullCharge)
 				end
 			end
 		end
@@ -302,7 +326,7 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 			conn:Disconnect()
 			local at = hitPos or pos
 			fxR:FireAllClients("explode", id, move, at, normal, radius, grounded, c)
-			damageAround(player, at, radius, damage)
+			damageAround(player, at, radius, damage, c >= 0.99)
 			-- Self-hit: caught in your own blast -> stack a speed boost (no damage to self).
 			local myRoot = char:FindFirstChild("HumanoidRootPart")
 			if myRoot and myRoot:IsA("BasePart") and (myRoot.Position - at).Magnitude <= radius + Config.DRAGON_HIT_BODY then
