@@ -36,6 +36,24 @@ local function walk(inst: Instance, depth: number, maxDepth: number)
 end
 walk(workspace, 1, 2)
 
+-- Texture folder + config ids, so texture problems are visible in one block.
+local tf = workspace:FindFirstChild("textures") or workspace:FindFirstChild("Textures")
+table.insert(out, "[TexturesFolder] " .. (if tf then tf:GetFullName() .. " children=" .. #tf:GetChildren() else "NOT FOUND in Workspace"))
+if tf then
+	for _, c in ipairs(tf:GetChildren()) do
+		local x = c :: any
+		local val = x.Texture or x.Image or x.TextureID or x.Value or x.ColorMap
+		table.insert(out, "  " .. c.ClassName .. " " .. c.Name .. " -> " .. tostring(val))
+	end
+end
+local set, total = 0, 0
+for k, v in pairs(Config.TEXTURES or {}) do
+	total += 1
+	if v ~= "" then
+		set += 1
+	end
+end
+table.insert(out, string.format("[Config.TEXTURES] %d/%d ids set", set, total))
 -- Dragon source model: full tree with sizes/positions.
 local src = require(Dragon:WaitForChild("DragonRig")).findSource()
 table.insert(out, "[DragonSource] " .. (if src then src:GetFullName() .. " (" .. src.ClassName .. ")" else "NOT FOUND"))

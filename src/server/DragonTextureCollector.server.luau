@@ -1,5 +1,5 @@
 --!nocheck
--- Paste this into a Script in Workspace (Studio, NOT synced by Rojo). Press Play.
+-- Synced by Rojo (src/server). Studio only, gated by DragonConfig.COLLECT_TEXTURES. Press Play.
 -- It reads Workspace.textures (a Folder), one child per texture named like the config key
 -- (flame_orange_4x4, spark_star, ...), resolves each to a real image id, preloads it to check it,
 -- and prints a ready-to-paste TEXTURES table. It also stores the same text in
@@ -17,9 +17,16 @@ local InsertService = game:GetService("InsertService")
 local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
 
-if not RunService:IsRunning() then
+local Cfg = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Dragon"):WaitForChild("DragonConfig"))
+if not (RunService:IsStudio() and RunService:IsRunning() and Cfg.COLLECT_TEXTURES) then
 	return
 end
+task.wait(2) -- let the workspace finish loading
+local function dbg(...)
+	print("[TexDebug]", ...)
+end
+dbg("running as", script:GetFullName(), "| studio:", RunService:IsStudio(), "| server:", RunService:IsServer())
+local ok0, err0 = pcall(function()
 
 local KEYS = {
 	"flame_orange_4x4", "flame_violet_4x4", "flame_crimson_4x4",
@@ -99,12 +106,16 @@ local function resolve(raw: string): (string?, string)
 	return "rbxassetid://" .. num, "used as image id"
 end
 
-print("[CollectTextureIds] started")
 local folder = workspace:FindFirstChild("textures") or workspace:FindFirstChild("Textures")
 if not folder then
-	warn("[CollectTextureIds] no Folder named 'textures' in Workspace")
+	local names = {}
+	for _, c in ipairs(workspace:GetChildren()) do
+		table.insert(names, c.Name)
+	end
+	warn("[CollectTextureIds] no Folder named 'textures' in Workspace. Workspace children: " .. table.concat(names, ", "))
 	return
 end
+dbg("folder:", folder:GetFullName(), folder.ClassName)
 
 print("[CollectTextureIds] " .. #folder:GetChildren() .. " items in " .. folder.Name)
 local found: { [string]: string } = {}
@@ -112,12 +123,14 @@ local notes, unmatched = {}, {}
 for _, child in ipairs(folder:GetChildren()) do
 	local key = normalise(child.Name)
 	local raw = findRaw(child)
+	dbg(string.format("item '%s' (%s) key=%s known=%s raw=%s", child.Name, child.ClassName, key, tostring(known[key]), tostring(raw)))
 	if not raw then
 		table.insert(unmatched, child.Name .. " (no texture/id found)")
 	elseif not known[key] then
 		table.insert(unmatched, child.Name .. " (name is not a config key)")
 	else
 		local id, note = resolve(raw)
+		dbg("  resolve ->", tostring(id), "|", note)
 		if id then
 			found[key] = id
 			table.insert(notes, key .. ": " .. note)
@@ -132,7 +145,8 @@ local failed = {}
 for key, id in pairs(found) do
 	local img = Instance.new("ImageLabel")
 	img.Image = id
-	ContentProvider:PreloadAsync({ img }, function(_, status)
+	ContentProvider:PreloadAsync({ img }, function(url, status)
+		dbg("  preload", key, tostring(status), url)
 		if status ~= Enum.AssetFetchStatus.Success then
 			failed[key] = tostring(status)
 		end
@@ -174,3 +188,7 @@ end
 table.insert(report, "--- paste into DragonConfig.luau (replace the TEXTURES table) ---")
 table.insert(report, text)
 print(table.concat(report, "\n"))
+end)
+if not ok0 then
+	warn("[TexDebug] collector crashed: " .. tostring(err0))
+end

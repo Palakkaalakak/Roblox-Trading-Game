@@ -27,9 +27,6 @@
       "$properties": {
         "FilteringEnabled": true
       },
-      "CollectTextureIds": {
-        "$path": "tools/dragon_fx/CollectTextureIds.server.luau"
-      },
       "Baseplate": {
         "$className": "Part",
         "$properties": {
