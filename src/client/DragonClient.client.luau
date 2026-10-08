@@ -96,7 +96,7 @@ local function startFlight()
 	a.Attachment0 = att
 	a.RigidityEnabled = false
 	a.MaxTorque = math.huge
-	a.Responsiveness = 18
+	a.Responsiveness = 9
 	a.CFrame = hrp.CFrame.Rotation
 	a.Parent = hrp
 	ao = a

@@ -219,44 +219,84 @@ local function rot(m: Motor6D?, x: number, y: number, z: number)
 	end
 end
 
+-- Smoothing helper: frame-rate independent exponential approach.
+local function approach(cur: number, target: number, rate: number, dt: number): number
+	return cur + (target - cur) * (1 - math.exp(-rate * dt))
+end
+
 -- speed: horizontal studs/s (walk cycle); flying: wings beat + legs tucked; pitch: nose-down rad.
-function DragonRig.animate(rig: Rig, t: number, speed: number, flying: boolean, pitch: number)
-	local m = rig.motors
-	local hz = if flying then WING_FLAP_HZ_FLY + math.clamp(speed / 60, 0, 1) * 1.4 else WING_FLAP_HZ_IDLE
-	local amp = if flying then 0.55 else 0.12
-	local flap = math.sin(t * hz * math.pi * 2) * amp
+-- Anti-jitter: speed/flying/pitch are low-pass filtered, and cycles advance by accumulated PHASE
+-- (changing frequency never jumps the wings/legs), walk phase follows distance travelled
+-- (feet don't skate), flight blends in/out over ~0.4 s, and the body banks into turns.
+function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number)
+	local st = (rig :: any).st
+	if not st then
+		st = { last = t, spd = 0, fly = if flying then 1 else 0, pitch = 0, wing = 0, walk = 0, idle = 0, bank = 0, yaw = nil }
+		;(rig :: any).st = st
+	end
+	local dt = math.clamp(t - st.last, 0, 0.1)
+	st.last = t
+	st.spd = approach(st.spd, speedRaw, 6, dt)
+	st.fly = approach(st.fly, if flying then 1 else 0, 5, dt)
+	st.pitch = approach(st.pitch, pitchRaw, 4, dt)
+	local fly, spd, m, f = st.fly, st.spd, rig.motors, rig.flip
+
+	-- Wings: phase accumulates; downstroke faster than upstroke (sharper, more natural beat).
+	local hz = WING_FLAP_HZ_IDLE + (WING_FLAP_HZ_FLY - WING_FLAP_HZ_IDLE + math.clamp(spd / 80, 0, 1) * 1.2) * fly
+	st.wing += dt * hz * math.pi * 2
+	local ph = st.wing % (math.pi * 2)
+	local wave = if ph < math.pi * 0.8 then math.cos(ph / 0.8) else -math.cos((ph - math.pi * 0.8) / 1.2)
+	local glide = fly * math.clamp((spd - 60) / 80, 0, 1) * 0.6 -- fast flight: shallower, gliding beats
+	local amp = 0.1 + 0.5 * fly * (1 - glide)
+	local flap = wave * amp + 0.15 * fly * glide
 	for _, side in ipairs({ "L", "R" }) do
-		local s = if side == "R" then 1 else -1
-		s *= rig.flip
+		local s = (if side == "R" then 1 else -1) * f
 		rot(m[side .. "_Wing_UpperArm"], 0, 0, s * flap)
-		rot(m[side .. "_Wing_Forearm"], 0, 0, s * flap * 0.6)
-		rot(m[side .. "_Wing_Hand"], 0, 0, s * flap * 0.35)
+		-- forearm/hand lag behind the upper arm (follow-through)
+		local lag = wave * amp
+		rot(m[side .. "_Wing_Forearm"], 0, 0, s * (flap * 0.5 + lag * 0.15))
+		rot(m[side .. "_Wing_Hand"], 0, 0, s * (flap * 0.25 + lag * 0.15))
 	end
 
-	-- Legs: alternate walk cycle on ground, tucked while flying.
-	local walk = if flying then 0 else math.clamp(speed / 16, 0, 1)
-	local w = math.sin(t * 7) * 0.6 * walk
+	-- Legs: phase driven by distance (stride ~ scale*6 studs), tucked while flying.
+	local walkW = (1 - fly) * math.clamp(spd / 10, 0, 1)
+	st.walk += dt * spd / math.max(rig.scale * 6, 1) * math.pi * 2
+	st.idle += dt
 	for i, side in ipairs({ "L", "R" }) do
-		local ph = if i == 1 then w else -w
-		local tuck = if flying then 0.7 else 0
-		local f = rig.flip
-		rot(m[side .. "_Leg_Thigh"], (ph + tuck) * f, 0, 0)
-		rot(m[side .. "_Leg_Shin"], (-math.max(ph, 0) * 0.8 - tuck * 0.6) * f, 0, 0)
-		rot(m[side .. "_Foot"], 0, 0, 0)
+		local p = st.walk + (if i == 1 then 0 else math.pi)
+		local swing = math.sin(p) * 0.55 * walkW
+		local lift = math.max(math.cos(p), 0) * 0.7 * walkW -- knee bends while the leg swings forward
+		local tuck = fly * 0.75
+		rot(m[side .. "_Leg_Thigh"], (swing + tuck) * f, 0, 0)
+		rot(m[side .. "_Leg_Shin"], (-lift - tuck * 0.7) * f, 0, 0)
+		rot(m[side .. "_Foot"], (lift * 0.5 - swing * 0.3 + tuck * 0.4) * f, 0, 0)
 	end
 
-	-- Tail sway travels down the chain; neck counter-bobs.
-	local sway = if flying then 0.1 else 0.07 + walk * 0.05
+	-- Banking from turn rate (smoothed), fed into tail/neck counter-motion.
+	local hrp = rig.weld.Part0
+	if hrp then
+		local look = hrp.CFrame.LookVector
+		local yaw = math.atan2(-look.X, -look.Z)
+		local dy = if st.yaw then (yaw - st.yaw + math.pi) % (math.pi * 2) - math.pi else 0
+		st.yaw = yaw
+		local rate = if dt > 0 then dy / dt else 0
+		st.bank = approach(st.bank, math.clamp(rate * 0.18, -0.5, 0.5) * (0.3 + 0.7 * fly), 4, dt)
+	end
+
+	-- Tail: travelling wave, swings opposite to banking; neck: gentle breathing + counter-bank.
+	local sway = 0.06 + 0.05 * walkW + 0.04 * fly
 	for i = 1, 10 do
-		rot(m[string.format("Tail_%02d", i)], math.sin(t * 2.2 - i * 0.4) * 0.03 * rig.flip, math.sin(t * 2 - i * 0.5) * sway, 0)
+		local k = i / 10
+		rot(m[string.format("Tail_%02d", i)], math.sin(st.idle * 2.2 - i * 0.45) * 0.035 * f, math.sin(st.idle * 1.8 + st.walk * 0.5 - i * 0.5) * sway - st.bank * 0.25 * k, 0)
 	end
 	for i = 1, 4 do
-		rot(m[string.format("Neck_%02d", i)], math.sin(t * 1.6 - i * 0.3) * 0.04 * rig.flip, 0, 0)
+		rot(m[string.format("Neck_%02d", i)], (math.sin(st.idle * 1.5 - i * 0.3) * 0.03 - wave * amp * 0.04) * f, st.bank * 0.12, 0)
 	end
-	rot(m.Head, 0, 0, 0)
+	rot(m.Head, -st.pitch * 0.3 * f, st.bank * 0.1, 0)
 
-	local bob = (if flying then math.sin(t * hz * math.pi * 2) * 0.35 else math.sin(t * 7) * 0.12 * walk) * rig.scale
-	rig.weld.C0 = rig.baseC0 * CFrame.new(0, bob, 0) * CFrame.Angles(pitch * rig.flip, 0, 0)
+	-- Body: bob from wingbeat (lifts on downstroke) or footfalls, pitch and bank.
+	local bob = (fly * -wave * amp * 0.5 + (1 - fly) * math.abs(math.sin(st.walk)) * 0.1 * walkW + math.sin(st.idle * 1.5) * 0.03) * rig.scale
+	rig.weld.C0 = rig.baseC0 * CFrame.new(0, bob, 0) * CFrame.Angles(st.pitch * f, 0, st.bank * f)
 end
 
 function DragonRig.setJaw(rig: Rig, open: number)
