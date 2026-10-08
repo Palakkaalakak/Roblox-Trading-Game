@@ -20,15 +20,15 @@ local RunService = game:GetService("RunService")
 
 local FX = {}
 
-local YEL = Color3.fromRGB(255, 225, 0)
-local ORG = Color3.fromRGB(255, 85, 0)
-local RED = Color3.fromRGB(235, 15, 10)
+local YEL = Color3.fromRGB(255, 214, 20) -- transform palette
+local ORG = Color3.fromRGB(255, 118, 0)
+local RED = Color3.fromRGB(225, 35, 15)
 local CRIMSON = Color3.fromRGB(200, 0, 45)
-local VIOLET = Color3.fromRGB(140, 0, 255)
+local VIOLET = Color3.fromRGB(150, 50, 230)
 local VSMOKE = Color3.fromRGB(40, 0, 60)
 local ROCK = Color3.fromRGB(32, 22, 24)
-local PINK = Color3.fromRGB(255, 0, 200) -- hot magenta
-local PURPLE = Color3.fromRGB(160, 0, 255) -- vivid violet
+local PINK = Color3.fromRGB(255, 40, 190) -- transform pink
+local PURPLE = Color3.fromRGB(150, 50, 230) -- transform purple
 local DEEP = Color3.fromRGB(90, 0, 210) -- deep purple core/edges
 local WHITE = Color3.fromRGB(255, 250, 225)
 local BLK = Color3.fromRGB(18, 16, 20)
@@ -2187,9 +2187,62 @@ local function fovKick(pos: Vector3, R: number, amount: number)
 	end)
 end
 
-local function styleLayers(move: string, pos: Vector3, n: Vector3, R: number, stage: number)
+-- Thick flat yellow cone rays with orange outline (the transform's signature rays).
+local function bigRays(pos: Vector3, n: Vector3, R: number, count: number, color: Color3, outline: Color3)
+	local g = group(outline)
+	for _ = 1, count do
+		local d = hemi(n, 0.5)
+		local ws = spikeParts(color, g)
+		local len = R * rng:NextNumber(1.8, 3)
+		local hw = R * rng:NextNumber(0.2, 0.34)
+		job(0.45, function(k)
+			local grow = outQuart(math.min(k / 0.2, 1))
+			placeSpike(ws, pos + d * R * 0.2, d, len * grow, hw * (if k < 0.3 then 1 else 1 - (k - 0.3) / 0.7))
+			return
+		end)
+	end
+	task.delay(0.5, function()
+		g:Destroy()
+	end)
+end
+
+-- Ground bullseye half-disc: red outer, yellow ring, black dot (the transform's ground mark).
+local function bullseye(pos: Vector3, n: Vector3, R: number)
+	local discs = {}
+	for i, spec in ipairs({ { RED, 1 }, { YEL, 0.62 }, { BLK, 0.3 } }) do
+		local p = newPart(spec[1], nil, if spec[1] == BLK then FLAT else NEON)
+		p.Shape = Enum.PartType.Cylinder
+		discs[i] = { p = p, f = spec[2] }
+	end
+	local cf = CFrame.lookAt(pos + n * 0.12, pos + n * 0.12 + n) * CFrame.Angles(0, math.pi / 2, 0)
+	job(1.2, function(k)
+		local grow = outQuart(math.min(k / 0.2, 1))
+		local fade = if k > 0.6 then (k - 0.6) / 0.4 else 0
+		for i, d in ipairs(discs) do
+			local sz = R * 2.2 * d.f * grow
+			d.p.Size = Vector3.new(0.15 + i * 0.03, sz, sz)
+			d.p.CFrame = cf
+			d.p.Transparency = fade
+		end
+		return
+	end, function()
+		for _, d in ipairs(discs) do
+			d.p:Destroy()
+		end
+	end)
+end
+
+local function styleLayers(move: string, pos: Vector3, n: Vector3, R: number, stage: number, grounded: boolean)
 	local st = STYLE[move] or STYLE.R
 	starburst(pos, R, st.shards, st.outline, 6 + 4 * stage)
+	bigRays(pos, n, R, 3 + 3 * stage, YEL, ORG)
+	if grounded then
+		bullseye(pos, n, R)
+	end
+	-- orange embers drifting up from the blast
+	for i = 1, 8 * stage do
+		chunk(pos + randUnit() * R * 0.3, hemi(n, 0.3) * R * rng:NextNumber(0.6, 1.6), Vector3.one * R * rng:NextNumber(0.025, 0.05), if i % 3 == 0 then YEL else ORG, rng:NextNumber(1, 1.8), -R * 0.8)
+	end
 	speedLines(pos, n, R, 10 + 10 * stage, st.lines)
 	if stage >= 2 then
 		ribbons(pos, n, R, if stage >= 3 then 8 else 4, st.ribbon)
@@ -2204,20 +2257,94 @@ end
 
 
 -- Dispatch by move key ("R", "Q", "F").
-function FX.projectile(move: string, origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
-	if move == "Q" then
-		return projectileQ(origin, dir, speed, D, t0, range, power)
-	elseif move == "F" then
-		return projectileF(origin, dir, speed, D, t0, range, power)
+-- Comet layer, shared by every projectile: thick yellow cone rays raking backward (orange outline),
+-- thin red/orange speed streaks, and cream-yellow swept tendril ribbons spiralling behind.
+local function cometLayer(shot: Shot, dir: Vector3, D: number, move: string)
+	local g = group(ORG)
+	local rays = {}
+	for i = 1, 5 do
+		rays[i] = spikeParts(if i % 2 == 0 then YEL else ORG, g)
 	end
-	return projectileR(origin, dir, speed, D, t0, range, power)
+	local streaks = {}
+	for i = 1, 6 do
+		local p = newPart(if i % 3 == 0 then RED elseif i % 3 == 1 then ORG else YEL)
+		streaks[i] = { p = p, a = rng:NextNumber(0, 6.3), r = rng:NextNumber(0.5, 1.1), ph = rng:NextNumber(0, 6) }
+	end
+	local tendrils = {}
+	local tex = (STYLE[move] or STYLE.R).ribbon
+	for _ = 1, 3 do
+		local b = tbeam(tex, WHITE, D * 0.6, -2, false)
+		if b then
+			table.insert(tendrils, b)
+		end
+	end
+	local u, v = basis(dir)
+	local stopped = false
+	local prev = shot.stop
+	shot.stop = function()
+		stopped = true
+		prev()
+	end
+	job(math.huge, function(_, t)
+		if stopped then
+			return true
+		end
+		local pos = shot.pos
+		for i, sp in ipairs(rays) do
+			local a = i / #rays * math.pi * 2 + t * 2
+			local radial = u * math.cos(a) + v * math.sin(a)
+			local d2 = (-dir * 1.4 + radial * 0.45).Unit
+			local L = D * (2.2 + 0.7 * math.sin(t * 17 + i * 2))
+			placeSpike(sp, pos + radial * D * 0.3 + d2 * L, -d2, L, D * 0.28)
+		end
+		for _, st in ipairs(streaks) do
+			local a = st.a + t * 1.2
+			local radial = u * math.cos(a) + v * math.sin(a)
+			local L = D * (1.6 + 1.2 * math.sin(t * 9 + st.ph))
+			local at = pos + radial * D * st.r - dir * D * 0.4
+			st.p.Size = Vector3.new(D * 0.03, D * 0.03, math.max(L, 0.05))
+			st.p.CFrame = CFrame.lookAt(at - dir * L / 2, at)
+		end
+		for i, b in ipairs(tendrils) do
+			local a = t * 3 + i / #tendrils * math.pi * 2
+			local radial = u * math.cos(a) + v * math.sin(a)
+			local far = pos - dir * D * 5 + radial * D * 1.4
+			b.set(pos + radial * D * 0.5, far)
+			b.beam.CurveSize0 = D * 1.2 * math.sin(t * 4 + i)
+			b.beam.CurveSize1 = -D * 0.8
+			b.beam.Width0, b.beam.Width1 = D * 0.5, D * 0.05
+			b.beam.Transparency = NumberSequence.new(0.35)
+		end
+		return
+	end, function()
+		g:Destroy()
+		for _, st in ipairs(streaks) do
+			st.p:Destroy()
+		end
+		for _, b in ipairs(tendrils) do
+			b.destroy()
+		end
+	end)
+end
+
+function FX.projectile(move: string, origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
+	local shot: Shot
+	if move == "Q" then
+		shot = projectileQ(origin, dir, speed, D, t0, range, power)
+	elseif move == "F" then
+		shot = projectileF(origin, dir, speed, D, t0, range, power)
+	else
+		shot = projectileR(origin, dir, speed, D, t0, range, power)
+	end
+	cometLayer(shot, dir, D, move)
+	return shot
 end
 
 function FX.explode(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number)
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
 	-- Stage 1 = tap (basic), 2 = partly charged (more layers), 3 = full charge (everything).
 	local stage = if power >= 0.99 then 3 elseif power >= 0.34 then 2 else 1
-	styleLayers(move, pos, n, R, stage)
+	styleLayers(move, pos, n, R, stage, grounded)
 	if move == "Q" then
 		explodeQ(pos, normal, R, grounded, power, stage)
 		texExplodeQ(pos, n, R, grounded, power, stage)
