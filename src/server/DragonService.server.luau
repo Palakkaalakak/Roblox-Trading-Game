@@ -45,7 +45,21 @@ local function setCharacterHidden(char: Model, hidden: boolean)
 		if d:FindFirstAncestor("WestDragon") then
 			continue
 		end
-		if (d:IsA("BasePart") and d.Name ~= "HumanoidRootPart") or d:IsA("Decal") then
+		if d:IsA("BillboardGui") then
+			-- Name/rank tags float where the hidden character was; hide them with it.
+			if hidden then
+				if d:GetAttribute("DragonOrigEnabled") == nil then
+					d:SetAttribute("DragonOrigEnabled", d.Enabled)
+				end
+				d.Enabled = false
+			else
+				local o = d:GetAttribute("DragonOrigEnabled")
+				if o ~= nil then
+					d.Enabled = o
+					d:SetAttribute("DragonOrigEnabled", nil)
+				end
+			end
+		elseif (d:IsA("BasePart") and d.Name ~= "HumanoidRootPart") or d:IsA("Decal") then
 			local inst = d :: any
 			if hidden then
 				if inst:GetAttribute("DragonOrigT") == nil then
