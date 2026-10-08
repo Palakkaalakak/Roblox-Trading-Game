@@ -19,7 +19,7 @@ local function run(player: Player)
 	setForm:Fire(player, true)
 	task.wait(0.5)
 	local out = { "[DragonSelfTest]" }
-	local src = ReplicatedStorage:FindFirstChild(Config.SOURCE_MODEL_NAME) or ReplicatedStorage:FindFirstChild("Full Model")
+	local src = require(Dragon:WaitForChild("DragonRig")).findSource()
 	table.insert(out, "source model: " .. (if src then src:GetFullName() else "NOT FOUND (placeholders)"))
 	local missing = {}
 	for _, j in ipairs(Joints) do

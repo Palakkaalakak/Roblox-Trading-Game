@@ -57,7 +57,7 @@ local function setForm(player: Player, on: boolean)
 	local existing = char:FindFirstChild("WestDragon")
 	if on and not existing then
 		local rig = DragonRig.build(
-			ReplicatedStorage:FindFirstChild(Config.SOURCE_MODEL_NAME) or ReplicatedStorage:FindFirstChild("Full Model"),
+			DragonRig.findSource(),
 			hrp,
 			hum.HipHeight + hrp.Size.Y / 2,
 			Config.SCALE,
@@ -105,32 +105,87 @@ task.spawn(function()
 	end
 end)
 
-local function explode(caster: Player, pos: Vector3)
-	local blast = Instance.new("Part")
-	blast.Shape = Enum.PartType.Ball
-	blast.Anchored, blast.CanCollide, blast.CanQuery, blast.CanTouch = true, false, false, false
-	blast.Material = Enum.Material.Neon
-	blast.Color = Color3.fromRGB(255, 150, 20)
-	blast.Size = Vector3.one * 4
-	blast.Position = pos
-	blast.Parent = workspace
-	TweenService:Create(blast, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Size = Vector3.one * FB.RADIUS * 2,
+local function puff(pos: Vector3, size: number, c0: Color3, c1: Color3, life: number, rise: number, neon: boolean)
+	local p = Instance.new("Part")
+	p.Shape = Enum.PartType.Ball
+	p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch = true, false, false, false
+	p.Material = if neon then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	p.Color = c0
+	p.Size = Vector3.one * size
+	p.Position = pos
+	p.Parent = workspace
+	TweenService:Create(p, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.one * size * (if neon then 0.15 else 1.8),
+		Color = c1,
 		Transparency = 1,
-		Color = Color3.fromRGB(225, 35, 15),
+		Position = pos + Vector3.new(0, rise, 0),
 	}):Play()
-	Debris:AddItem(blast, 0.6)
+	Debris:AddItem(p, life + 0.1)
+end
 
-	local e = Instance.new("ParticleEmitter")
-	e.Color = ColorSequence.new(Color3.fromRGB(255, 214, 20), Color3.fromRGB(255, 70, 0))
-	e.LightEmission = 0.6
-	e.Size = NumberSequence.new(5, 0)
-	e.Lifetime = NumberRange.new(0.4, 0.8)
-	e.Speed = NumberRange.new(25, 50)
-	e.SpreadAngle = Vector2.new(180, 180)
-	e.Rate = 0
-	e.Parent = blast
-	e:Emit(40)
+local YEL, ORG, RED = Color3.fromRGB(255, 214, 20), Color3.fromRGB(255, 118, 0), Color3.fromRGB(225, 35, 15)
+local BLK = Color3.fromRGB(20, 20, 24)
+
+local function explode(caster: Player, pos: Vector3)
+	-- Flash core + expanding fireball + shockwave ring (cel-shaded solid shapes).
+	puff(pos, 10, Color3.new(1, 1, 0.8), YEL, 0.25, 0, true)
+	local ball = Instance.new("Part")
+	ball.Shape = Enum.PartType.Ball
+	ball.Anchored, ball.CanCollide, ball.CanQuery, ball.CanTouch = true, false, false, false
+	ball.Material = Enum.Material.Neon
+	ball.Color = ORG
+	ball.Size = Vector3.one * 5
+	ball.Position = pos
+	ball.Parent = workspace
+	local hl = Instance.new("Highlight")
+	hl.FillTransparency, hl.OutlineColor, hl.OutlineTransparency = 1, BLK, 0
+	hl.Parent = ball
+	TweenService:Create(ball, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Size = Vector3.one * FB.RADIUS * 1.8,
+		Color = RED,
+		Transparency = 0.85,
+	}):Play()
+	Debris:AddItem(ball, 0.6)
+
+	local ring = Instance.new("Part")
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Anchored, ring.CanCollide, ring.CanQuery, ring.CanTouch = true, false, false, false
+	ring.Material = Enum.Material.Neon
+	ring.Color = YEL
+	ring.Size = Vector3.new(0.6, 4, 4)
+	ring.CFrame = CFrame.new(pos) * CFrame.Angles(0, 0, math.pi / 2)
+	ring.Parent = workspace
+	TweenService:Create(ring, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Size = Vector3.new(0.6, FB.RADIUS * 2.6, FB.RADIUS * 2.6),
+		Transparency = 1,
+	}):Play()
+	Debris:AddItem(ring, 0.6)
+
+	-- Flame puffs, black smoke, and debris cubes flying outward.
+	local rng = Random.new()
+	for _ = 1, 8 do
+		local o = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0, 1), rng:NextNumber(-1, 1)) * FB.RADIUS * 0.5
+		puff(pos + o, rng:NextNumber(5, 8), YEL, RED, 0.6, 5, true)
+	end
+	for _ = 1, 6 do
+		local o = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0, 1), rng:NextNumber(-1, 1)) * FB.RADIUS * 0.4
+		task.delay(0.15, puff, pos + o, rng:NextNumber(6, 9), BLK, BLK, 1.2, 10, false)
+	end
+	for _ = 1, 10 do
+		local c = Instance.new("Part")
+		c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch = true, false, false, false
+		c.Material = Enum.Material.SmoothPlastic
+		c.Color = Color3.fromRGB(35, 40, 70)
+		c.Size = Vector3.one * rng:NextNumber(0.8, 1.6)
+		c.CFrame = CFrame.new(pos) * CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0)
+		c.Parent = workspace
+		local dir = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(0.3, 1.2), rng:NextNumber(-1, 1)).Unit
+		TweenService:Create(c, TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			CFrame = c.CFrame + dir * rng:NextNumber(10, FB.RADIUS * 1.4) * 1,
+			Transparency = 1,
+		}):Play()
+		Debris:AddItem(c, 0.8)
+	end
 
 	for _, p in ipairs(Players:GetPlayers()) do
 		local c = p.Character
@@ -161,51 +216,55 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any)
 	char:SetAttribute("DragonFireTime", workspace:GetServerTimeNow())
 
 	local dir = dirArg.Unit
-	local pos = head.Position + dir * 4
+	local pos = head.Position + dir * 5
+	-- Layered cel-style ball: black-outlined orange shell with a yellow core.
 	local ball = Instance.new("Part")
 	ball.Shape = Enum.PartType.Ball
-	ball.Size = Vector3.one * 4
+	ball.Size = Vector3.one * 5
 	ball.Material = Enum.Material.Neon
-	ball.Color = Color3.fromRGB(255, 160, 20)
+	ball.Color = ORG
 	ball.Anchored, ball.CanCollide, ball.CanQuery, ball.CanTouch = true, false, false, false
 	ball.Position = pos
-	local core = Instance.new("Fire")
-	core.Size, core.Heat = 12, 8
-	core.Color, core.SecondaryColor = Color3.fromRGB(255, 214, 20), Color3.fromRGB(225, 35, 15)
-	core.Parent = ball
+	local hl = Instance.new("Highlight")
+	hl.FillTransparency, hl.OutlineColor, hl.OutlineTransparency = 1, BLK, 0
+	hl.Parent = ball
+	local core = Instance.new("Part")
+	core.Shape = Enum.PartType.Ball
+	core.Size = Vector3.one * 2.8
+	core.Material = Enum.Material.Neon
+	core.Color = YEL
+	core.Anchored, core.CanCollide, core.CanQuery, core.CanTouch = true, false, false, false
+	core.Position = pos
+	core.Parent = workspace
 	local light = Instance.new("PointLight")
-	light.Color, light.Range, light.Brightness = Color3.fromRGB(255, 140, 20), 24, 3
+	light.Color, light.Range, light.Brightness = ORG, 26, 3
 	light.Parent = ball
-	local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
-	a0.Position, a1.Position = Vector3.new(0, 1.5, 0), Vector3.new(0, -1.5, 0)
-	a0.Parent, a1.Parent = ball, ball
-	local trail = Instance.new("Trail")
-	trail.Attachment0, trail.Attachment1 = a0, a1
-	trail.Lifetime = 0.35
-	trail.Color = ColorSequence.new(Color3.fromRGB(255, 214, 20), Color3.fromRGB(225, 35, 15))
-	trail.Transparency = NumberSequence.new(0.1, 1)
-	trail.LightEmission = 0.5
-	trail.Parent = ball
 	ball.Parent = workspace
 
 	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = { char, ball }
+	params.FilterDescendantsInstances = { char, ball, core }
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	local travelled = 0
+	local travelled, acc = 0, 0
 	local conn: RBXScriptConnection
 	conn = RunService.Heartbeat:Connect(function(dt)
 		local step = FB.SPEED * dt
 		local hit = workspace:Raycast(pos, dir * step, params)
 		travelled += step
-		if hit then
-			pos = hit.Position
-		else
-			pos += dir * step
+		pos = if hit then hit.Position else pos + dir * step
+		ball.Position, core.Position = pos, pos
+		acc += dt
+		if acc > 0.03 then
+			acc = 0
+			-- tapered tail of flame puffs behind the ball, plus the odd black smoke wisp
+			puff(pos - dir * 1.5, 4, ORG, RED, 0.35, 1, true)
+			if math.random() < 0.25 then
+				puff(pos - dir * 3, 3, BLK, BLK, 0.7, 3, false)
+			end
 		end
-		ball.Position = pos
 		if hit or travelled >= FB.RANGE then
 			conn:Disconnect()
 			ball:Destroy()
+			core:Destroy()
 			explode(player, pos)
 		end
 	end)

@@ -19,6 +19,23 @@ export type Rig = {
 	baseC0: CFrame,
 }
 
+-- Finds the imported dragon wherever it lives by locating a MeshPart named like a joint
+-- (ignores the old stripped "RPG Dragon" copy that has none of them).
+local cachedSource: Instance? = nil
+function DragonRig.findSource(): Instance?
+	if cachedSource and cachedSource.Parent then
+		return cachedSource
+	end
+	for _, svc in ipairs({ game:GetService("ReplicatedStorage"), game:GetService("ServerStorage"), workspace }) do
+		local m = svc:FindFirstChild("L_Wing_Membrane_4", true)
+		if m and m:IsA("MeshPart") and m.Parent then
+			cachedSource = m.Parent
+			return m.Parent
+		end
+	end
+	return nil
+end
+
 -- sourceRoot: where the imported MeshParts live (nil -> placeholder blocks).
 -- groundDist: HRP center to feet distance (studs). scale: studs per design unit.
 function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: number, scale: number, textureId: string?): Rig
