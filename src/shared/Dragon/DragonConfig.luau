@@ -23,10 +23,32 @@ return {
 		MAX_CHARGE = 3,
 		MAX_D_HEAD = 1.8, -- fully charged ball diameter = this x the dragon head's largest dimension
 		MIN_SIZE = 0.2, -- tap size as a fraction of the fully charged size
+		VISUAL_SIZE = 0.7, -- drawn ball/orb size multiplier only (hitbox, blast radius, damage unchanged)
 		BLAST_PER_D = 3.1, -- explosion damage/visual radius = this x ball diameter
 		SPEED = 180,
 		RANGE = 900,
 		DAMAGE = 30,
+	},
+	-- Custom fireball textures (assets/dragon_fx/*.png, made by tools/dragon_fx/make_textures.py).
+	-- Upload them (Studio: Asset Manager > Bulk Import, or Creator Hub) and paste each image id here
+	-- (plain number or rbxassetid://...). Empty = that textured layer is skipped.
+	TEXTURES = {
+		flame_orange_4x4 = "",
+		flame_violet_4x4 = "",
+		flame_crimson_4x4 = "",
+		explosion_orange_4x4 = "",
+		explosion_violet_4x4 = "",
+		explosion_crimson_4x4 = "",
+		smoke_2x2 = "",
+		spark_star = "",
+		shock_ring = "",
+		slash_arc = "",
+		beam_lightning = "",
+		beam_flame_orange = "",
+		beam_flame_violet = "",
+		crack_burst = "",
+		sigil = "",
+		lava_rock = "",
 	},
 	-- Fire moves: each has its own VFX design. Flashier = more damage, slower, longer cooldown.
 	MOVES = {

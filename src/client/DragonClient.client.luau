@@ -299,7 +299,7 @@ RunService.RenderStepped:Connect(function(dt)
 						local m = model
 						charges[char] = DragonFX.charge(function()
 							return if m.Parent then DragonRig.mouthCFrame(m) else nil
-						end, cs, FB.MAX_CHARGE, DragonRig.fireballMaxD(m, FB.MAX_D_HEAD) * mvSize, chMove)
+						end, cs, FB.MAX_CHARGE, DragonRig.fireballMaxD(m, FB.MAX_D_HEAD) * mvSize * FB.VISUAL_SIZE, chMove)
 					end
 					DragonRig.setJaw(rig, 0.2 + 0.4 * math.clamp((now - cs) / FB.MAX_CHARGE, 0, 1))
 				else

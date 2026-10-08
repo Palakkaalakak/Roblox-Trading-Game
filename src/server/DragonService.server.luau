@@ -200,7 +200,8 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 
 	nextId += 1
 	local id = nextId
-	fxR:FireAllClients("launch", id, move, origin, dir, speed, D, now, FB.RANGE, c)
+	-- Clients draw the ball VISUAL_SIZE smaller; hitbox (D) and blast radius stay as computed.
+	fxR:FireAllClients("launch", id, move, origin, dir, speed, D * FB.VISUAL_SIZE, now, FB.RANGE, c)
 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
