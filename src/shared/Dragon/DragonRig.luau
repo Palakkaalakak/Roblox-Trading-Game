@@ -60,6 +60,15 @@ local function findMesh(root: Instance, name: string): MeshPart?
 	return nil
 end
 
+-- The dragon model lives in Workspace.DragonModels, NOT inside the character: the character's
+-- Animator owns every Motor6D under the character and would overwrite our joint Transforms
+-- (and drive the dragon's "Head" joint with the walk animation). char.WestDragonRef -> model.
+function DragonRig.dragonOf(char: Instance?): Model?
+	local ref = char and char:FindFirstChild("WestDragonRef")
+	local m = ref and ref:IsA("ObjectValue") and ref.Value
+	return if m and m:IsA("Model") and m.Parent then m else nil
+end
+
 -- Mouth tip of a built dragon, facing forward (-Z = where the dragon looks).
 -- Parts keep design axes (+Z = dragon forward), so the snout is at +Z of the Head part.
 function DragonRig.mouthCFrame(model: Instance): CFrame?
@@ -232,7 +241,7 @@ end
 -- Anti-jitter: speed/flying/pitch are low-pass filtered, and cycles advance by accumulated PHASE
 -- (changing frequency never jumps the wings/legs), walk phase follows distance travelled
 -- (feet don't skate), flight blends in/out over ~0.4 s, and the body banks into turns.
-function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number)
+function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number, owner: Instance?)
 	local st = (rig :: any).st
 	if not st then
 		st = { last = t, spd = 0, fly = if flying then 1 else 0, pitch = 0, wing = 0, walk = 0, idle = 0, bank = 0, yaw = nil }
@@ -248,7 +257,7 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 	-- Action layers (read from the character's replicated attributes):
 	-- charge = rear back, breathe in; cast = head/neck thrust forward then settle;
 	-- spawn = roar right after transforming (head up, wings flare).
-	local char = rig.model.Parent
+	local char = owner
 	local now = workspace:GetServerTimeNow()
 	local cs = char and char:GetAttribute("DragonChargeStart")
 	local ft = char and char:GetAttribute("DragonFireTime")
@@ -312,7 +321,9 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 		local dy = if st.yaw then (yaw - st.yaw + math.pi) % (math.pi * 2) - math.pi else 0
 		st.yaw = yaw
 		local rate = if dt > 0 then dy / dt else 0
-		st.bank = approach(st.bank, math.clamp(rate * 0.18, -0.5, 0.5) * (0.3 + 0.7 * fly), 4, dt)
+		-- deadzone + slow filter so small yaw wobble while walking never shakes the head
+		local r = if math.abs(rate) < 0.4 then 0 else rate
+		st.bank = approach(st.bank, math.clamp(r * 0.15, -0.45, 0.45) * (0.3 + 0.7 * fly), 2.5, dt)
 	end
 
 	-- Tail: travelling wave, swings opposite to banking; neck: gentle breathing + counter-bank.

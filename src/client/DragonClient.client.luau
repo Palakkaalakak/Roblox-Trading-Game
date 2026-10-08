@@ -128,7 +128,7 @@ local function releaseCharge()
 	local move = chargingMove or "R"
 	chargingMove = nil
 	local char = dragonChar()
-	local dragon = char and char:FindFirstChild("WestDragon")
+	local dragon = DragonRig.dragonOf(char)
 	local mouth = dragon and DragonRig.mouthCFrame(dragon)
 	if char and mouth then
 		lastFire[move] = os.clock()
@@ -247,7 +247,7 @@ RunService.RenderStepped:Connect(function(dt)
 	local cam = workspace.CurrentCamera
 	local myChar, _, myHum = dragonChar()
 	if myChar and myHum then
-		local dm = myChar:FindFirstChild("WestDragon")
+		local dm = DragonRig.dragonOf(myChar)
 		local head = dm and dm:FindFirstChild("Head")
 		if head and head:IsA("BasePart") and cam.CameraSubject ~= head then
 			cam.CameraSubject = head
@@ -263,7 +263,7 @@ RunService.RenderStepped:Connect(function(dt)
 
 	-- Charge orbs for every charging dragon (DragonChargeStart replicates from the server).
 	for ch, h in pairs(charges) do
-		if not ch.Parent or ch:GetAttribute("DragonChargeStart") == nil or not ch:FindFirstChild("WestDragon") then
+		if not ch.Parent or ch:GetAttribute("DragonChargeStart") == nil or not DragonRig.dragonOf(ch) then
 			h.stop()
 			charges[ch] = nil
 		end
@@ -272,7 +272,7 @@ RunService.RenderStepped:Connect(function(dt)
 	-- Animate all dragons (replicated models, local time).
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
-		local model = char and char:FindFirstChild("WestDragon")
+		local model = DragonRig.dragonOf(char)
 		local hrp = char and char:FindFirstChild("HumanoidRootPart")
 		if model and model:IsA("Model") and hrp and hrp:IsA("BasePart") then
 			local rig = getRig(model)
@@ -287,7 +287,7 @@ RunService.RenderStepped:Connect(function(dt)
 				local cur = pitches[model] or 0
 				cur += (target - cur) * math.clamp(dt * 5, 0, 1)
 				pitches[model] = cur
-				DragonRig.animate(rig, t, speed, isFlying, cur)
+				DragonRig.animate(rig, t, speed, isFlying, cur, char)
 				local cs = char:GetAttribute("DragonChargeStart")
 				local ft = char:GetAttribute("DragonFireTime")
 				local since = if typeof(ft) == "number" then now - ft else 99

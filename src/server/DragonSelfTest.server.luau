@@ -30,7 +30,7 @@ local function run(player: Player)
 		end
 	end
 	table.insert(out, "missing MeshParts: " .. (if #missing == 0 then "none" else table.concat(missing, ", ")))
-	local d = char:FindFirstChild("WestDragon")
+	local d = require(Dragon:WaitForChild("DragonRig")).dragonOf(char)
 	if not d then
 		table.insert(out, "dragon NOT built (check Output for errors above)")
 		print(table.concat(out, "\n"))

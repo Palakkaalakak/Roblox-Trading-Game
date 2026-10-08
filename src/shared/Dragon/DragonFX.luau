@@ -9,6 +9,13 @@ local Players = game:GetService("Players")
 local DragonRig = require(script.Parent.DragonRig)
 local Config = require(script.Parent.DragonConfig)
 local MIN_SIZE: number = Config.FIREBALL.MIN_SIZE
+
+-- When the custom textures are uploaded, the flat coloured-ball layers are cut way back so the
+-- textured flipbooks/beams/decals carry the look instead of being buried under spheres.
+local function textured(): boolean
+	local t = Config.TEXTURES
+	return t ~= nil and t.flame_orange_4x4 ~= nil and t.flame_orange_4x4 ~= ""
+end
 local RunService = game:GetService("RunService")
 
 local FX = {}
@@ -249,6 +256,9 @@ end
 
 -- Expanding/shrinking sphere puff; transparency ramps from fadeFrom..1.
 local function puff(pos: Vector3, drift: Vector3, s0: number, s1: number, c0: Color3, c1: Color3, life: number, material: Enum.Material?, fadeFrom: number?)
+	if material == FLAT and textured() then
+		return
+	end
 	local p = ball(c0, nil, material)
 	local ff = fadeFrom or 0.5
 	job(life, function(k)
@@ -899,6 +909,12 @@ local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: numb
 	for i = 1, 7 do
 		tongues[i] = blob(if i % 2 == 0 then YEL else ORG, g)
 	end
+	if textured() then
+		tail.Transparency = 1
+		for _, b in ipairs(tongues) do
+			b.Transparency = 1
+		end
+	end
 	local light = Instance.new("PointLight")
 	light.Color = ORG
 	light.Range = math.min(60, D * 5)
@@ -969,8 +985,9 @@ local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: numb
 		spinner.CFrame = cf * CFrame.Angles(0, 0, spin * 1.6)
 
 		emberAcc += dt
-		while emberAcc > 0.018 do
-			emberAcc -= 0.018
+		local emberStep = if textured() then 0.08 else 0.018
+		while emberAcc > emberStep do
+			emberAcc -= emberStep
 			chunk(pos + randUnit() * D * 0.4, -dir * speed * 0.08 + randUnit() * D * 4, Vector3.one * D * rng:NextNumber(0.07, 0.15), if rng:NextNumber() < 0.5 then YEL else ORG, rng:NextNumber(0.25, 0.45), 0)
 		end
 		smokeAcc += dt
@@ -1014,7 +1031,7 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 
 	-- 2. Cel fireball: cluster of balls that pop (outBack), drift out/up, shift yellow->orange->red, shrink out.
 	local fire = group(BLK)
-	for _ = 1, 11 + math.floor(power * 7) do
+	for _ = 1, (if textured() then 3 else 11 + math.floor(power * 7)) do
 		local off = hemi(n, 0.6) * R * rng:NextNumber(0, 0.45)
 		local size = R * rng:NextNumber(0.38, 0.62)
 		local inner = off.Magnitude < R * 0.2
@@ -1039,7 +1056,7 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 		end)
 	end
 	-- Deep-purple edge flames around the cluster (unique accent, outlined with the cluster).
-	for i = 1, 5 + math.floor(power * 3) do
+	for i = 1, (if textured() then 0 else 5 + math.floor(power * 3)) do
 		local d = hemi(n, 0.3)
 		local b = ball(if i % 2 == 0 then PURPLE else DEEP, fire)
 		b.Size = Vector3.one * 0.05
@@ -1262,6 +1279,9 @@ end
 -- Outlined cel fire cluster: balls pop (outBack), drift out/up, shift c0 -> c1, shrink out.
 local function fireCluster(pos: Vector3, n: Vector3, R: number, count: number, c0s: { Color3 }, c1s: { Color3 }, outline: Color3, sizeMul: number, life: number)
 	local fire = group(outline)
+	if textured() then
+		count = math.max(2, math.floor(count * 0.25))
+	end
 	for _ = 1, count do
 		local off = hemi(n, 0.6) * R * rng:NextNumber(0, 0.5)
 		local size = R * rng:NextNumber(0.36, 0.62) * sizeMul

@@ -24,6 +24,10 @@ local transformR, flightR = mk("Transform"), mk("Flight")
 local chargeR, fireballR, fxR = mk("Charge"), mk("Fireball"), mk("FireballFX")
 remotes.Parent = ReplicatedStorage
 
+local dragonFolder = Instance.new("Folder")
+dragonFolder.Name = "DragonModels"
+dragonFolder.Parent = workspace
+
 -- The imported dragon ("Full Model") sits unanchored in Workspace: anchor it and park it in
 -- ServerStorage so it neither falls nor shows. The rig clones its MeshParts per transform.
 do
@@ -42,9 +46,6 @@ local lastFire: { [Player]: { [string]: number } } = {}
 
 local function setCharacterHidden(char: Model, hidden: boolean)
 	for _, d in ipairs(char:GetDescendants()) do
-		if d:FindFirstAncestor("WestDragon") then
-			continue
-		end
 		if d:IsA("BillboardGui") then
 			-- Name/rank tags float where the hidden character was; hide them with it.
 			if hidden then
@@ -88,18 +89,38 @@ local function setForm(player: Player, on: boolean)
 	if hum.Health <= 0 then
 		return
 	end
-	local existing = char:FindFirstChild("WestDragon")
+	local existing = DragonRig.dragonOf(char)
 	if on and not existing then
 		local ok, rig = pcall(DragonRig.build, DragonRig.findSource(), hrp, hum.HipHeight + hrp.Size.Y / 2, Config.SCALE, Config.TEXTURE_ID)
 		if not ok then
 			warn("[DragonService] dragon build failed: " .. tostring(rig))
 			return
 		end
-		rig.model.Parent = char
+		rig.model.Name = "WestDragon_" .. player.Name
+		rig.model.Parent = dragonFolder
+		local ref = char:FindFirstChild("WestDragonRef") or Instance.new("ObjectValue")
+		ref.Name = "WestDragonRef"
+		ref.Value = rig.model
+		ref.Parent = char
+		-- Dragon is outside the character, so clean it up with the character.
+		local conn: RBXScriptConnection
+		conn = char.AncestryChanged:Connect(function(_, parent)
+			if not parent then
+				conn:Disconnect()
+				rig.model:Destroy()
+			end
+		end)
+		hum.Died:Once(function()
+			rig.model:Destroy()
+		end)
 		setCharacterHidden(char, true)
 		char:SetAttribute("DragonForm", true)
 	elseif not on and existing then
 		existing:Destroy()
+		local ref = char:FindFirstChild("WestDragonRef")
+		if ref then
+			ref:Destroy()
+		end
 		setCharacterHidden(char, false)
 		char:SetAttribute("DragonForm", nil)
 		char:SetAttribute("DragonFlying", nil)
@@ -127,8 +148,7 @@ end)
 
 -- Fireball -------------------------------------------------------------------------------------
 local function dragonOf(char: Model?): Model?
-	local d = char and char:FindFirstChild("WestDragon")
-	return if d and d:IsA("Model") then d else nil
+	return DragonRig.dragonOf(char)
 end
 
 local function moveOf(m: any): string?
