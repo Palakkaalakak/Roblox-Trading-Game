@@ -239,10 +239,9 @@ local function play(forward: boolean)
 	local folder = Instance.new("Folder")
 	folder.Name = "DragonVFX"
 	folder.Parent = workspace
-	-- Dragon reach from the torso (design units * scale) must sit inside the sphere with margin.
-	local need = Config.DRAGON_EXTENT * Config.SCALE * Config.SPHERE_MARGIN
-	K = math.max(Config.VFX_SCALE, need / sphereRadius(groundPos))
-	setZoom(math.max(Config.TRANSFORM_ZOOM, sphereRadius(groundPos) * K * 2.4))
+	-- Fixed effect size, independent of the dragon (diagnostic below compares the two).
+	K = Config.VFX_SCALE
+	setZoom(Config.TRANSFORM_ZOOM)
 	if RunService:IsStudio() then
 		print(string.format("[DragonTransformDriver] sphere raw r=%.1f K=%.2f -> sphere r=%.1f, dragon reach=%.1f", sphereRadius(groundPos), K, sphereRadius(groundPos) * K, Config.DRAGON_EXTENT * Config.SCALE))
 	end

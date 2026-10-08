@@ -1,11 +1,10 @@
 --!strict
 return {
-	SCALE = 4.4, -- multiplier on the imported size (1 = as imported)
-	VFX_SCALE = 2, -- minimum; the driver raises it so the sphere always swallows the dragon
+	SCALE = 4, -- dragon only (2x the previous 2); the transform VFX is scaled separately by VFX_SCALE -- multiplier on the imported size (1 = as imported)
+	VFX_SCALE = 2, -- transform effect size multiplier (fixed; independent of the dragon size)
 	DRAGON_EXTENT = 12, -- farthest point of the dragon from its centre, design units (wing tip / tail)
-	SPHERE_MARGIN = 1.35, -- sphere radius must be at least this x the dragon reach at the blast -- transformation VFX (DragonWestVFXCore) size multiplier
 	REVERSE_SPHERE_SPEED = 2.5, -- revert: sphere part of the reversed VFX plays this much faster
-	DRAGON_ZOOM = 97, -- camera distance right after transforming
+	DRAGON_ZOOM = 88, -- camera distance right after transforming
 	TRANSFORM_ZOOM = 132, -- minimum camera distance during the transform VFX (grows with the sphere)
 	DRAGON_WALKSPEED = 40,
 	-- Upload Obsidian_West_asset_pack/Dragon_Color.png and paste the rbxassetid here (optional if imported textures survive).
@@ -16,7 +15,7 @@ return {
 	FLY_SPEED = 150,
 	FLY_VERTICAL = 80,
 	DOUBLE_TAP = 0.3,
-	DRAGON_HIT_BODY = 13, -- extra hit reach (studs) on players in dragon form (their dragon is non-collidable)
+	DRAGON_HIT_BODY = 12, -- extra hit reach (studs) on players in dragon form (their dragon is non-collidable)
 	FIREBALL = {
 		-- Tap = small shot. Hold to charge up to MAX_CHARGE s (holds at max until released):
 		-- size grows fast (ease-out) from MIN_SIZE to 1, speed x1..x1.5, damage x1..x3 (linear).
