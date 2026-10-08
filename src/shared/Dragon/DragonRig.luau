@@ -29,8 +29,13 @@ function DragonRig.findSource(): Instance?
 	for _, svc in ipairs({ game:GetService("ReplicatedStorage"), game:GetService("ServerStorage"), workspace }) do
 		local m = svc:FindFirstChild("L_Wing_Membrane_4", true)
 		if m and m:IsA("MeshPart") and m.Parent then
-			cachedSource = m.Parent
-			return m.Parent
+			-- Parts may be nested in per-part "*_Node" models: climb to the outermost model.
+			local root: Instance = m.Parent
+			while root.Parent and root.Parent:IsA("Model") and root.Parent ~= workspace do
+				root = root.Parent
+			end
+			cachedSource = root
+			return root
 		end
 	end
 	return nil

@@ -122,6 +122,10 @@ local function play(forward: boolean)
 				hrp.Anchored = prevAnchored
 				hum.WalkSpeed, hum.JumpPower, hum.JumpHeight = prevSpeed, prevJumpP, prevJumpH
 			end
+			if hrp.Parent then
+				hrp.Anchored = prevAnchored
+				hum.WalkSpeed, hum.JumpPower, hum.JumpHeight = prevSpeed, prevJumpP, prevJumpH
+			end
 			task.delay(0.3, function()
 				busy = false
 				button.Active = true
