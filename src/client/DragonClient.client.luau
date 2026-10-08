@@ -287,7 +287,7 @@ RunService.RenderStepped:Connect(function(dt)
 				local cur = pitches[model] or 0
 				cur += (target - cur) * math.clamp(dt * 5, 0, 1)
 				pitches[model] = cur
-				DragonRig.animate(rig, t, speed, isFlying, cur, char)
+				DragonRig.animate(rig, t, speed, isFlying, cur, char, v.Y)
 				local cs = char:GetAttribute("DragonChargeStart")
 				local ft = char:GetAttribute("DragonFireTime")
 				local since = if typeof(ft) == "number" then now - ft else 99

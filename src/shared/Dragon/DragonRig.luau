@@ -241,7 +241,7 @@ end
 -- Anti-jitter: speed/flying/pitch are low-pass filtered, and cycles advance by accumulated PHASE
 -- (changing frequency never jumps the wings/legs), walk phase follows distance travelled
 -- (feet don't skate), flight blends in/out over ~0.4 s, and the body banks into turns.
-function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number, owner: Instance?)
+function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number, owner: Instance?, vyRaw: number?)
 	local st = (rig :: any).st
 	if not st then
 		st = { last = t, spd = 0, fly = if flying then 1 else 0, pitch = 0, wing = 0, walk = 0, idle = 0, bank = 0, yaw = nil }
@@ -252,6 +252,7 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 	st.spd = approach(st.spd, speedRaw, 6, dt)
 	st.fly = approach(st.fly, if flying then 1 else 0, 5, dt)
 	st.pitch = approach(st.pitch, pitchRaw, 4, dt)
+	st.vy = approach(st.vy or 0, vyRaw or 0, 3, dt)
 	local fly, spd, m, f = st.fly, st.spd, rig.motors, rig.flip
 
 	-- Action layers (read from the character's replicated attributes):
@@ -278,13 +279,19 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 	st.look = approach(st.look or 0, (st.lookTarget or 0) * (1 - fly) * (1 - math.clamp(spd / 8, 0, 1)), 2, dt)
 
 	-- Wings: phase accumulates; downstroke faster than upstroke (sharper, more natural beat).
-	local hz = WING_FLAP_HZ_IDLE + (WING_FLAP_HZ_FLY - WING_FLAP_HZ_IDLE + math.clamp(spd / 80, 0, 1) * 1.2) * fly
+	-- Hover (flying, slow): slow, even, steady beats. Moving: faster. Descending: glide.
+	local move = math.clamp(spd / 60, 0, 1)
+	local hz = WING_FLAP_HZ_IDLE + (0.5 + (WING_FLAP_HZ_FLY - WING_FLAP_HZ_IDLE + 0.7) * move) * fly
 	st.wing += dt * hz * math.pi * 2
 	local ph = st.wing % (math.pi * 2)
-	local wave = if ph < math.pi * 0.8 then math.cos(ph / 0.8) else -math.cos((ph - math.pi * 0.8) / 1.2)
-	local glide = fly * math.clamp((spd - 60) / 80, 0, 1) * 0.6 -- fast flight: shallower, gliding beats
-	local amp = 0.1 + 0.5 * fly * (1 - glide)
-	local flap = wave * amp + 0.15 * fly * glide
+	-- hovering uses a symmetric sine (steady); moving uses the sharper downstroke shape
+	local sharp = if ph < math.pi * 0.8 then math.cos(ph / 0.8) else -math.cos((ph - math.pi * 0.8) / 1.2)
+	local wave = math.cos(ph) * (1 - move) + sharp * move
+	-- glide: descending (or very fast) -> wings held spread with a slight upward dihedral
+	local descend = math.clamp((-st.vy - 6) / 30, 0, 1)
+	local glide = fly * math.max(descend, math.clamp((spd - 90) / 60, 0, 1) * 0.6)
+	local amp = 0.08 + fly * (0.32 + 0.18 * move) * (1 - glide)
+	local flap = wave * amp + 0.12 * glide
 	for _, side in ipairs({ "L", "R" }) do
 		local s = (if side == "R" then 1 else -1) * f
 		-- grounded & idle: wings fold back along the body; roar/charge flares them open
