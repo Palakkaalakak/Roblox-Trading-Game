@@ -2385,6 +2385,46 @@ local function explodeFail(pos: Vector3, normal: Vector3, R: number, power: numb
 	end, function()
 		lp:Destroy()
 	end)
+	-- "faileur!" popup: pops in with a bounce, wobbles, floats up and fades. Visible to everyone.
+	do
+		local anchor = newPart(WHITE)
+		anchor.Transparency = 1
+		anchor.Position = pos + Vector3.new(0, R * 0.9, 0)
+		local bb = Instance.new("BillboardGui")
+		bb.Size = UDim2.fromOffset(360, 110)
+		bb.AlwaysOnTop = true
+		bb.LightInfluence = 0
+		bb.MaxDistance = 400
+		bb.Adornee = anchor
+		bb.Parent = anchor
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.Position = UDim2.fromScale(0.5, 0.5)
+		label.Size = UDim2.fromScale(1, 1)
+		label.Text = "faileur!"
+		label.Font = Enum.Font.LuckiestGuy
+		label.TextScaled = true
+		label.TextColor3 = Color3.fromRGB(235, 40, 20)
+		label.Parent = bb
+		local stroke = Instance.new("UIStroke")
+		stroke.Thickness = 4
+		stroke.Color = BLK
+		stroke.Parent = label
+		job(1.7, function(k, t)
+			local pop = outBack(math.min(k / 0.12, 1))
+			local fade = if k > 0.65 then (k - 0.65) / 0.35 else 0
+			bb.Size = UDim2.fromOffset(360 * pop, 110 * pop)
+			bb.StudsOffset = Vector3.new(0, R * 0.8 * outQuart(k), 0)
+			label.Rotation = math.sin(t * 22) * 5 * (1 - k)
+			label.TextTransparency = fade
+			stroke.Transparency = fade
+			return
+		end, function()
+			anchor:Destroy()
+		end)
+	end
+
 	local cam = workspace.CurrentCamera
 	local i = math.clamp(1 - (cam.CFrame.Position - pos).Magnitude / (R * 8), 0, 1)
 	if i > 0 then
