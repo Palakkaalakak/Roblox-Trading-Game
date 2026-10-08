@@ -68,6 +68,13 @@ local function play(forward: boolean)
 		return
 	end
 	busy = true
+	-- End any flight, then freeze the player in place for the whole animation.
+	player:SetAttribute("DragonCancelFlight", os.clock())
+	local prevSpeed, prevJumpP, prevJumpH, prevAnchored = hum.WalkSpeed, hum.JumpPower, hum.JumpHeight, hrp.Anchored
+	hum.PlatformStand = false
+	hum.WalkSpeed, hum.JumpPower, hum.JumpHeight = 0, 0, 0
+	hrp.AssemblyLinearVelocity = Vector3.zero
+	hrp.Anchored = true
 	button.Active = false
 	button.AutoButtonColor = false
 
@@ -110,6 +117,10 @@ local function play(forward: boolean)
 			flash.BackgroundTransparency = 1
 			if not swapped then
 				transformR:FireServer(forward)
+			end
+			if hrp.Parent then
+				hrp.Anchored = prevAnchored
+				hum.WalkSpeed, hum.JumpPower, hum.JumpHeight = prevSpeed, prevJumpP, prevJumpH
 			end
 			task.delay(0.3, function()
 				busy = false

@@ -93,6 +93,8 @@ local function startFlight()
 	flightR:FireServer(true)
 end
 
+player:GetAttributeChangedSignal("DragonCancelFlight"):Connect(stopFlight)
+
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
 		return
