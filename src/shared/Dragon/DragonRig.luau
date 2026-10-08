@@ -251,7 +251,7 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 	st.last = t
 	st.spd = approach(st.spd, speedRaw, 6, dt)
 	st.fly = approach(st.fly, if flying then 1 else 0, 5, dt)
-	st.pitch = approach(st.pitch, pitchRaw, 4, dt)
+	st.pitch = approach(st.pitch, pitchRaw, if pitchRaw > st.pitch then 6 else 4, dt) -- tip into dives quickly, level out gently
 	st.vy = approach(st.vy or 0, vyRaw or 0, 3, dt)
 	local fly, spd, m, f = st.fly, st.spd, rig.motors, rig.flip
 

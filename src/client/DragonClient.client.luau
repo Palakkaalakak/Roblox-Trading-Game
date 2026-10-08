@@ -235,6 +235,8 @@ RunService.RenderStepped:Connect(function(dt)
 			if U:IsKeyDown(Enum.KeyCode.LeftShift) then vel -= Vector3.new(0, Config.FLY_VERTICAL, 0) end
 			lv.VectorVelocity = lv.VectorVelocity:Lerp(vel, math.clamp(dt * 6, 0, 1))
 			ao.CFrame = CFrame.lookAt(Vector3.zero, flat.Unit)
+			-- Turn rate scales with the self-hit speed boost (+150% boost -> 2.5x turning).
+			ao.Responsiveness = 9 * (1 + currentBoost(char))
 
 			-- Land when descending onto ground.
 			if lv.VectorVelocity.Y < -1 then
@@ -309,7 +311,9 @@ RunService.RenderStepped:Connect(function(dt)
 				local isFlying = char:GetAttribute("DragonFlying") == true
 				local target = 0
 				if isFlying then
-					target = math.clamp(-v.Y / 90, -0.5, 0.6) + math.clamp(speed / Config.FLY_SPEED, 0, 1) * 0.3
+					-- Pitch follows the real flight angle: dives point steeply down (up to ~75deg), climbs tilt up.
+					local ang = math.atan2(-v.Y, math.max(speed, 14))
+					target = math.clamp(ang * 1.05, -0.75, 1.3) + math.clamp(speed / Config.FLY_SPEED, 0, 1) * 0.1
 				end
 				local cur = pitches[model] or 0
 				cur += (target - cur) * math.clamp(dt * 5, 0, 1)
