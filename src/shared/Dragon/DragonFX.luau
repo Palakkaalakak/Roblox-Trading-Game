@@ -2340,7 +2340,64 @@ function FX.projectile(move: string, origin: Vector3, dir: Vector3, speed: numbe
 	return shot
 end
 
-function FX.explode(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number)
+-- FAILED shot (backfire): a weak, sooty, sputtering blast. Dark/black palette, no rays or bright
+-- rings: a dull pop, billowing black smoke, ash flakes, dim sparks dropping, inward black streaks,
+-- a few cracked-ash plates and a dark screen flash.
+local ASH = Color3.fromRGB(70, 66, 70)
+local EMBER = Color3.fromRGB(150, 45, 15)
+local function explodeFail(pos: Vector3, normal: Vector3, R: number, power: number)
+	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
+	puff(pos, Vector3.zero, R * 0.2, R * 0.75, EMBER, BLK, 0.35, nil, 0.3) -- dull pop, no bright flash
+	for i = 1, 9 do
+		local o = hemi(n, 0.4) * R * rng:NextNumber(0.1, 0.5)
+		puff(pos + o, n * R * 0.8 + o * 0.5, R * 0.35, R * rng:NextNumber(0.7, 1.05), if i % 3 == 0 then ASH else BLK, BLK, rng:NextNumber(1.1, 1.7), nil, 0.4)
+	end
+	burstAt(pos, "smoke_2x2", 16, {
+		Lifetime = NumberRange.new(1.2, 2),
+		Speed = NumberRange.new(R * 0.3, R * 0.9),
+		SpreadAngle = Vector2.new(180, 180),
+		Size = NumberSequence.new(R * 0.6, R * 1.5),
+		Color = ColorSequence.new(Color3.fromRGB(35, 32, 36)),
+		Transparency = NumberSequence.new(0.1, 1),
+		Acceleration = Vector3.new(0, R * 0.7, 0),
+		Drag = 1.5,
+		Rotation = NumberRange.new(0, 360),
+	})
+	speedLines(pos, n, R * 0.6, 12, { BLK, ASH, EMBER })
+	starburst(pos, R * 0.55, { ASH, EMBER, ROCK }, BLK, 6)
+	plate(pos + n * 0.3, n, "shock_ring", ASH, 0.5, R * 0.3, R * 1.7, 1, 0.3)
+	plate(pos + n * 0.2, n, "crack_burst", ASH, 1.8, R * 1, R * 1.6, 0, 0.5)
+	for i = 1, 18 do
+		chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(0.8, 1.8), Vector3.one * R * rng:NextNumber(0.02, 0.04), if i % 2 == 0 then EMBER else ASH, rng:NextNumber(0.7, 1.2), R * 2.5)
+	end
+	for _ = 1, 8 do
+		chunk(pos, hemi(n, 0.5) * R * rng:NextNumber(0.8, 1.6), Vector3.one * R * rng:NextNumber(0.05, 0.1), ROCK, 1, R * 3, FLAT)
+	end
+	local lp = newPart(EMBER)
+	lp.Transparency = 1
+	lp.Position = pos
+	local L = Instance.new("PointLight")
+	L.Color, L.Range, L.Brightness = EMBER, math.min(40, R), 3
+	L.Parent = lp
+	job(0.5, function(k)
+		L.Brightness = 3 * (1 - k)
+		return
+	end, function()
+		lp:Destroy()
+	end)
+	local cam = workspace.CurrentCamera
+	local i = math.clamp(1 - (cam.CFrame.Position - pos).Magnitude / (R * 8), 0, 1)
+	if i > 0 then
+		FX.shake(i * (0.6 + power))
+		FX.flash(0.4 * i, 0.5, BLK)
+	end
+end
+
+function FX.explode(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, failed: boolean?)
+	if failed then
+		explodeFail(pos, normal, R, power)
+		return
+	end
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
 	-- Stage 1 = tap (basic), 2 = partly charged (more layers), 3 = full charge (everything).
 	local stage = if power >= 0.99 then 3 elseif power >= 0.34 then 2 else 1

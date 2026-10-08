@@ -171,13 +171,13 @@ fxR.OnClientEvent:Connect(function(kind: string, id: number, move: string, ...: 
 			DragonFX.shake(0.25 + 0.6 * power)
 		end
 	elseif kind == "explode" then
-		local pos, normal, R, grounded, power = a, b, c, d, e
+		local pos, normal, R, grounded, power, failed = a, b, c, d, e, f
 		local s = shots[id]
 		if s then
 			s.stop()
 			shots[id] = nil
 		end
-		DragonFX.explode(move, pos, normal, R, grounded, power)
+		DragonFX.explode(move, pos, normal, R, grounded, power, failed == true)
 	end
 end)
 

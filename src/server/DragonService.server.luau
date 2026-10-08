@@ -305,7 +305,7 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 	if string.lower(player.Name) == string.lower(BF.NAME) and math.random() < BF.CHANCE then
 		local at = mouth.Position
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		fxR:FireAllClients("explode", id, move, at, -dir, radius, false, c)
+		fxR:FireAllClients("explode", id, move, at, -dir, radius, false, c, true)
 		if hum and hum.Health > 0 then
 			hurt(hum, char, damage, false)
 		end
