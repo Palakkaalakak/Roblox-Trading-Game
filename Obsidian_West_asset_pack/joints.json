@@ -1,0 +1,1423 @@
+{
+  "asset": "Obsidian_West",
+  "version": "1.0",
+  "generator": "js/dragon.js",
+  "units": "design units; use a uniform stud scale on import",
+  "up_axis": "+Y",
+  "forward_axis": "+Z",
+  "neutral_pose": "Feet at Y=0; spread wings; all part axes aligned; no animation or skeleton",
+  "anatomy": "Western wyvern: two hindlegs; two wing arms with clawed hands",
+  "pivot_convention": "Geometry vertices are joint-local. GLB nodes carry parent-local pivot translations. Origins have the same global XYZ basis in the neutral pose.",
+  "importer_warning": "Roblox may recenter pivots. Use bounds_center_local and pivot_world to restore joint pivots after verifying scale and orientation. +Z differs from the conventional Roblox -Z forward.",
+  "triangles": 13678,
+  "part_count": 45,
+  "bounds": {
+    "min": [
+      -9.64496307373047,
+      -2.8610229518832853e-8,
+      -9.286471347808838
+    ],
+    "max": [
+      9.645351219177247,
+      7.647254991531372,
+      4.504850358963013
+    ]
+  },
+  "parts": [
+    {
+      "name": "Torso",
+      "parent": null,
+      "type": "root",
+      "pivot_world": [
+        0,
+        3.85,
+        -0.3
+      ],
+      "pivot_parent_local": [
+        0,
+        3.85,
+        -0.3
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.0013381242752075195,
+        0.4023095369338989,
+        -0.059706926345825195
+      ],
+      "bounds_size": [
+        2.9576706886291504,
+        2.9646191596984863,
+        3.5827794075012207
+      ],
+      "triangles": 2614
+    },
+    {
+      "name": "Neck_01",
+      "parent": "Torso",
+      "type": "neck",
+      "pivot_world": [
+        0,
+        4.22,
+        0.88
+      ],
+      "pivot_parent_local": [
+        0,
+        0.36999999999999966,
+        1.18
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.0005956292152404785,
+        0.10386478900909424,
+        0.14203721284866333
+      ],
+      "bounds_size": [
+        2.3518518209457397,
+        1.8134825229644775,
+        2.073011040687561
+      ],
+      "triangles": 676
+    },
+    {
+      "name": "Neck_02",
+      "parent": "Neck_01",
+      "type": "neck",
+      "pivot_world": [
+        0,
+        4.15,
+        1.6
+      ],
+      "pivot_parent_local": [
+        0,
+        -0.0699999999999994,
+        0.7200000000000001
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.0005768537521362305,
+        0.3922792673110962,
+        0.0796293318271637
+      ],
+      "bounds_size": [
+        2.1723663806915283,
+        1.806136131286621,
+        1.9166263937950134
+      ],
+      "triangles": 676
+    },
+    {
+      "name": "Neck_03",
+      "parent": "Neck_02",
+      "type": "neck",
+      "pivot_world": [
+        0,
+        4.65,
+        2.16
+      ],
+      "pivot_parent_local": [
+        0,
+        0.5,
+        0.56
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.0005490779876708984,
+        0.6216908544301987,
+        -0.07277995347976685
+      ],
+      "bounds_size": [
+        1.9929025173187256,
+        1.5967417061328888,
+        1.7602450847625732
+      ],
+      "triangles": 676
+    },
+    {
+      "name": "Neck_04",
+      "parent": "Neck_03",
+      "type": "neck",
+      "pivot_world": [
+        0,
+        5.4,
+        2.38
+      ],
+      "pivot_parent_local": [
+        0,
+        0.75,
+        0.21999999999999975
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.004637867212295532,
+        0.5613337606191635,
+        0.016537606716156006
+      ],
+      "bounds_size": [
+        1.3476802706718445,
+        1.616376906633377,
+        1.4996103048324585
+      ],
+      "triangles": 624
+    },
+    {
+      "name": "Head",
+      "parent": "Neck_04",
+      "type": "head",
+      "pivot_world": [
+        0,
+        6.05,
+        2.72
+      ],
+      "pivot_parent_local": [
+        0,
+        0.6499999999999995,
+        0.3400000000000003
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.0005663633346557617,
+        0.5986275374889374,
+        0.16052746772766113
+      ],
+      "bounds_size": [
+        2.4160234928131104,
+        1.9972549080848694,
+        3.248645782470703
+      ],
+      "triangles": 1742
+    },
+    {
+      "name": "Jaw",
+      "parent": "Head",
+      "type": "jaw",
+      "pivot_world": [
+        0,
+        5.96,
+        2.94
+      ],
+      "pivot_parent_local": [
+        0,
+        -0.08999999999999986,
+        0.21999999999999975
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0,
+        -0.2670888416469097,
+        0.40546491742134094
+      ],
+      "bounds_size": [
+        0.8799999952316284,
+        0.7421655431389809,
+        1.7975172400474548
+      ],
+      "triangles": 620
+    },
+    {
+      "name": "Tail_01",
+      "parent": "Torso",
+      "type": "tail",
+      "pivot_world": [
+        0,
+        3.5,
+        -1.75
+      ],
+      "pivot_parent_local": [
+        0,
+        -0.3500000000000001,
+        -1.45
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0,
+        0.2748209238052368,
+        -0.40108412504196167
+      ],
+      "bounds_size": [
+        1.1341999769210815,
+        1.7588517665863037,
+        0.9881278276443481
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "Tail_02",
+      "parent": "Tail_01",
+      "type": "tail",
+      "pivot_world": [
+        0,
+        3.42,
+        -2.6
+      ],
+      "pivot_parent_local": [
+        0,
+        -0.08000000000000007,
+        -0.8500000000000001
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.041831403970718384,
+        0.2715472877025604,
+        -0.38567305728793144
+      ],
+      "bounds_size": [
+        1.056020438671112,
+        1.5741856694221497,
+        0.9573056474328041
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "Tail_03",
+      "parent": "Tail_02",
+      "type": "tail",
+      "pivot_world": [
+        -0.12,
+        3.42,
+        -3.4
+      ],
+      "pivot_parent_local": [
+        -0.12,
+        0,
+        -0.7999999999999998
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.09450973570346832,
+        0.26951225101947784,
+        -0.3913450092077255
+      ],
+      "bounds_size": [
+        1.0641413629055023,
+        1.3870982825756073,
+        1.0942757427692413
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "Tail_04",
+      "parent": "Tail_03",
+      "type": "tail",
+      "pivot_world": [
+        -0.38,
+        3.6,
+        -4.2
+      ],
+      "pivot_parent_local": [
+        -0.26,
+        0.18000000000000016,
+        -0.8000000000000003
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.14136143028736115,
+        0.2570345550775528,
+        -0.3563026711344719
+      ],
+      "bounds_size": [
+        1.0606089532375336,
+        1.2209579646587372,
+        1.1509225517511368
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "Tail_05",
+      "parent": "Tail_04",
+      "type": "tail",
+      "pivot_world": [
+        -0.75,
+        3.96,
+        -4.94
+      ],
+      "pivot_parent_local": [
+        -0.37,
+        0.3599999999999999,
+        -0.7400000000000002
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.09994348883628845,
+        0.23207823932170868,
+        -0.3424399495124817
+      ],
+      "bounds_size": [
+        0.8805373311042786,
+        1.0798404514789581,
+        1.0365595817565918
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "Tail_06",
+      "parent": "Tail_05",
+      "type": "tail",
+      "pivot_world": [
+        -1.02,
+        4.3,
+        -5.65
+      ],
+      "pivot_parent_local": [
+        -0.27,
+        0.33999999999999986,
+        -0.71
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.03658631443977356,
+        0.1968328356742859,
+        -0.33524929359555244
+      ],
+      "bounds_size": [
+        0.6565871238708496,
+        0.9593677520751953,
+        0.8564582094550133
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "Tail_07",
+      "parent": "Tail_06",
+      "type": "tail",
+      "pivot_world": [
+        -0.9,
+        4.45,
+        -6.35
+      ],
+      "pivot_parent_local": [
+        0.12,
+        0.15000000000000036,
+        -0.6999999999999993
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.031777024269104004,
+        0.14224988222122192,
+        -0.3318399339914322
+      ],
+      "bounds_size": [
+        1.1593067646026611,
+        0.8776311874389648,
+        0.9268817603588104
+      ],
+      "triangles": 218
+    },
+    {
+      "name": "Tail_08",
+      "parent": "Tail_07",
+      "type": "tail",
+      "pivot_world": [
+        -0.45,
+        4.37,
+        -7.04
+      ],
+      "pivot_parent_local": [
+        0.45,
+        -0.08000000000000007,
+        -0.6900000000000004
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.07953548431396484,
+        0.039042115211486816,
+        -0.2991563752293587
+      ],
+      "bounds_size": [
+        1.1587060689926147,
+        0.8931927680969238,
+        0.8518099635839462
+      ],
+      "triangles": 218
+    },
+    {
+      "name": "Tail_09",
+      "parent": "Tail_08",
+      "type": "tail",
+      "pivot_world": [
+        0.1,
+        4.1,
+        -7.67
+      ],
+      "pivot_parent_local": [
+        0.55,
+        -0.27000000000000046,
+        -0.6299999999999999
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.10699556767940521,
+        -0.00496324896812439,
+        -0.2744680121541023
+      ],
+      "bounds_size": [
+        1.1175101101398468,
+        0.7903685569763184,
+        0.760277733206749
+      ],
+      "triangles": 218
+    },
+    {
+      "name": "Tail_10",
+      "parent": "Tail_09",
+      "type": "tail",
+      "pivot_world": [
+        0.7,
+        3.79,
+        -8.23
+      ],
+      "pivot_parent_local": [
+        0.6,
+        -0.3099999999999996,
+        -0.5600000000000005
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.4008608013391495,
+        0.013134688138961792,
+        -0.48174573108553886
+      ],
+      "bounds_size": [
+        1.6091253459453583,
+        0.5633101463317871,
+        1.149451233446598
+      ],
+      "triangles": 244
+    },
+    {
+      "name": "L_Leg_Thigh",
+      "parent": "Torso",
+      "type": "leg",
+      "pivot_world": [
+        -0.68,
+        3.61,
+        -1.05
+      ],
+      "pivot_parent_local": [
+        -0.68,
+        -0.2400000000000002,
+        -0.75
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.25591541826725006,
+        -0.6106938123703003,
+        0.3300008475780487
+      ],
+      "bounds_size": [
+        1.4638162553310394,
+        1.998612403869629,
+        1.540943443775177
+      ],
+      "triangles": 280
+    },
+    {
+      "name": "L_Leg_Shin",
+      "parent": "L_Leg_Thigh",
+      "type": "leg",
+      "pivot_world": [
+        -1.15,
+        2.18,
+        -0.44
+      ],
+      "pivot_parent_local": [
+        -0.46999999999999986,
+        -1.4299999999999997,
+        0.6100000000000001
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        2.9802322387695312e-8,
+        -0.6763517558574677,
+        -0.3883616179227829
+      ],
+      "bounds_size": [
+        0.5989010334014893,
+        1.6930437684059143,
+        1.2699522078037262
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "L_Foot",
+      "parent": "L_Leg_Shin",
+      "type": "foot",
+      "pivot_world": [
+        -1.12,
+        0.72,
+        -1.11
+      ],
+      "pivot_parent_local": [
+        0.029999999999999805,
+        -1.4600000000000002,
+        -0.6700000000000002
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.011123061180114746,
+        -0.30625830590724945,
+        0.5598496794700623
+      ],
+      "bounds_size": [
+        0.977527379989624,
+        0.8274834454059601,
+        2.1475664377212524
+      ],
+      "triangles": 316
+    },
+    {
+      "name": "R_Leg_Thigh",
+      "parent": "Torso",
+      "type": "leg",
+      "pivot_world": [
+        0.68,
+        3.61,
+        -1.05
+      ],
+      "pivot_parent_local": [
+        0.68,
+        -0.2400000000000002,
+        -0.75
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.25984396040439606,
+        -0.6106938123703003,
+        0.32221314311027527
+      ],
+      "bounds_size": [
+        1.4565478265285492,
+        1.998612403869629,
+        1.5565188527107239
+      ],
+      "triangles": 280
+    },
+    {
+      "name": "R_Leg_Shin",
+      "parent": "R_Leg_Thigh",
+      "type": "leg",
+      "pivot_world": [
+        1.15,
+        2.18,
+        -0.44
+      ],
+      "pivot_parent_local": [
+        0.46999999999999986,
+        -1.4299999999999997,
+        0.6100000000000001
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -2.9802322387695312e-8,
+        -0.6763517558574677,
+        -0.3885508030653
+      ],
+      "bounds_size": [
+        0.5989010334014893,
+        1.6930437684059143,
+        1.2703305780887604
+      ],
+      "triangles": 166
+    },
+    {
+      "name": "R_Foot",
+      "parent": "R_Leg_Shin",
+      "type": "foot",
+      "pivot_world": [
+        1.12,
+        0.72,
+        -1.11
+      ],
+      "pivot_parent_local": [
+        -0.029999999999999805,
+        -1.4600000000000002,
+        -0.6700000000000002
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.011123031377792358,
+        -0.30625830590724945,
+        0.5599608421325684
+      ],
+      "bounds_size": [
+        0.9775274395942688,
+        0.8274834454059601,
+        2.1473441123962402
+      ],
+      "triangles": 316
+    },
+    {
+      "name": "L_Wing_UpperArm",
+      "parent": "Torso",
+      "type": "wing_arm",
+      "pivot_world": [
+        -0.85,
+        4.45,
+        0.48
+      ],
+      "pivot_parent_local": [
+        -0.85,
+        0.6000000000000001,
+        0.78
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.5247259587049484,
+        0.4799993336200714,
+        -0.03016763925552368
+      ],
+      "bounds_size": [
+        1.5819994509220123,
+        1.7710627913475037,
+        1.3332728147506714
+      ],
+      "triangles": 294
+    },
+    {
+      "name": "L_Wing_Forearm",
+      "parent": "L_Wing_UpperArm",
+      "type": "wing_arm",
+      "pivot_world": [
+        -2.02,
+        5.15,
+        0.51
+      ],
+      "pivot_parent_local": [
+        -1.17,
+        0.7000000000000002,
+        0.030000000000000027
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.5172927901148796,
+        0.5030890554189682,
+        0.19697405397891998
+      ],
+      "bounds_size": [
+        1.4461492449045181,
+        1.432433158159256,
+        0.9787440001964569
+      ],
+      "triangles": 378
+    },
+    {
+      "name": "L_Wing_Hand",
+      "parent": "L_Wing_Forearm",
+      "type": "wing_hand",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        -1.0299999999999998,
+        0.9899999999999993,
+        0.45999999999999996
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.005305111408233643,
+        0.4582315683364868,
+        0.3201904445886612
+      ],
+      "bounds_size": [
+        0.8555753231048584,
+        1.7364630699157715,
+        1.5163116157054901
+      ],
+      "triangles": 288
+    },
+    {
+      "name": "L_Wing_Finger_1",
+      "parent": "L_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -3.2490371242165565,
+        -0.8374775722622871,
+        -2.2809963077306747
+      ],
+      "bounds_size": [
+        6.691851899027824,
+        2.021360859274864,
+        4.91192153096199
+      ],
+      "triangles": 58
+    },
+    {
+      "name": "L_Wing_Membrane_1",
+      "parent": "L_Wing_Finger_1",
+      "type": "wing_membrane",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -3.2490371242165565,
+        -1.1233986094594002,
+        -2.597517713904381
+      ],
+      "bounds_size": [
+        6.691851899027824,
+        2.5932029336690903,
+        5.5449643433094025
+      ],
+      "triangles": 70
+    },
+    {
+      "name": "L_Wing_Finger_2",
+      "parent": "L_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -1.891610361635685,
+        -1.168787069618702,
+        -2.6526765674352646
+      ],
+      "bounds_size": [
+        3.944844290614128,
+        2.526343211531639,
+        5.454610854387283
+      ],
+      "triangles": 32
+    },
+    {
+      "name": "L_Wing_Membrane_2",
+      "parent": "L_Wing_Finger_2",
+      "type": "wing_membrane",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -1.891610361635685,
+        -1.402807779610157,
+        -2.6526765674352646
+      ],
+      "bounds_size": [
+        3.944844290614128,
+        2.9943846315145493,
+        5.454610854387283
+      ],
+      "triangles": 44
+    },
+    {
+      "name": "L_Wing_Finger_3",
+      "parent": "L_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.9228176847100258,
+        -1.4105573371052742,
+        -2.6596066802740097
+      ],
+      "bounds_size": [
+        2.0452180355787277,
+        3.002003535628319,
+        5.41976597905159
+      ],
+      "triangles": 32
+    },
+    {
+      "name": "L_Wing_Membrane_3",
+      "parent": "L_Wing_Finger_3",
+      "type": "wing_membrane",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.9228176847100258,
+        -1.4105573371052742,
+        -2.6596066802740097
+      ],
+      "bounds_size": [
+        2.0452180355787277,
+        3.002003535628319,
+        5.41976597905159
+      ],
+      "triangles": 44
+    },
+    {
+      "name": "L_Wing_Finger_4",
+      "parent": "L_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.043061092495918274,
+        -1.415196843445301,
+        -2.3477056473493576
+      ],
+      "bounds_size": [
+        0.3058640956878662,
+        2.9932180494070053,
+        4.799558073282242
+      ],
+      "triangles": 32
+    },
+    {
+      "name": "L_Wing_Membrane_4",
+      "parent": "L_Wing_Finger_4",
+      "type": "wing_membrane",
+      "pivot_world": [
+        -3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.8470034226775169,
+        -1.415196843445301,
+        -2.3477056473493576
+      ],
+      "bounds_size": [
+        2.0859931260347366,
+        2.9932180494070053,
+        4.799558073282242
+      ],
+      "triangles": 44
+    },
+    {
+      "name": "R_Wing_UpperArm",
+      "parent": "Torso",
+      "type": "wing_arm",
+      "pivot_world": [
+        0.85,
+        4.45,
+        0.48
+      ],
+      "pivot_parent_local": [
+        0.85,
+        0.6000000000000001,
+        0.78
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.5289171487092972,
+        0.4799993336200714,
+        -0.029854774475097656
+      ],
+      "bounds_size": [
+        1.569476693868637,
+        1.7710627913475037,
+        1.3326470851898193
+      ],
+      "triangles": 294
+    },
+    {
+      "name": "R_Wing_Forearm",
+      "parent": "R_Wing_UpperArm",
+      "type": "wing_arm",
+      "pivot_world": [
+        2.02,
+        5.15,
+        0.51
+      ],
+      "pivot_parent_local": [
+        1.17,
+        0.7000000000000002,
+        0.030000000000000027
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.5172927901148796,
+        0.5030890554189682,
+        0.19697405397891998
+      ],
+      "bounds_size": [
+        1.4461492449045181,
+        1.432433158159256,
+        0.9787440001964569
+      ],
+      "triangles": 378
+    },
+    {
+      "name": "R_Wing_Hand",
+      "parent": "R_Wing_Forearm",
+      "type": "wing_hand",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        1.0299999999999998,
+        0.9899999999999993,
+        0.45999999999999996
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.007197439670562744,
+        0.4582315683364868,
+        0.31997717916965485
+      ],
+      "bounds_size": [
+        0.8694884777069092,
+        1.7364630699157715,
+        1.5158850848674774
+      ],
+      "triangles": 288
+    },
+    {
+      "name": "R_Wing_Finger_1",
+      "parent": "R_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        3.249231196939945,
+        -0.8374775722622871,
+        -2.281271681189537
+      ],
+      "bounds_size": [
+        6.692240044474602,
+        2.021360859274864,
+        4.912472277879715
+      ],
+      "triangles": 58
+    },
+    {
+      "name": "R_Wing_Membrane_1",
+      "parent": "R_Wing_Finger_1",
+      "type": "wing_membrane",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        3.249231196939945,
+        -1.1233986094594002,
+        -2.597517713904381
+      ],
+      "bounds_size": [
+        6.692240044474602,
+        2.5932029336690903,
+        5.5449643433094025
+      ],
+      "triangles": 70
+    },
+    {
+      "name": "R_Wing_Finger_2",
+      "parent": "R_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        1.891610361635685,
+        -1.168787069618702,
+        -2.6526765674352646
+      ],
+      "bounds_size": [
+        3.944844290614128,
+        2.526343211531639,
+        5.454610854387283
+      ],
+      "triangles": 32
+    },
+    {
+      "name": "R_Wing_Membrane_2",
+      "parent": "R_Wing_Finger_2",
+      "type": "wing_membrane",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        1.891610361635685,
+        -1.402807779610157,
+        -2.6526765674352646
+      ],
+      "bounds_size": [
+        3.944844290614128,
+        2.9943846315145493,
+        5.454610854387283
+      ],
+      "triangles": 44
+    },
+    {
+      "name": "R_Wing_Finger_3",
+      "parent": "R_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.9228176847100258,
+        -1.4105573371052742,
+        -2.6596066802740097
+      ],
+      "bounds_size": [
+        2.0452180355787277,
+        3.002003535628319,
+        5.41976597905159
+      ],
+      "triangles": 32
+    },
+    {
+      "name": "R_Wing_Membrane_3",
+      "parent": "R_Wing_Finger_3",
+      "type": "wing_membrane",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.9228176847100258,
+        -1.4105573371052742,
+        -2.6596066802740097
+      ],
+      "bounds_size": [
+        2.0452180355787277,
+        3.002003535628319,
+        5.41976597905159
+      ],
+      "triangles": 44
+    },
+    {
+      "name": "R_Wing_Finger_4",
+      "parent": "R_Wing_Hand",
+      "type": "wing_finger",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        0.043061092495918274,
+        -1.415196843445301,
+        -2.3477056473493576
+      ],
+      "bounds_size": [
+        0.3058640956878662,
+        2.9932180494070053,
+        4.799558073282242
+      ],
+      "triangles": 32
+    },
+    {
+      "name": "R_Wing_Membrane_4",
+      "parent": "R_Wing_Finger_4",
+      "type": "wing_membrane",
+      "pivot_world": [
+        3.05,
+        6.14,
+        0.97
+      ],
+      "pivot_parent_local": [
+        0,
+        0,
+        0
+      ],
+      "neutral_rotation_xyz": [
+        0,
+        0,
+        0
+      ],
+      "bounds_center_local": [
+        -0.8470034226775169,
+        -1.415196843445301,
+        -2.3477056473493576
+      ],
+      "bounds_size": [
+        2.0859931260347366,
+        2.9932180494070053,
+        4.799558073282242
+      ],
+      "triangles": 44
+    }
+  ]
+}

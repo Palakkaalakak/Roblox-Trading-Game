@@ -1,0 +1,9 @@
+newmtl Dragon_color_atlas
+Kd 1 1 1
+Ka 0.1 0.1 0.1
+Ks 0.1 0.1 0.1
+Ke 1 1 1
+map_Kd Dragon_Color.png
+map_Ke Dragon_Emission.png
+d 1
+illum 2
