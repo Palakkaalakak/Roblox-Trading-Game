@@ -120,9 +120,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		local params = RaycastParams.new()
 		params.FilterDescendantsInstances = { char }
 		params.FilterType = Enum.RaycastFilterType.Exclude
-		local look = cam.CFrame.LookVector
-		local hit = workspace:Raycast(cam.CFrame.Position, look * 500, params)
-		local target = if hit then hit.Position else cam.CFrame.Position + look * 500
+		-- Aim at the mouse cursor, not screen centre.
+		local m = UserInputService:GetMouseLocation()
+		local ray = cam:ViewportPointToRay(m.X, m.Y)
+		local hit = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+		local target = if hit then hit.Position else ray.Origin + ray.Direction * 500
 		fireballR:FireServer((target - head.Position).Unit)
 	end
 end)
