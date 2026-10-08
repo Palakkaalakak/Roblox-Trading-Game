@@ -1,5 +1,5 @@
 --!strict
--- Studio-only diagnostics: transforms on spawn, prints one compact report. Disable via DragonConfig.SELF_TEST.
+-- Studio-only diagnostics: prints one compact report after the first transform. Disable via DragonConfig.SELF_TEST.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -10,13 +10,14 @@ local Joints = require(Dragon:WaitForChild("DragonJoints"))
 if not (RunService:IsStudio() and Config.SELF_TEST) then
 	return
 end
-local setForm = ReplicatedStorage:WaitForChild("DragonRemotes"):WaitForChild("SetForm") :: BindableEvent
 
 local function run(player: Player)
 	local char = player.Character or player.CharacterAdded:Wait()
 	char:WaitForChild("HumanoidRootPart")
-	task.wait(2)
-	setForm:Fire(player, true)
+	-- Report whenever the player transforms (via the West Transform button).
+	while not char:GetAttribute("DragonForm") do
+		char:GetAttributeChangedSignal("DragonForm"):Wait()
+	end
 	task.wait(0.5)
 	local out = { "[DragonSelfTest]" }
 	local src = require(Dragon:WaitForChild("DragonRig")).findSource()

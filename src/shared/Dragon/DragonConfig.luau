@@ -4,9 +4,9 @@ return {
 	-- Upload Obsidian_West_asset_pack/Dragon_Color.png and paste the rbxassetid here (optional if imported textures survive).
 	TEXTURE_ID = "",
 	SOURCE_MODEL_NAME = "DragonWestModel", -- ReplicatedStorage model holding imported MeshParts named like the joints
-	TRANSFORM_DELAY = 2.5, -- s after DragonWestTransformEvent: matches VFX blast beat
+	SWAP_T = 2.5, -- VFX module time (s) of the blast: character <-> dragon swap happens here (mirrored on revert)
 	SCAN = true, -- Studio only: print a workspace/dragon structure scan to Output on start
-	SELF_TEST = true, -- Studio only: auto-transform on spawn and print a report to Output; set false when done
+	SELF_TEST = true, -- Studio only: print a report to Output after the first transform; set false when done
 	FLY_SPEED = 75,
 	FLY_VERTICAL = 45,
 	DOUBLE_TAP = 0.3,

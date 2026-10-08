@@ -91,20 +91,6 @@ flightR.OnServerEvent:Connect(function(player: Player, on: any)
 	end
 end)
 
--- Hook the existing Studio VFX driver: its button fires DragonWestTransformEvent; toggle at the blast beat.
-task.spawn(function()
-	local ev = ReplicatedStorage:WaitForChild("DragonWestTransformEvent", 30)
-	if ev and ev:IsA("RemoteEvent") then
-		ev.OnServerEvent:Connect(function(player: Player)
-			local char = player.Character
-			local becoming = not (char and char:GetAttribute("DragonForm"))
-			task.delay(if becoming then Config.TRANSFORM_DELAY else 0, function()
-				setForm(player, becoming)
-			end)
-		end)
-	end
-end)
-
 local function puff(pos: Vector3, size: number, c0: Color3, c1: Color3, life: number, rise: number, neon: boolean)
 	local p = Instance.new("Part")
 	p.Shape = Enum.PartType.Ball
