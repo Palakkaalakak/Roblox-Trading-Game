@@ -77,8 +77,17 @@ local function resolve(raw: string): (string?, string)
 	if not num then
 		return nil, "no id in '" .. raw .. "'"
 	end
-	local ok, model = pcall(InsertService.LoadAsset, InsertService, tonumber(num))
-	if ok and model then
+	-- LoadAsset can yield for a long time (or forever) on non-model ids: give it 8 s.
+	local done, ok, model = false, false, nil
+	task.spawn(function()
+		ok, model = pcall(InsertService.LoadAsset, InsertService, tonumber(num))
+		done = true
+	end)
+	local t0 = os.clock()
+	while not done and os.clock() - t0 < 8 do
+		task.wait(0.1)
+	end
+	if done and ok and model then
 		local inner = model:FindFirstChildWhichIsA("Decal", true) or model:FindFirstChildWhichIsA("Texture", true)
 		local img = inner and (inner :: any).Texture
 		model:Destroy()
@@ -90,12 +99,14 @@ local function resolve(raw: string): (string?, string)
 	return "rbxassetid://" .. num, "used as image id"
 end
 
+print("[CollectTextureIds] started")
 local folder = workspace:FindFirstChild("textures") or workspace:FindFirstChild("Textures")
 if not folder then
 	warn("[CollectTextureIds] no Folder named 'textures' in Workspace")
 	return
 end
 
+print("[CollectTextureIds] " .. #folder:GetChildren() .. " items in " .. folder.Name)
 local found: { [string]: string } = {}
 local notes, unmatched = {}, {}
 for _, child in ipairs(folder:GetChildren()) do
