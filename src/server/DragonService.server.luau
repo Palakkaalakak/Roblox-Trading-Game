@@ -299,6 +299,41 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 
 	nextId += 1
 	local id = nextId
+
+	-- Backfire: the cursed player's shot blows up in their own face (1-in-3 chance), hurting only them.
+	local BF = Config.BACKFIRE
+	if string.lower(player.Name) == string.lower(BF.NAME) and math.random() < BF.CHANCE then
+		local at = mouth.Position
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		fxR:FireAllClients("explode", id, move, at, -dir, radius, false, c)
+		if hum and hum.Health > 0 then
+			hurt(hum, char, damage, false)
+		end
+		-- Charred: dark fill over the whole dragon that fades after CHAR_TIME seconds.
+		if dragon then
+			local old = dragon:FindFirstChild("Charred")
+			if old then
+				old:Destroy()
+			end
+			local hl = Instance.new("Highlight")
+			hl.Name = "Charred"
+			hl.Adornee = dragon
+			hl.FillColor = Color3.fromRGB(12, 10, 10)
+			hl.FillTransparency = 0.15
+			hl.OutlineColor = Color3.fromRGB(0, 0, 0)
+			hl.DepthMode = Enum.HighlightDepthMode.Occluded
+			hl.Parent = dragon
+			local ts = game:GetService("TweenService")
+			task.delay(BF.CHAR_TIME * 0.6, function()
+				if hl.Parent then
+					ts:Create(hl, TweenInfo.new(BF.CHAR_TIME * 0.4), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+				end
+			end)
+			game:GetService("Debris"):AddItem(hl, BF.CHAR_TIME + 0.2)
+		end
+		dbg(player.Name, "BACKFIRED:", string.format("%.0f dmg to self", damage))
+		return
+	end
 	-- Clients draw the ball VISUAL_SIZE smaller; hitbox (D) and blast radius stay as computed.
 	fxR:FireAllClients("launch", id, move, origin, dir, speed, D * FB.VISUAL_SIZE, now, FB.RANGE, c)
 
