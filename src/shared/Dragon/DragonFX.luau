@@ -1022,7 +1022,7 @@ local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: numb
 end
 
 -- Impact. R = damage radius (studs), grounded = hit a floor-like surface, power = charge 0..1.
-local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number)
+local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, stage: number)
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
 	local u, v = basis(n)
 
@@ -1056,7 +1056,7 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 		end)
 	end
 	-- Deep-purple edge flames around the cluster (unique accent, outlined with the cluster).
-	for i = 1, (if textured() then 0 else 5 + math.floor(power * 3)) do
+	for i = 1, (if textured() or stage < 3 then 0 else 5 + math.floor(power * 3)) do
 		local d = hemi(n, 0.3)
 		local b = ball(if i % 2 == 0 then PURPLE else DEEP, fire)
 		b.Size = Vector3.one * 0.05
@@ -1073,8 +1073,10 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 		fire:Destroy()
 	end)
 
-	-- Shimmering purple shock dome.
+	-- Shimmering purple shock dome (stage 3).
 	local dome = ball(PURPLE, nil, FIELD)
+	dome.Transparency = 1
+	if stage >= 3 then
 	job(0.65, function(k)
 		dome.Size = Vector3.one * R * lerp(0.4, 2.4, outQuart(k))
 		dome.Position = pos
@@ -1083,15 +1085,18 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 	end, function()
 		dome:Destroy()
 	end)
+	else
+		dome:Destroy()
+	end
 
 	-- Crescent slashes spinning out in random planes.
-	for i = 1, 6 + math.floor(power * 4) do
+	for i = 1, (if stage >= 2 then 6 + math.floor(power * 4) else 0) do
 		local cn = randUnit()
 		crescent(pos, cn, rng:NextNumber(0, 6.3), rng:NextNumber(1.2, 2.2), R * 0.3, R * rng:NextNumber(1.1, 1.6), R * 0.12, rng:NextNumber(0.35, 0.5), if i % 3 == 0 then ORG elseif i % 3 == 1 then PURPLE else VIOLET, rng:NextNumber(2, 4) * (if rng:NextNumber() < 0.5 then -1 else 1))
 	end
 
 	-- Charged shots: fire pillar erupting along the normal, outlined in deep purple.
-	if power > 0.5 then
+	if stage >= 3 then
 		local pillar = group(DEEP)
 		local outer, inner = blob(RED, pillar), blob(ORG, pillar)
 		local core = blob(ORG, pillar)
@@ -1117,7 +1122,7 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 
 	-- 3. Thick yellow cone rays with orange outlines.
 	local rays = group(RED)
-	for _ = 1, 9 + math.floor(power * 6) do
+	for _ = 1, (if stage >= 2 then 9 + math.floor(power * 6) else 4) do
 		local d = hemi(n, 0.35)
 		local ws = spikeParts(ORG, rays)
 		local len = R * rng:NextNumber(1.3, 2.2)
@@ -1170,19 +1175,19 @@ local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: bool
 	end)
 
 	-- 6. Navy debris cubes, embers, black shards.
-	for _ = 1, 14 do
+	for _ = 1, (if stage >= 2 then 14 else 0) do
 		chunk(pos + randUnit() * R * 0.2, hemi(n, 0.5) * R * rng:NextNumber(1.6, 2.8), Vector3.one * R * rng:NextNumber(0.05, 0.11), NAVY, rng:NextNumber(0.9, 1.3), R * 4, FLAT)
 	end
-	for i = 1, 34 do
+	for i = 1, (if stage >= 2 then 34 else 12) do
 		local col = if i % 4 == 0 then PURPLE elseif i % 4 == 1 then VIOLET elseif i % 2 == 0 then ORG else RED
 		chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.6), Vector3.one * R * rng:NextNumber(0.02, 0.045), col, rng:NextNumber(0.5, 0.9), R * 3)
 	end
-	for _ = 1, 7 do
+	for _ = 1, (if stage >= 3 then 7 else 0) do
 		chunk(pos, hemi(n, 0.3) * R * rng:NextNumber(2.5, 3.5), Vector3.new(R * 0.035, R * 0.035, R * 0.24), BLK, 0.5, R * 2, FLAT)
 	end
 
 	-- 7. Ground: scorch disc, glowing lava cracks, ring of flame tongues.
-	if grounded then
+	if grounded and stage >= 2 then
 		local sc = newPart(BLK, nil, FLAT)
 		sc.Shape = Enum.PartType.Cylinder
 		sc.Size = Vector3.new(0.2, R * 1.7, R * 1.7)
@@ -1481,10 +1486,10 @@ end
 
 -- Implosion of violet streaks, then a violet/crimson burst, a 3-armed flame vortex twisting up,
 -- crimson/violet crescent slashes and a burning pentagram on the ground.
-local function explodeQ(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number)
+local function explodeQ(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, stage: number)
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
 	local u, v = basis(n)
-	for i = 1, 26 do
+	for i = 1, (if stage >= 2 then 26 else 0) do
 		local d = randUnit()
 		local p = newPart(if i % 3 == 0 then PINK else VIOLET)
 		local r0 = R * rng:NextNumber(1.4, 2.2)
@@ -1505,7 +1510,7 @@ local function explodeQ(pos: Vector3, normal: Vector3, R: number, grounded: bool
 
 		local col = group(BLK)
 		local arms = {}
-		for a = 1, 3 do
+		for a = 1, (if stage >= 3 then 3 else 0) do
 			for j = 1, 9 do
 				table.insert(arms, { a = a, j = j, p = blob(if j % 2 == 0 then VIOLET else CRIMSON, col) })
 			end
@@ -1530,10 +1535,10 @@ local function explodeQ(pos: Vector3, normal: Vector3, R: number, grounded: bool
 			col:Destroy()
 		end)
 
-		for i = 1, 8 + math.floor(power * 4) do
+		for i = 1, (if stage >= 2 then 8 + math.floor(power * 4) else 0) do
 			crescent(pos, randUnit(), rng:NextNumber(0, 6.3), rng:NextNumber(1.3, 2.3), R * 0.25, R * rng:NextNumber(1.0, 1.5), R * 0.13, 0.45, if i % 2 == 0 then CRIMSON else VIOLET, rng:NextNumber(2, 4) * (if rng:NextNumber() < 0.5 then -1 else 1))
 		end
-		for i = 1, 30 do
+		for i = 1, 10 * stage do
 			chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.4), Vector3.one * R * rng:NextNumber(0.02, 0.045), if i % 2 == 0 then VIOLET else CRIMSON, rng:NextNumber(0.5, 0.9), R * 3)
 		end
 		for _ = 1, 10 do
@@ -1541,7 +1546,7 @@ local function explodeQ(pos: Vector3, normal: Vector3, R: number, grounded: bool
 			puff(pos + o, n * R * 0.7 + o * 0.5, R * 0.3, R * rng:NextNumber(0.6, 0.9), VSMOKE, BLK, rng:NextNumber(1.1, 1.5), FLAT, 0.45)
 		end
 
-		if grounded then
+		if grounded and stage >= 3 then
 			local pts = {}
 			for i = 0, 4 do
 				local a = i / 5 * math.pi * 2 + math.pi / 2
@@ -1737,7 +1742,7 @@ end
 
 -- Double detonation, a mushroom column with a fire cap, flaming rocks arcing out, a burning field
 -- of flame tongues and long lava cracks; heavy shake and a red flash.
-local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number)
+local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, stage: number)
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
 	local u, v = basis(n)
 	local function burst(scale: number, delay: number)
@@ -1762,15 +1767,17 @@ local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: bool
 		end)
 	end
 	burst(1, 0)
-	burst(1.35, 0.25)
+	if stage >= 2 then
+		burst(1.35, 0.25)
+	end
 
 	-- Mushroom: stem of stacked blobs + a cap of balls spreading at the top.
 	local col = group(BLK)
 	local stem, cap = {}, {}
-	for i = 1, 7 do
+	for i = 1, (if stage >= 3 then 7 else 0) do
 		stem[i] = blob(if i % 2 == 0 then RED else ORG, col)
 	end
-	for i = 1, 11 do
+	for i = 1, (if stage >= 3 then 11 else 0) do
 		cap[i] = ball(if i % 3 == 0 then CRIMSON else RED, col)
 	end
 	local H = R * (2.4 + power)
@@ -1814,7 +1821,12 @@ local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: bool
 		return R * 0.12 * (1 - k)
 	end, CRIMSON, 36, 0.25)
 	local dome = ball(RED, nil, FIELD)
+	dome.Transparency = if stage >= 3 then 0 else 1
 	job(0.7, function(k)
+		if stage < 3 then
+			dome.Transparency = 1
+			return
+		end
 		dome.Size = Vector3.one * R * lerp(0.5, 2.8, outQuart(k))
 		dome.Position = pos
 		dome.Transparency = if k > 0.5 then (k - 0.5) / 0.5 else 0
@@ -1824,7 +1836,7 @@ local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: bool
 	end)
 
 	-- Flaming rocks: dark chunks arcing out, each trailing fire puffs.
-	for _ = 1, 12 do
+	for _ = 1, (if stage >= 2 then 12 else 0) do
 		local p = newPart(ROCK, nil, FLAT)
 		local s = R * rng:NextNumber(0.08, 0.15)
 		local vel = hemi(n, 0.6) * R * rng:NextNumber(2, 3.2)
@@ -1855,10 +1867,10 @@ local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: bool
 		end
 	end)
 
-	if grounded then
+	if grounded and stage >= 2 then
 		-- Burning field: two rings of flame tongues.
 		local flames = group(CRIMSON)
-		for ringI, radius in ipairs({ 0.65, 1.25 }) do
+		for ringI, radius in ipairs(if stage >= 3 then { 0.65, 1.25 } else {}) do
 			local N = if ringI == 1 then 12 else 20
 			for i = 1, N do
 				local a = i / N * math.pi * 2 + ringI
@@ -1916,17 +1928,17 @@ local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: bool
 end
 
 -- Textured explosion layers (on top of the geometry layers above) ---------------------------------
-local function texExplodeR(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number)
+local function texExplodeR(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
 	billboard(pos, R * 2.6, "explosion_orange_4x4", 0.75)
-	for i = 1, 4 + math.floor(power * 3) do
+	for i = 1, (if stage >= 3 then 7 elseif stage == 2 then 4 else 1) do
 		billboard(pos + hemi(n, 0.5) * R * 0.6, R * rng:NextNumber(1, 1.5), "explosion_orange_4x4", rng:NextNumber(0.6, 0.85), nil, rng:NextNumber(0, 360), i * 0.04)
 	end
 	plate(pos + n * 0.3, n, "shock_ring", ORG, 0.5, R * 0.4, R * 4.2, 2, 0.4)
-	plate(pos + n * 0.35, n, "shock_ring", CRIMSON, 0.6, R * 0.3, R * 3.2, -2, 0.4, 0.08)
-	if grounded then
+	if stage >= 2 then plate(pos + n * 0.35, n, "shock_ring", CRIMSON, 0.6, R * 0.3, R * 3.2, -2, 0.4, 0.08) end
+	if grounded and stage >= 2 then
 		plate(pos + n * 0.15, n, "crack_burst", WHITE, 2.6, R * 1.4, R * 2.6, 0, 0.6)
 	end
-	burstAt(pos, "spark_star", 30 + math.floor(power * 20), {
+	burstAt(pos, "spark_star", 15 * stage + math.floor(power * 15), {
 		Lifetime = NumberRange.new(0.5, 0.9),
 		Speed = NumberRange.new(R * 2, R * 4),
 		SpreadAngle = Vector2.new(180, 180),
@@ -1947,20 +1959,20 @@ local function texExplodeR(pos: Vector3, n: Vector3, R: number, grounded: boolea
 	})
 end
 
-local function texExplodeQ(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number)
+local function texExplodeQ(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
 	task.delay(0.14, function()
 		billboard(pos, R * 2.8, "explosion_violet_4x4", 0.8)
-		for i = 1, 5 do
+		for i = 1, (if stage >= 3 then 5 elseif stage == 2 then 3 else 0) do
 			billboard(pos + hemi(n, 0.4) * R * 0.7, R * rng:NextNumber(1, 1.6), "explosion_violet_4x4", rng:NextNumber(0.6, 0.9), nil, rng:NextNumber(0, 360), i * 0.05)
 		end
-		for i = 1, 6 + math.floor(power * 4) do
+		for i = 1, (if stage >= 2 then 6 + math.floor(power * 4) else 2) do
 			billboard(pos + randUnit() * R * 0.3, R * rng:NextNumber(1.6, 2.6), "slash_arc", 0.45, if i % 2 == 0 then PINK else VIOLET, rng:NextNumber(0, 360), rng:NextNumber(0, 0.12), rng:NextNumber(-260, 260), 1.6)
 		end
 		plate(pos + n * 0.3, n, "shock_ring", VIOLET, 0.55, R * 0.4, R * 4, 2.5, 0.4)
-		if grounded then
+		if grounded and stage >= 3 then
 			plate(pos + n * 0.2, n, "sigil", PINK, 1.9, R * 2.2, R * 2.6, 1.2, 0.6)
 		end
-		for i = 1, 8 do
+		for i = 1, (if stage >= 3 then 8 elseif stage == 2 then 4 else 0) do
 			local b = tbeam("beam_lightning", if i % 2 == 0 then PINK else VIOLET, R * 0.12, 8, true)
 			if b then
 				local d0 = randUnit()
@@ -1999,17 +2011,19 @@ local function texExplodeQ(pos: Vector3, n: Vector3, R: number, grounded: boolea
 	end)
 end
 
-local function texExplodeF(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number)
-	for i = 1, 7 do
+local function texExplodeF(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
+	for i = 1, (if stage >= 3 then 7 elseif stage == 2 then 4 else 2) do
 		billboard(pos + hemi(n, 0.6) * R * rng:NextNumber(0, 0.8), R * rng:NextNumber(1.6, 2.8), "explosion_crimson_4x4", rng:NextNumber(0.7, 1), nil, rng:NextNumber(0, 360), (i - 1) * 0.06)
 	end
-	billboard(pos + n * R * 2.2, R * 3, "explosion_crimson_4x4", 1.1, nil, 0, 0.35)
+	if stage >= 3 then
+		billboard(pos + n * R * 2.2, R * 3, "explosion_crimson_4x4", 1.1, nil, 0, 0.35)
+	end
 	plate(pos + n * 0.3, n, "shock_ring", ORG, 0.55, R * 0.5, R * 5, 2, 0.4)
-	plate(pos + n * 0.35, n, "shock_ring", CRIMSON, 0.65, R * 0.5, R * 6, -1.5, 0.4, 0.25)
-	if grounded then
+	if stage >= 2 then plate(pos + n * 0.35, n, "shock_ring", CRIMSON, 0.65, R * 0.5, R * 6, -1.5, 0.4, 0.25) end
+	if grounded and stage >= 2 then
 		plate(pos + n * 0.15, n, "crack_burst", WHITE, 3, R * 2, R * 3.6, 0, 0.65)
 		local u, v = basis(n)
-		for _ = 1, 10 do
+		for _ = 1, (if stage >= 3 then 10 else 0) do
 			local a = rng:NextNumber(0, math.pi * 2)
 			local at = pos + (u * math.cos(a) + v * math.sin(a)) * R * rng:NextNumber(0.4, 1.3)
 			local p = newPart(WHITE)
@@ -2069,15 +2083,17 @@ end
 
 function FX.explode(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number)
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
+	-- Stage 1 = tap (basic), 2 = partly charged (more layers), 3 = full charge (everything).
+	local stage = if power >= 0.99 then 3 elseif power >= 0.34 then 2 else 1
 	if move == "Q" then
-		explodeQ(pos, normal, R, grounded, power)
-		texExplodeQ(pos, n, R, grounded, power)
+		explodeQ(pos, normal, R, grounded, power, stage)
+		texExplodeQ(pos, n, R, grounded, power, stage)
 	elseif move == "F" then
-		explodeF(pos, normal, R, grounded, power)
-		texExplodeF(pos, n, R, grounded, power)
+		explodeF(pos, normal, R, grounded, power, stage)
+		texExplodeF(pos, n, R, grounded, power, stage)
 	else
-		explodeR(pos, normal, R, grounded, power)
-		texExplodeR(pos, n, R, grounded, power)
+		explodeR(pos, normal, R, grounded, power, stage)
+		texExplodeR(pos, n, R, grounded, power, stage)
 	end
 end
 
