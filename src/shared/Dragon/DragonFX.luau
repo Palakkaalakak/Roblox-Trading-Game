@@ -1353,49 +1353,71 @@ local function impulse(pos: Vector3, R: number, shake: number, flashA: number, c
 end
 
 -- Q: VIOLET SERPENT ------------------------------------------------------------------------------
--- A wedge-built crimson serpent skull (cone snout, crest, violet horns, jaw spikes, glowing eyes)
--- leading a ribbon body: textured violet flame beams + pink lightning beams strung through the
--- head's corkscrew path, shedding violet flames and stars. No balls. Without uploaded textures the
--- body falls back to outlined neon segments.
+-- A big wedge-built serpent with a readable silhouette: skull (snout, crest, horns, jaw spikes, eyes)
+-- leading a long S-curved body of textured flame ribbons that slithers slowly. Violet core with red
+-- and orange flames licking around it. The body is laid out by DISTANCE along the flight path (not
+-- frame history), so it is smooth and identical on every client; only the slither phase uses time.
+-- Position/arrival still come from server time, so damage timing is untouched.
 local function projectileQ(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
 	local g = group(BLK)
-	local snout, crest = spikeParts(CRIMSON, g), spikeParts(VIOLET, g)
-	local horns = { spikeParts(VIOLET, g), spikeParts(VIOLET, g) }
+	D *= 1.25 -- bigger so the shape reads
+	local snout, crest = spikeParts(VIOLET, g), spikeParts(CRIMSON, g)
+	local horns = { spikeParts(ORG, g), spikeParts(ORG, g) }
 	local jaw = { spikeParts(DEEP, g), spikeParts(DEEP, g) }
-	local eyes = { ball(PINK, g), ball(PINK, g) }
-	local N = 11
-	local flames, bolts, segsF = {}, {}, {}
+	local eyes = { ball(YEL, g), ball(YEL, g) }
+	local skull = blob(DEEP, g)
+	local N = 12
+	local SP = D * 0.85 -- spacing between body points along the path
+	local body, orange, bolts, fallback = {}, {}, {}, {}
 	for i = 1, N - 1 do
-		local f = tbeam("beam_flame_violet", WHITE, D * (1.05 - i * 0.085), 1.5, true)
+		local w = D * (1.0 - i * 0.07)
+		local f = tbeam("beam_flame_violet", WHITE, w, 0.6, true)
 		if f then
-			flames[i] = f
+			body[i] = f
+			orange[i] = tbeam(if i % 2 == 0 then "beam_flame_orange" else "beam_flame_orange", WHITE, w * 1.5, 1.0, true)
 		else
-			segsF[i] = newPart(if i % 2 == 0 then VIOLET else CRIMSON, g)
+			fallback[i] = newPart(if i % 3 == 0 then ORG elseif i % 3 == 1 then VIOLET else RED, g)
 		end
-		if i % 2 == 1 then
-			bolts[i] = tbeam("beam_lightning", if i % 4 == 1 then PINK else VIOLET, D * 0.45, 6, true)
+		if i % 3 == 1 then
+			bolts[i] = tbeam("beam_lightning", PINK, D * 0.3, 4, true)
 		end
 	end
 	local carrier = newPart(VIOLET)
 	carrier.Transparency = 1
-	streakTrails(carrier, D, { PINK, VIOLET, WHITE })
-	carrier.Size = Vector3.one * D * 0.6
+	carrier.Size = Vector3.one * D * 0.7
+	streakTrails(carrier, D, { ORG, RED, PINK })
 	emitter(carrier, "flame_violet_4x4", {
-		Rate = 70,
-		Lifetime = NumberRange.new(0.3, 0.5),
-		Speed = NumberRange.new(D, D * 3),
+		Rate = 40,
+		Lifetime = NumberRange.new(0.5, 0.8),
+		Speed = NumberRange.new(D * 0.5, D * 1.5),
 		EmissionDirection = Enum.NormalId.Back,
 		SpreadAngle = Vector2.new(30, 30),
-		Size = NumberSequence.new(D * 0.9, D * 0.3),
+		Size = NumberSequence.new(D * 1.0, D * 0.3),
 		Rotation = NumberRange.new(-20, 20),
+	})
+	emitter(carrier, "flame_orange_4x4", {
+		Rate = 40,
+		Lifetime = NumberRange.new(0.4, 0.7),
+		Speed = NumberRange.new(D * 0.5, D * 2),
+		EmissionDirection = Enum.NormalId.Back,
+		SpreadAngle = Vector2.new(45, 45),
+		Size = NumberSequence.new(D * 0.9, D * 0.25),
+		Rotation = NumberRange.new(-25, 25),
+	})
+	emitter(carrier, "flame_crimson_4x4", {
+		Rate = 25,
+		Lifetime = NumberRange.new(0.4, 0.7),
+		Speed = NumberRange.new(D, D * 2.5),
+		SpreadAngle = Vector2.new(180, 180),
+		Size = NumberSequence.new(D * 0.7, D * 0.2),
 	})
 	emitter(carrier, "spark_star", {
 		Rate = 25,
-		Lifetime = NumberRange.new(0.25, 0.45),
-		Speed = NumberRange.new(D * 2, D * 5),
+		Lifetime = NumberRange.new(0.3, 0.6),
+		Speed = NumberRange.new(D * 2, D * 4),
 		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(D * 0.35, 0),
-		Color = ColorSequence.new(PINK, VIOLET),
+		Size = NumberSequence.new(D * 0.3, 0),
+		Color = ColorSequence.new(ORG, RED),
 		RotSpeed = NumberRange.new(-250, 250),
 	})
 	local light = Instance.new("PointLight")
@@ -1404,70 +1426,80 @@ local function projectileQ(origin: Vector3, dir: Vector3, speed: number, D: numb
 	light.Brightness = 5 + 4 * power
 	light.Parent = carrier
 
-	local u, v = basis(dir)
-	local hist: { Vector3 } = {}
+	local u = basis(dir)
+	local side = u
 	local shot = { pos = origin } :: any
 	local stopped = false
 	local shedAcc = 0
+	local AMP, WAVE, SLITHER = D * 0.9, D * 7, 1.6 -- S-curve amplitude, wavelength, slow slither speed (rad/s)
+	-- point on the serpent's path at distance s along the flight line
+	local function pathAt(s: number, t: number): Vector3
+		local ramp = math.clamp(s / (D * 3), 0, 1)
+		return origin + dir * s + side * math.sin(s / WAVE * math.pi * 2 - t * SLITHER) * AMP * ramp
+	end
 	job(math.huge, function(_, t, dt)
 		if stopped then
 			return true
 		end
 		local dist = math.min(speed * math.max(workspace:GetServerTimeNow() - t0, 0), range)
-		local base = origin + dir * dist
-		shot.pos = base
-		local w = t * 10
-		local hp = base + (u * math.cos(w) + v * math.sin(w)) * D * 0.6 * math.min(t / 0.15, 1)
-		table.insert(hist, 1, hp)
-		if #hist > N * 3 + 1 then
-			table.remove(hist)
-		end
-		local function at(i: number): Vector3
-			return hist[math.min((i - 1) * 3 + 1, #hist)]
-		end
+		local hp = pathAt(dist, t)
+		shot.pos = hp
+		local ahead = pathAt(dist + D * 0.6, t)
+		local fwd = (ahead - hp)
+		fwd = if fwd.Magnitude > 0.01 then fwd.Unit else dir
+		local hcf = CFrame.lookAt(hp, hp + fwd)
+		local up, right = hcf.UpVector, hcf.RightVector
+		-- body
+		local prev = hp
 		for i = 1, N - 1 do
-			local x, y = at(i), at(i + 1)
-			if flames[i] then
-				flames[i].set(x, y)
-			elseif segsF[i] then
-				local L = math.max((y - x).Magnitude, 0.05)
-				local wd = D * (0.8 - i * 0.06)
-				segsF[i].Size = Vector3.new(wd, wd, L + wd * 0.5)
-				segsF[i].CFrame = if L > 0.06 then CFrame.lookAt((x + y) / 2, y) else CFrame.new(x)
+			local p = pathAt(math.max(dist - i * SP, 0), t)
+			if body[i] then
+				body[i].set(prev, p)
+				if orange[i] then
+					orange[i].set(prev, p)
+				end
+			elseif fallback[i] then
+				local L = math.max((p - prev).Magnitude, 0.05)
+				local wd = D * (0.9 - i * 0.06)
+				fallback[i].Size = Vector3.new(wd, wd, L + wd * 0.5)
+				fallback[i].CFrame = if L > 0.06 then CFrame.lookAt((prev + p) / 2, p) else CFrame.new(prev)
 			end
 			if bolts[i] then
-				bolts[i].set(x, at(math.min(i + 2, N)))
+				bolts[i].set(prev, pathAt(math.max(dist - (i + 2) * SP, 0), t))
 			end
+			prev = p
 		end
-
-		local hcf = CFrame.lookAt(hp, hp + dir)
-		local up, right = hcf.UpVector, hcf.RightVector
-		local tip = hp + dir * D * 0.95
-		placeSpike(snout, tip, -dir, D * 1.5, D * 0.5)
-		local ct = hp + up * D * 0.6 - dir * D * 1.1
-		placeSpike(crest, ct, (hp + up * D * 0.15 - ct).Unit, (hp + up * D * 0.15 - ct).Magnitude, D * 0.28)
+		-- skull
+		skull.Size = Vector3.new(D * 0.9, D * 0.75, D * 1.2)
+		skull.CFrame = hcf
+		placeSpike(snout, hp + fwd * D * 1.1, -fwd, D * 1.6, D * 0.55)
+		local ct = hp + up * D * 0.7 - fwd * D * 1.2
+		local cd = (hp + up * D * 0.2 - ct)
+		placeSpike(crest, ct, cd.Unit, cd.Magnitude, D * 0.3)
 		for i, hn in ipairs(horns) do
-			local side = if i == 1 then 1 else -1
-			local o = hp + right * side * D * 0.3 + up * D * 0.3
-			local d2 = (right * side * 0.4 + up * 0.5 - dir).Unit
-			placeSpike(hn, o + d2 * D * 1.0, -d2, D * 1.0, D * 0.2)
+			local sd = if i == 1 then 1 else -1
+			local o = hp + right * sd * D * 0.35 + up * D * 0.35
+			local d2 = (right * sd * 0.5 + up * 0.5 - fwd * 0.9).Unit
+			placeSpike(hn, o + d2 * D * 1.2, -d2, D * 1.2, D * 0.22)
 		end
 		for i, jw in ipairs(jaw) do
-			local side = if i == 1 then 1 else -1
-			local jt = hp + right * side * D * 0.45 - up * D * 0.35 - dir * D * 0.8
-			placeSpike(jw, jt, (hp - jt).Unit, (hp - jt).Magnitude, D * 0.18)
+			local sd = if i == 1 then 1 else -1
+			local jt = hp + right * sd * D * 0.5 - up * D * 0.4 - fwd * D * 0.9
+			local jd = (hp - jt)
+			placeSpike(jw, jt, jd.Unit, jd.Magnitude, D * 0.2)
 		end
 		for i, e in ipairs(eyes) do
-			local side = if i == 1 then 1 else -1
-			e.Size = Vector3.one * D * 0.2 * (1 + 0.15 * math.sin(t * 25))
-			e.Position = hp + dir * D * 0.25 + right * side * D * 0.27 + up * D * 0.18
+			local sd = if i == 1 then 1 else -1
+			e.Size = Vector3.one * D * 0.24 * (1 + 0.1 * math.sin(t * 6))
+			e.Position = hp + fwd * D * 0.3 + right * sd * D * 0.3 + up * D * 0.2
 		end
 		carrier.CFrame = hcf
 
 		shedAcc += dt
-		while shedAcc > 0.03 do
-			shedAcc -= 0.03
-			chunk(at(rng:NextInteger(2, N)), randUnit() * D * 3 + Vector3.new(0, D * 2, 0), Vector3.new(D * 0.08, D * 0.08, D * 0.35), if rng:NextNumber() < 0.5 then VIOLET else CRIMSON, 0.35, -D * 4)
+		while shedAcc > 0.05 do
+			shedAcc -= 0.05
+			local at = pathAt(math.max(dist - rng:NextInteger(1, N - 2) * SP, 0), t)
+			chunk(at, randUnit() * D * 2.5 + Vector3.new(0, D * 1.5, 0), Vector3.new(D * 0.08, D * 0.08, D * 0.35), if rng:NextNumber() < 0.4 then VIOLET elseif rng:NextNumber() < 0.5 then ORG else RED, 0.5, -D * 3)
 		end
 		if dist >= range + D * 4 then
 			stopped = true
@@ -1476,13 +1508,14 @@ local function projectileQ(origin: Vector3, dir: Vector3, speed: number, D: numb
 		return
 	end, function()
 		g:Destroy()
-		for _, f in pairs(flames) do
+		for _, f in pairs(body) do
+			f.destroy()
+		end
+		for _, f in pairs(orange) do
 			f.destroy()
 		end
 		for _, b in pairs(bolts) do
-			if b then
-				b.destroy()
-			end
+			b.destroy()
 		end
 		for _, e in ipairs(carrier:GetChildren()) do
 			if e:IsA("ParticleEmitter") then
@@ -2434,6 +2467,7 @@ local function explodeFail(pos: Vector3, normal: Vector3, R: number, power: numb
 end
 
 function FX.explode(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, failed: boolean?)
+	R *= Config.FIREBALL.EXPLOSION_SCALE -- visual size only; the server damage radius is unchanged
 	if failed then
 		explodeFail(pos, normal, R, power)
 		return

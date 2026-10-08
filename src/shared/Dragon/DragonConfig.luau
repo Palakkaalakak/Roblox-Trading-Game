@@ -10,6 +10,7 @@ return {
 	-- Upload Obsidian_West_asset_pack/Dragon_Color.png and paste the rbxassetid here (optional if imported textures survive).
 	TEXTURE_ID = "",
 	SWAP_T = 2.5, -- VFX module time (s) of the blast: character <-> dragon swap happens here (mirrored on revert)
+	TEST_J_FAIL = true, -- TESTING: pressing J triggers a random fire move's failure (backfire + "faileur!") on yourself; set false to disable
 	DEBUG = true, -- prints [DragonDbg] lines for every transform step (client + server)
 	COLLECT_TEXTURES = false, -- Studio only: Play prints a TEXTURES table built from Workspace.textures (DragonTextureCollector)
 	SCAN = true, -- Studio only: print a workspace/dragon structure scan to Output on start
@@ -37,6 +38,7 @@ return {
 		MAX_CHARGE = 3,
 		MAX_D_HEAD = 1.8, -- fully charged ball diameter = this x the dragon head's largest dimension
 		MIN_SIZE = 0.2, -- tap size as a fraction of the fully charged size
+		EXPLOSION_SCALE = 0.7, -- explosion VISUAL size multiplier (-30%); damage radius unchanged
 		VISUAL_SIZE = 0.5, -- drawn ball/orb size multiplier only (hitbox, blast radius, damage unchanged)
 		BLAST_PER_D = 3.1, -- explosion damage/visual radius = this x ball diameter
 		SPEED = 180,

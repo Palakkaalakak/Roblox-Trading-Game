@@ -22,6 +22,7 @@ local function mk(name: string): RemoteEvent
 end
 local transformR, flightR, transformFxR = mk("Transform"), mk("Flight"), mk("TransformFX")
 local chargeR, fireballR, fxR = mk("Charge"), mk("Fireball"), mk("FireballFX")
+local testFailR, aimR = mk("TestFail"), mk("Aim")
 remotes.Parent = ReplicatedStorage
 
 local dragonFolder = Instance.new("Folder")
@@ -284,6 +285,38 @@ local function damageAround(caster: Player, pos: Vector3, radius: number, damage
 	end
 end
 
+-- Failure event: the shot blows up at the caster's mouth, hurting only them; dragon turns charred.
+local function doBackfire(player: Player, char: Model, dragon: Model, mouth: CFrame, dir: Vector3, move: string, id: number, radius: number, damage: number, c: number)
+	local BF = Config.BACKFIRE
+	local at = mouth.Position
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	fxR:FireAllClients("explode", id, move, at, -dir, radius, false, c, true)
+	if hum and hum.Health > 0 then
+		hurt(hum, char, damage, false)
+	end
+	-- Charred: dark fill over the whole dragon that fades after CHAR_TIME seconds.
+	local old = dragon:FindFirstChild("Charred")
+	if old then
+		old:Destroy()
+	end
+	local hl = Instance.new("Highlight")
+	hl.Name = "Charred"
+	hl.Adornee = dragon
+	hl.FillColor = Color3.fromRGB(12, 10, 10)
+	hl.FillTransparency = 0.15
+	hl.OutlineColor = Color3.fromRGB(0, 0, 0)
+	hl.DepthMode = Enum.HighlightDepthMode.Occluded
+	hl.Parent = dragon
+	local ts = game:GetService("TweenService")
+	task.delay(BF.CHAR_TIME * 0.6, function()
+		if hl.Parent then
+			ts:Create(hl, TweenInfo.new(BF.CHAR_TIME * 0.4), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+		end
+	end)
+	game:GetService("Debris"):AddItem(hl, BF.CHAR_TIME + 0.2)
+	dbg(player.Name, "BACKFIRED:", string.format("%.0f dmg to self", damage))
+end
+
 local nextId = 0
 
 fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: any)
@@ -319,35 +352,7 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 	-- Backfire: the cursed player's shot blows up in their own face (1-in-3 chance), hurting only them.
 	local BF = Config.BACKFIRE
 	if string.lower(player.Name) == string.lower(BF.NAME) and math.random() < BF.CHANCE then
-		local at = mouth.Position
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		fxR:FireAllClients("explode", id, move, at, -dir, radius, false, c, true)
-		if hum and hum.Health > 0 then
-			hurt(hum, char, damage, false)
-		end
-		-- Charred: dark fill over the whole dragon that fades after CHAR_TIME seconds.
-		if dragon then
-			local old = dragon:FindFirstChild("Charred")
-			if old then
-				old:Destroy()
-			end
-			local hl = Instance.new("Highlight")
-			hl.Name = "Charred"
-			hl.Adornee = dragon
-			hl.FillColor = Color3.fromRGB(12, 10, 10)
-			hl.FillTransparency = 0.15
-			hl.OutlineColor = Color3.fromRGB(0, 0, 0)
-			hl.DepthMode = Enum.HighlightDepthMode.Occluded
-			hl.Parent = dragon
-			local ts = game:GetService("TweenService")
-			task.delay(BF.CHAR_TIME * 0.6, function()
-				if hl.Parent then
-					ts:Create(hl, TweenInfo.new(BF.CHAR_TIME * 0.4), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
-				end
-			end)
-			game:GetService("Debris"):AddItem(hl, BF.CHAR_TIME + 0.2)
-		end
-		dbg(player.Name, "BACKFIRED:", string.format("%.0f dmg to self", damage))
+		doBackfire(player, char, dragon :: Model, mouth, dir, move, id, radius, damage, c)
 		return
 	end
 	-- Clients draw the ball VISUAL_SIZE smaller; hitbox (D) and blast radius stay as computed.
@@ -416,4 +421,35 @@ end)
 
 Players.PlayerRemoving:Connect(function(p)
 	lastFire[p] = nil
+end)
+
+-- TESTING (Config.TEST_J_FAIL): the pressing player triggers a random move's failure event on themselves.
+testFailR.OnServerEvent:Connect(function(player: Player)
+	if not Config.TEST_J_FAIL then
+		return
+	end
+	local char = player.Character
+	local dragon = DragonRig.dragonOf(char)
+	local mouth = dragon and DragonRig.mouthCFrame(dragon)
+	if not (char and dragon and mouth) then
+		dbg(player.Name, "TestFail ignored: not in dragon form")
+		return
+	end
+	local moves = { "R", "Q", "F" }
+	local move = moves[math.random(#moves)]
+	local mv = Config.MOVES[move]
+	local c = 0.5
+	local D = DragonRig.fireballMaxD(dragon, FB.MAX_D_HEAD) * mv.size * DragonRig.sizeFactor(c, FB.MIN_SIZE)
+	nextId += 1
+	local look = (mouth.LookVector)
+	doBackfire(player, char, dragon, mouth, look, move, nextId, D * FB.BLAST_PER_D, FB.DAMAGE * mv.damage * (1 + 2 * c), c)
+end)
+
+-- Head aim: the client reports where its cursor points; it replicates as an attribute so every
+-- client turns that dragon's head the same way.
+aimR.OnServerEvent:Connect(function(player: Player, dir: any)
+	local char = player.Character
+	if char and typeof(dir) == "Vector3" and dir.Magnitude > 0.1 and dir.Magnitude < 2 then
+		char:SetAttribute("DragonAim", dir.Unit)
+	end
 end)

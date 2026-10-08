@@ -241,7 +241,7 @@ end
 -- Anti-jitter: speed/flying/pitch are low-pass filtered, and cycles advance by accumulated PHASE
 -- (changing frequency never jumps the wings/legs), walk phase follows distance travelled
 -- (feet don't skate), flight blends in/out over ~0.4 s, and the body banks into turns.
-function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number, owner: Instance?, vyRaw: number?)
+function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolean, pitchRaw: number, owner: Instance?, vyRaw: number?, aim: Vector3?)
 	local st = (rig :: any).st
 	if not st then
 		st = { last = t, spd = 0, fly = if flying then 1 else 0, pitch = 0, wing = 0, walk = 0, idle = 0, bank = 0, yaw = nil }
@@ -339,11 +339,22 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 		local k = i / 10
 		rot(m[string.format("Tail_%02d", i)], math.sin(st.idle * 2.2 - i * 0.45) * 0.035 * f, math.sin(st.idle * 1.8 + st.walk * 0.5 - i * 0.5) * sway - st.bank * 0.25 * k, 0)
 	end
+	-- Aim look: turn the neck + head towards where the fireball will go (world dir -> torso space).
+	local wantYaw, wantPitch = 0, 0
+	local torsoPart = rig.motors.Neck_01 and rig.motors.Neck_01.Part0
+	if aim and torsoPart then
+		local l = (torsoPart :: BasePart).CFrame:VectorToObjectSpace(aim)
+		wantYaw = math.clamp(math.atan2(l.X * f, l.Z * f), -1.4, 1.4)
+		wantPitch = math.clamp(math.atan2(l.Y, math.sqrt(l.X * l.X + l.Z * l.Z)), -0.8, 0.9)
+		st.look = 0 -- aiming overrides the idle look-around
+	end
+	st.aimYaw = approach(st.aimYaw or 0, wantYaw, 9, dt)
+	st.aimPitch = approach(st.aimPitch or 0, wantPitch, 9, dt)
 	for i = 1, 4 do
 		local rear = (-st.charge * 0.12 - roar * 0.14 + cast * 0.16) -- negative = head back/up
-		rot(m[string.format("Neck_%02d", i)], (math.sin(st.idle * 1.5 - i * 0.3) * 0.03 - wave * amp * 0.04 + rear) * f, st.bank * 0.12 + st.look * 0.25, 0)
+		rot(m[string.format("Neck_%02d", i)], (math.sin(st.idle * 1.5 - i * 0.3) * 0.03 - wave * amp * 0.04 + rear - st.aimPitch * 0.14) * f, st.bank * 0.12 + st.look * 0.25 + st.aimYaw * 0.14, 0)
 	end
-	rot(m.Head, (-st.pitch * 0.3 - roar * 0.25 + cast * 0.2) * f, st.bank * 0.1 + st.look * 0.3, 0)
+	rot(m.Head, (-st.pitch * 0.3 - roar * 0.25 + cast * 0.2) * f - st.aimPitch * 0.44 * f, st.bank * 0.1 + st.look * 0.3 + st.aimYaw * 0.44, 0)
 
 	-- Body: bob from wingbeat (lifts on downstroke) or footfalls, pitch and bank.
 	local bob = (fly * -wave * amp * 0.5 + (1 - fly) * math.abs(math.sin(st.walk)) * 0.1 * walkW + math.sin(st.idle * 1.5) * 0.03) * rig.scale

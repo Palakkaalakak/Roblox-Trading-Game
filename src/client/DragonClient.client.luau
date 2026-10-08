@@ -12,6 +12,8 @@ local remotes = ReplicatedStorage:WaitForChild("DragonRemotes")
 local flightR = remotes:WaitForChild("Flight") :: RemoteEvent
 local fireballR = remotes:WaitForChild("Fireball") :: RemoteEvent
 local chargeR = remotes:WaitForChild("Charge") :: RemoteEvent
+local testFailR = remotes:WaitForChild("TestFail") :: RemoteEvent
+local aimR = remotes:WaitForChild("Aim") :: RemoteEvent
 local fxR = remotes:WaitForChild("FireballFX") :: RemoteEvent
 local DragonFX = require(Dragon:WaitForChild("DragonFX"))
 local FB = Config.FIREBALL
@@ -40,6 +42,9 @@ local lastFire: { [string]: number } = {}
 local MOVE_KEYS: { [Enum.KeyCode]: string } = { [Enum.KeyCode.R] = "R", [Enum.KeyCode.Q] = "Q", [Enum.KeyCode.F] = "F" }
 local chargingMove: string? = nil
 local charging = false
+local localAim: Vector3? = nil
+local lastSentAim: Vector3? = nil
+local aimAcc = 0
 local cameraOnHead = false
 local chargeStart = 0
 local charges: { [Model]: { stop: () -> () } } = {}
@@ -197,6 +202,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		else
 			lastTap = now
 		end
+	elseif input.KeyCode == Enum.KeyCode.J then
+		-- TESTING: trigger a failure event on yourself (server checks Config.TEST_J_FAIL).
+		if Config.TEST_J_FAIL then
+			testFailR:FireServer()
+		end
 	elseif MOVE_KEYS[input.KeyCode] then
 		local move = MOVE_KEYS[input.KeyCode]
 		local last = lastFire[move]
@@ -290,6 +300,23 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
+	-- Where the local cursor points (from the mouth); drives the head turn and is shared with others.
+	localAim = nil
+	do
+		local ac = dragonChar()
+		local adragon = ac and DragonRig.dragonOf(ac)
+		local amouth = adragon and DragonRig.mouthCFrame(adragon)
+		if ac and amouth then
+			localAim = aimDir(ac, amouth.Position)
+			aimAcc += dt
+			if aimAcc > 0.12 and (not lastSentAim or lastSentAim:Dot(localAim) < 0.9995) then
+				aimAcc = 0
+				lastSentAim = localAim
+				aimR:FireServer(localAim)
+			end
+		end
+	end
+
 	-- Charge orbs for every charging dragon (DragonChargeStart replicates from the server).
 	for ch, h in pairs(charges) do
 		if not ch.Parent or ch:GetAttribute("DragonChargeStart") == nil or not DragonRig.dragonOf(ch) then
@@ -318,7 +345,14 @@ RunService.RenderStepped:Connect(function(dt)
 				local cur = pitches[model] or 0
 				cur += (target - cur) * math.clamp(dt * 5, 0, 1)
 				pitches[model] = cur
-				DragonRig.animate(rig, t, speed, isFlying, cur, char, v.Y)
+				local aim: Vector3? = nil
+				if p == player then
+					aim = localAim
+				else
+					local av = char:GetAttribute("DragonAim")
+					aim = if typeof(av) == "Vector3" then av else nil
+				end
+				DragonRig.animate(rig, t, speed, isFlying, cur, char, v.Y, aim)
 				local cs = char:GetAttribute("DragonChargeStart")
 				local ft = char:GetAttribute("DragonFireTime")
 				local since = if typeof(ft) == "number" then now - ft else 99
