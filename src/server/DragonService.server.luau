@@ -74,6 +74,12 @@ local function setForm(player: Player, on: boolean)
 	end
 end
 
+-- Server-side hook (used by DragonSelfTest and other server scripts).
+local setFormB = Instance.new("BindableEvent")
+setFormB.Name = "SetForm"
+setFormB.Parent = remotes
+setFormB.Event:Connect(setForm)
+
 transformR.OnServerEvent:Connect(function(player: Player, on: any)
 	setForm(player, on == true)
 end)

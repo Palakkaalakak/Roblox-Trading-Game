@@ -5,6 +5,7 @@ return {
 	TEXTURE_ID = "",
 	SOURCE_MODEL_NAME = "DragonWestModel", -- ReplicatedStorage model holding imported MeshParts named like the joints
 	TRANSFORM_DELAY = 2.5, -- s after DragonWestTransformEvent: matches VFX blast beat
+	SELF_TEST = true, -- Studio only: auto-transform on spawn and print a report to Output; set false when done
 	FLY_SPEED = 75,
 	FLY_VERTICAL = 45,
 	DOUBLE_TAP = 0.3,
