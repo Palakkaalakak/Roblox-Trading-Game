@@ -2200,7 +2200,6 @@ local function styleLayers(move: string, pos: Vector3, n: Vector3, R: number, st
 			billboard(pos + n * R * 0.5 * i, R * (1.4 + 0.25 * i), "explosion_crimson_4x4", 0.9, nil, rng:NextNumber(0, 360), 0.1 + i * 0.07)
 		end
 	end
-	fovKick(pos, R, 4 + 4 * stage)
 end
 
 
