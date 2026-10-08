@@ -262,12 +262,20 @@ local function play(forward: boolean)
 
 	local start = os.clock()
 	local swapped = false
+	local warned = false
 	local conn: RBXScriptConnection
 	conn = RunService.RenderStepped:Connect(function()
 		local e = os.clock() - start
 		local u = math.clamp(uAt(e), 0, DURATION)
-		Core.step(state, u, cam.CFrame.Position)
-		rescale(folder, groundPos)
+		-- A VFX/rescale error must never stop the swap or the cleanup below, so isolate it.
+		local ok, err = pcall(function()
+			Core.step(state, u, cam.CFrame.Position)
+			rescale(folder, groundPos)
+		end)
+		if not ok and not warned then
+			warned = true
+			warn("[DragonTransformDriver] VFX step error (swap/cleanup unaffected): " .. tostring(err))
+		end
 
 		-- FOV punch-in at the start of the effect, release after the blast.
 		cam.FieldOfView = baseFov - 14 * smooth(u, 0, 0.5) + 14 * smooth(u, SWAP_T, DURATION)
@@ -285,7 +293,7 @@ local function play(forward: boolean)
 		end
 		if e >= total then
 			conn:Disconnect()
-			Core.destroy(state)
+			pcall(Core.destroy, state)
 			folder:Destroy()
 			cam.FieldOfView = baseFov
 			flash.BackgroundTransparency = 1
@@ -298,6 +306,13 @@ local function play(forward: boolean)
 				hum.WalkSpeed = if forward then Config.DRAGON_WALKSPEED else (walkSpeed or 16)
 			end
 			settleZoom(forward)
+			-- Verify the server actually swapped; retry once if the form flag did not flip.
+			task.delay(0.6, function()
+				if isDragon() ~= forward and player.Character == char then
+					warn("[DragonTransformDriver] server did not change form, retrying")
+					transformR:FireServer(forward)
+				end
+			end)
 			task.delay(0.3, function()
 				busy = false
 				button.Active = true

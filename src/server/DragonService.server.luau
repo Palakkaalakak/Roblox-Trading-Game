@@ -67,12 +67,20 @@ local function setForm(player: Player, on: boolean)
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
-	if not (char and hum and hrp and hrp:IsA("BasePart")) or hum.Health <= 0 then
+	if not (char and hum and hrp and hrp:IsA("BasePart")) then
+		warn("[DragonService] setForm: character not ready for " .. player.Name)
+		return
+	end
+	if hum.Health <= 0 then
 		return
 	end
 	local existing = char:FindFirstChild("WestDragon")
 	if on and not existing then
-		local rig = DragonRig.build(DragonRig.findSource(), hrp, hum.HipHeight + hrp.Size.Y / 2, Config.SCALE, Config.TEXTURE_ID)
+		local ok, rig = pcall(DragonRig.build, DragonRig.findSource(), hrp, hum.HipHeight + hrp.Size.Y / 2, Config.SCALE, Config.TEXTURE_ID)
+		if not ok then
+			warn("[DragonService] dragon build failed: " .. tostring(rig))
+			return
+		end
 		rig.model.Parent = char
 		setCharacterHidden(char, true)
 		char:SetAttribute("DragonForm", true)
