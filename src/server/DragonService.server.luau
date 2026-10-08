@@ -157,14 +157,14 @@ local function setForm(player: Player, on: boolean)
 			dbg(player.Name, "died -> dragon destroyed")
 			rig.model:Destroy()
 		end)
-		-- Transformation blast: everyone caught in it loses 15% of max health (reduced by dragon resist).
+		-- Transformation blast: everyone caught in it loses 15% of max health (bypasses dragon resistance).
 		for _, other in ipairs(Players:GetPlayers()) do
 			local oc = other.Character
 			local oh = oc and oc:FindFirstChildOfClass("Humanoid")
 			local orr = oc and oc:FindFirstChild("HumanoidRootPart")
 			if other ~= player and oc and oh and orr and orr:IsA("BasePart") and oh.Health > 0 and (orr.Position - hrp.Position).Magnitude <= Config.TRANSFORM_BLAST_RADIUS then
 				local dmg = oh.MaxHealth * Config.TRANSFORM_DAMAGE_PCT
-				oh:TakeDamage(if oc:GetAttribute("DragonForm") then dmg * (1 - Config.DRAGON_RESIST) else dmg)
+				oh:TakeDamage(dmg) -- bypasses dragon resistance
 				dbg(other.Name, "caught in transformation blast:", string.format("%.0f dmg", dmg))
 			end
 		end
