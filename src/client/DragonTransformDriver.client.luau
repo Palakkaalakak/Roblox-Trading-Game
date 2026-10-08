@@ -60,12 +60,15 @@ local function smooth(x: number, a: number, b: number): number
 	return math.clamp((x - a) / (b - a), 0, 1)
 end
 
--- VFX scale-up. Core.step writes properties as a pure function of t, so after each step every
--- property it just (re)wrote is scaled about the ground point. A per-instance cache of the value
--- we last wrote tells "freshly written by step" (rescale) apart from "untouched" (leave).
+-- VFX scale-up. Each frame: restore the raw (unscaled) values Core.step last produced, let it
+-- step, then record the new raw values and write scaled ones (about the ground point). Restoring
+-- first matters: step may derive one element from another (e.g. rays from the ball's CFrame), so
+-- it must never read already-scaled state (that double-scaled the rays off the ball).
 local K: number = Config.VFX_SCALE -- recalculated per play so the black sphere always swallows the dragon
-local cache: { [Instance]: { [string]: any } } = setmetatable({}, { __mode = "k" }) :: any
 
+local function vmul(v: any): any
+	return v * K
+end
 local function scaleNS(ns: NumberSequence): NumberSequence
 	local kps = {}
 	for i, kp in ipairs(ns.Keypoints) do
@@ -74,74 +77,76 @@ local function scaleNS(ns: NumberSequence): NumberSequence
 	return NumberSequence.new(kps)
 end
 
+type Prop = { name: string, scale: (any, Instance, Vector3) -> any }
+local PROPS: { { cls: string, props: { Prop } } } = {
+	{ cls = "BasePart", props = {
+		{ name = "Size", scale = vmul },
+		{ name = "CFrame", scale = function(cf: any, _, g: Vector3): any
+			return cf.Rotation + (g + (cf.Position - g) * K)
+		end },
+	} },
+	{ cls = "Attachment", props = {
+		{ name = "Position", scale = function(p: any, d: Instance, g: Vector3): any
+			return if d.Parent and d.Parent:IsA("Terrain") then g + (p - g) * K else p * K
+		end },
+	} },
+	{ cls = "Beam", props = {
+		{ name = "Width0", scale = vmul },
+		{ name = "Width1", scale = vmul },
+		{ name = "CurveSize0", scale = vmul },
+		{ name = "CurveSize1", scale = vmul },
+	} },
+	{ cls = "ParticleEmitter", props = {
+		{ name = "Size", scale = scaleNS },
+		{ name = "Speed", scale = function(r: any): any
+			return NumberRange.new(r.Min * K, r.Max * K)
+		end },
+		{ name = "Acceleration", scale = vmul },
+	} },
+	{ cls = "BillboardGui", props = {
+		{ name = "Size", scale = function(sz: any): any
+			return UDim2.new(sz.X.Scale * K, sz.X.Offset, sz.Y.Scale * K, sz.Y.Offset)
+		end },
+		{ name = "StudsOffset", scale = vmul },
+		{ name = "StudsOffsetWorldSpace", scale = vmul },
+	} },
+	{ cls = "Light", props = {
+		{ name = "Range", scale = function(r: any): any
+			return math.min(r * K, 60)
+		end },
+	} },
+}
+
+local raw: { [Instance]: { [string]: any } } = setmetatable({}, { __mode = "k" }) :: any
+
+local function restore()
+	for d, props in pairs(raw) do
+		if d.Parent then
+			for name, v in pairs(props) do
+				(d :: any)[name] = v
+			end
+		end
+	end
+end
+
 local function rescale(root: Instance, g: Vector3)
 	if K == 1 then
 		return
 	end
 	for _, d in ipairs(root:GetDescendants()) do
-		local c = cache[d]
-		if not c then
-			c = {}
-			cache[d] = c
-		end
-		local x = d :: any
-		if d:IsA("BasePart") then
-			if x.Size ~= c.size then
-				x.Size *= K
-				c.size = x.Size
-			end
-			if x.CFrame ~= c.cf then
-				local cf: CFrame = x.CFrame
-				x.CFrame = cf.Rotation + (g + (cf.Position - g) * K)
-				c.cf = x.CFrame
-			end
-		elseif d:IsA("Attachment") then
-			if x.Position ~= c.pos then
-				x.Position = if d.Parent and d.Parent:IsA("Terrain") then g + (x.Position - g) * K else x.Position * K
-				c.pos = x.Position
-			end
-		elseif d:IsA("Beam") then
-			for _, prop in ipairs({ "Width0", "Width1", "CurveSize0", "CurveSize1" }) do
-				if x[prop] ~= c[prop] then
-					x[prop] *= K
-					c[prop] = x[prop]
+		for _, entry in ipairs(PROPS) do
+			if d:IsA(entry.cls) then
+				local r = raw[d]
+				if not r then
+					r = {}
+					raw[d] = r
 				end
-			end
-		elseif d:IsA("ParticleEmitter") then
-			if tostring(x.Size) ~= c.size then
-				x.Size = scaleNS(x.Size)
-				c.size = tostring(x.Size)
-			end
-			if tostring(x.Speed) ~= c.speed then
-				x.Speed = NumberRange.new(x.Speed.Min * K, x.Speed.Max * K)
-				c.speed = tostring(x.Speed)
-			end
-			if x.Acceleration ~= c.acc then
-				x.Acceleration *= K
-				c.acc = x.Acceleration
-			end
-		elseif d:IsA("BillboardGui") then
-			if x.Size ~= c.size then
-				x.Size = UDim2.new(x.Size.X.Scale * K, x.Size.X.Offset, x.Size.Y.Scale * K, x.Size.Y.Offset)
-				c.size = x.Size
-			end
-			if x.StudsOffset ~= c.so then
-				x.StudsOffset *= K
-				c.so = x.StudsOffset
-			end
-			if x.StudsOffsetWorldSpace ~= c.sow then
-				x.StudsOffsetWorldSpace *= K
-				c.sow = x.StudsOffsetWorldSpace
-			end
-		elseif d:IsA("Light") then
-			if x.Range ~= c.range then
-				x.Range = math.min(x.Range * K, 60)
-				c.range = x.Range
-			end
-		elseif d:IsA("SpecialMesh") and x.MeshType == Enum.MeshType.FileMesh then
-			if x.Scale ~= c.scale then
-				x.Scale *= K
-				c.scale = x.Scale
+				for _, pr in ipairs(entry.props) do
+					local v = (d :: any)[pr.name]
+					r[pr.name] = v;
+					(d :: any)[pr.name] = pr.scale(v, d, g)
+				end
+				break
 			end
 		end
 	end
@@ -229,7 +234,6 @@ local function play(forward: boolean)
 	hrp.Anchored = true
 	button.Active = false
 	button.AutoButtonColor = false
-	setZoom(Config.TRANSFORM_ZOOM)
 
 	local groundPos = hrp.Position - Vector3.new(0, hum.HipHeight + hrp.Size.Y / 2, 0)
 	local folder = Instance.new("Folder")
@@ -238,6 +242,7 @@ local function play(forward: boolean)
 	-- Dragon reach from the torso (design units * scale) must sit inside the sphere with margin.
 	local need = Config.DRAGON_EXTENT * Config.SCALE * Config.SPHERE_MARGIN
 	K = math.max(Config.VFX_SCALE, need / sphereRadius(groundPos))
+	setZoom(math.max(Config.TRANSFORM_ZOOM, sphereRadius(groundPos) * K * 2.4))
 	if RunService:IsStudio() then
 		print(string.format("[DragonTransformDriver] sphere raw r=%.1f K=%.2f -> sphere r=%.1f, dragon reach=%.1f", sphereRadius(groundPos), K, sphereRadius(groundPos) * K, Config.DRAGON_EXTENT * Config.SCALE))
 	end
@@ -269,6 +274,7 @@ local function play(forward: boolean)
 		local u = math.clamp(uAt(e), 0, DURATION)
 		-- A VFX/rescale error must never stop the swap or the cleanup below, so isolate it.
 		local ok, err = pcall(function()
+			restore()
 			Core.step(state, u, cam.CFrame.Position)
 			rescale(folder, groundPos)
 		end)

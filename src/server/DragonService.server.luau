@@ -38,7 +38,7 @@ do
 	end
 end
 
-local lastFire: { [Player]: number } = {}
+local lastFire: { [Player]: { [string]: number } } = {}
 
 local function setCharacterHidden(char: Model, hidden: boolean)
 	for _, d in ipairs(char:GetDescendants()) do
@@ -104,6 +104,7 @@ local function setForm(player: Player, on: boolean)
 		char:SetAttribute("DragonForm", nil)
 		char:SetAttribute("DragonFlying", nil)
 		char:SetAttribute("DragonChargeStart", nil)
+		char:SetAttribute("DragonChargeMove", nil)
 	end
 end
 
@@ -130,17 +131,24 @@ local function dragonOf(char: Model?): Model?
 	return if d and d:IsA("Model") then d else nil
 end
 
-local function coolingDown(player: Player): boolean
-	return os.clock() - (lastFire[player] or -math.huge) < FB.COOLDOWN
+local function moveOf(m: any): string?
+	return if typeof(m) == "string" and Config.MOVES[m] then m else nil
+end
+
+local function coolingDown(player: Player, move: string): boolean
+	local t = lastFire[player] and lastFire[player][move]
+	return t ~= nil and os.clock() - t < Config.MOVES[move].cooldown
 end
 
 -- Start charging: the attribute replicates so every client renders the charge orb.
-chargeR.OnServerEvent:Connect(function(player: Player)
+chargeR.OnServerEvent:Connect(function(player: Player, moveArg: any)
+	local move = moveOf(moveArg)
 	local char = player.Character
-	if not (char and dragonOf(char)) or coolingDown(player) then
+	if not (move and char and dragonOf(char)) or coolingDown(player, move) then
 		return
 	end
 	if char:GetAttribute("DragonChargeStart") == nil then
+		char:SetAttribute("DragonChargeMove", move)
 		char:SetAttribute("DragonChargeStart", workspace:GetServerTimeNow())
 	end
 end)
@@ -163,32 +171,36 @@ end
 
 local nextId = 0
 
-fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any)
+fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: any)
+	local move = moveOf(moveArg)
 	local char = player.Character
 	local dragon = dragonOf(char)
 	local mouth = dragon and DragonRig.mouthCFrame(dragon)
-	if not (char and mouth and typeof(dirArg) == "Vector3" and dirArg.Magnitude > 0.1) or coolingDown(player) then
+	if not (move and char and mouth and typeof(dirArg) == "Vector3" and dirArg.Magnitude > 0.1) or coolingDown(player, move) then
 		return
 	end
-	lastFire[player] = os.clock()
+	local mv = Config.MOVES[move]
+	lastFire[player] = lastFire[player] or {}
+	lastFire[player][move] = os.clock()
 	local now = workspace:GetServerTimeNow()
-	local start = char:GetAttribute("DragonChargeStart")
+	-- Only a charge started for this same move counts.
+	local start = if char:GetAttribute("DragonChargeMove") == move then char:GetAttribute("DragonChargeStart") else nil
 	char:SetAttribute("DragonChargeStart", nil)
+	char:SetAttribute("DragonChargeMove", nil)
 	char:SetAttribute("DragonFireTime", now)
 
-	-- Charge 0..1 scales size x1..x2, speed x1..x1.5, damage x1..x3.
+	-- Charge 0..1: size eases from MIN_SIZE to 1 fast; speed x1..x1.5 and damage x1..x3 linear.
 	local c = if typeof(start) == "number" then math.clamp((now - start) / FB.MAX_CHARGE, 0, 1) else 0
-	local size = 1 + c
-	local speed = FB.SPEED * (1 + 0.5 * c)
-	local damage = FB.DAMAGE * (1 + 2 * c)
-	local D = DragonRig.fireballBaseD(dragon :: Model, FB.MAX_D_HEAD) * size
+	local speed = FB.SPEED * mv.speed * (1 + 0.5 * c)
+	local damage = FB.DAMAGE * mv.damage * (1 + 2 * c)
+	local D = DragonRig.fireballMaxD(dragon :: Model, FB.MAX_D_HEAD) * mv.size * DragonRig.sizeFactor(c, FB.MIN_SIZE)
 	local radius = D * FB.BLAST_PER_D
 	local dir = dirArg.Unit
 	local origin = mouth.Position + dir * D * 0.6
 
 	nextId += 1
 	local id = nextId
-	fxR:FireAllClients("launch", id, origin, dir, speed, D, now, FB.RANGE, c)
+	fxR:FireAllClients("launch", id, move, origin, dir, speed, D, now, FB.RANGE, c)
 
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -230,7 +242,7 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any)
 		if hitPos or dist >= FB.RANGE then
 			conn:Disconnect()
 			local at = hitPos or pos
-			fxR:FireAllClients("explode", id, at, normal, radius, grounded, c)
+			fxR:FireAllClients("explode", id, move, at, normal, radius, grounded, c)
 			damageAround(player, at, radius, damage)
 		end
 	end)

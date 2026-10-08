@@ -76,11 +76,17 @@ function DragonRig.mouthCFrame(model: Instance): CFrame?
 	return CFrame.lookAt(head.Position + fwd * len - Vector3.new(0, head.Size.Y * 0.12, 0), head.Position + fwd * (len + 1))
 end
 
--- Fireball diameter at no charge for this dragon (max charge doubles it to MAX_D_HEAD x head).
-function DragonRig.fireballBaseD(model: Instance, maxDHead: number): number
+-- Fully charged fireball diameter for this dragon (MAX_D_HEAD x the head's largest dimension).
+function DragonRig.fireballMaxD(model: Instance, maxDHead: number): number
 	local head = model:FindFirstChild("Head")
 	local s = if head and head:IsA("BasePart") then math.max(head.Size.X, head.Size.Y, head.Size.Z) else 6
-	return s * maxDHead / 2
+	return s * maxDHead
+end
+
+-- Charge 0..1 -> size fraction: starts small and grows fast (ease-out cubic), 1 at full charge.
+function DragonRig.sizeFactor(c: number, minSize: number): number
+	local k = math.clamp(c, 0, 1)
+	return minSize + (1 - minSize) * (1 - (1 - k) ^ 3)
 end
 
 -- sourceRoot: where the imported MeshParts live (nil -> placeholder blocks).

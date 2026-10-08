@@ -36,7 +36,9 @@ local flying = false
 local lv: LinearVelocity? = nil
 local ao: AlignOrientation? = nil
 local lastTap = 0
-local lastFire = -math.huge
+local lastFire: { [string]: number } = {}
+local MOVE_KEYS: { [Enum.KeyCode]: string } = { [Enum.KeyCode.R] = "R", [Enum.KeyCode.Q] = "Q", [Enum.KeyCode.F] = "F" }
+local chargingMove: string? = nil
 local charging = false
 local cameraOnHead = false
 local chargeStart = 0
@@ -123,29 +125,31 @@ local function releaseCharge()
 		return
 	end
 	charging = false
+	local move = chargingMove or "R"
+	chargingMove = nil
 	local char = dragonChar()
 	local dragon = char and char:FindFirstChild("WestDragon")
 	local mouth = dragon and DragonRig.mouthCFrame(dragon)
 	if char and mouth then
-		lastFire = os.clock()
-		fireballR:FireServer(aimDir(char, mouth.Position))
+		lastFire[move] = os.clock()
+		fireballR:FireServer(aimDir(char, mouth.Position), move)
 	end
 end
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.R then
+	if chargingMove and MOVE_KEYS[input.KeyCode] == chargingMove then
 		releaseCharge()
 	end
 end)
 
 -- Fireball VFX for every shot in the server (launch -> projectile, explode -> impact).
 local shots: { [number]: DragonFX.Shot } = {}
-fxR.OnClientEvent:Connect(function(kind: string, id: number, ...: any)
+fxR.OnClientEvent:Connect(function(kind: string, id: number, move: string, ...: any)
 	local a, b, c, d, e, f, g = ...
 	if kind == "launch" then
 		local origin, dir, speed, D, t0, range, power = a, b, c, d, e, f, g
-		DragonFX.muzzle(origin, dir, D, power)
-		shots[id] = DragonFX.projectile(origin, dir, speed, D, t0, range, power)
+		DragonFX.muzzle(origin, dir, D, power, move)
+		shots[id] = DragonFX.projectile(move, origin, dir, speed, D, t0, range, power)
 		local cam = workspace.CurrentCamera
 		if (cam.CFrame.Position - origin).Magnitude < 250 then
 			DragonFX.shake(0.25 + 0.6 * power)
@@ -157,7 +161,7 @@ fxR.OnClientEvent:Connect(function(kind: string, id: number, ...: any)
 			s.stop()
 			shots[id] = nil
 		end
-		DragonFX.explode(pos, normal, R, grounded, power)
+		DragonFX.explode(move, pos, normal, R, grounded, power)
 	end
 end)
 
@@ -177,11 +181,14 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		else
 			lastTap = now
 		end
-	elseif input.KeyCode == Enum.KeyCode.R then
-		if dragonChar() and not charging and os.clock() - lastFire >= FB.COOLDOWN then
+	elseif MOVE_KEYS[input.KeyCode] then
+		local move = MOVE_KEYS[input.KeyCode]
+		local last = lastFire[move]
+		if dragonChar() and not charging and (last == nil or os.clock() - last >= Config.MOVES[move].cooldown) then
 			charging = true
+			chargingMove = move
 			chargeStart = os.clock()
-			chargeR:FireServer()
+			chargeR:FireServer(move)
 		end
 	end
 end)
@@ -230,12 +237,9 @@ RunService.RenderStepped:Connect(function(dt)
 		if not dragonChar() then
 			charging = false
 		else
-			local held = os.clock() - chargeStart
-			if held >= FB.MAX_CHARGE then
-				releaseCharge()
-			else
-				DragonFX.shake(0.03 + 0.12 * held / FB.MAX_CHARGE)
-			end
+			-- Holds at max charge until released (no auto-fire).
+			local held = math.min((os.clock() - chargeStart) / FB.MAX_CHARGE, 1)
+			DragonFX.shake(0.03 + 0.12 * held)
 		end
 	end
 
@@ -288,11 +292,14 @@ RunService.RenderStepped:Connect(function(dt)
 				local ft = char:GetAttribute("DragonFireTime")
 				local since = if typeof(ft) == "number" then now - ft else 99
 				if typeof(cs) == "number" then
+					local cm = char:GetAttribute("DragonChargeMove")
+					local chMove = if typeof(cm) == "string" and Config.MOVES[cm] then cm else "R"
+					local mvSize = Config.MOVES[chMove].size
 					if not charges[char] then
 						local m = model
 						charges[char] = DragonFX.charge(function()
 							return if m.Parent then DragonRig.mouthCFrame(m) else nil
-						end, cs, FB.MAX_CHARGE, DragonRig.fireballBaseD(m, FB.MAX_D_HEAD))
+						end, cs, FB.MAX_CHARGE, DragonRig.fireballMaxD(m, FB.MAX_D_HEAD) * mvSize, chMove)
 					end
 					DragonRig.setJaw(rig, 0.2 + 0.4 * math.clamp((now - cs) / FB.MAX_CHARGE, 0, 1))
 				else
