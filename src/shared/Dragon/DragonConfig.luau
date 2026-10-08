@@ -5,7 +5,6 @@ return {
 	DRAGON_EXTENT = 12, -- farthest point of the dragon from its centre, design units (wing tip / tail)
 	SPHERE_MARGIN = 1.35, -- sphere radius must be at least this x the dragon reach at the blast -- transformation VFX (DragonWestVFXCore) size multiplier
 	REVERSE_SPHERE_SPEED = 2.5, -- revert: sphere part of the reversed VFX plays this much faster
-	CAMERA_HEIGHT = 6, -- Humanoid.CameraOffset.Y while a dragon
 	DRAGON_ZOOM = 44, -- camera distance right after transforming
 	TRANSFORM_ZOOM = 132, -- camera distance during the (scaled) transform VFX
 	DRAGON_WALKSPEED = 28,

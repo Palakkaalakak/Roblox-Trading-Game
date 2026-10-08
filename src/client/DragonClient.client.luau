@@ -38,6 +38,7 @@ local ao: AlignOrientation? = nil
 local lastTap = 0
 local lastFire = -math.huge
 local charging = false
+local cameraOnHead = false
 local chargeStart = 0
 local charges: { [Model]: { stop: () -> () } } = {}
 
@@ -238,12 +239,21 @@ RunService.RenderStepped:Connect(function(dt)
 		end
 	end
 
-	-- Camera rides higher while a dragon (it is ~5x a character).
-	local myHum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-	if myHum then
-		local want = if dragonChar() then Vector3.new(0, Config.CAMERA_HEIGHT, 0) else Vector3.zero
-		if myHum.CameraOffset ~= want then
-			myHum.CameraOffset = want
+	-- Camera follows the dragon's head (not the hidden character's root/name tag).
+	local cam = workspace.CurrentCamera
+	local myChar, _, myHum = dragonChar()
+	if myChar and myHum then
+		local dm = myChar:FindFirstChild("WestDragon")
+		local head = dm and dm:FindFirstChild("Head")
+		if head and head:IsA("BasePart") and cam.CameraSubject ~= head then
+			cam.CameraSubject = head
+			cameraOnHead = true
+		end
+	elseif cameraOnHead then
+		cameraOnHead = false
+		local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+		if h then
+			cam.CameraSubject = h
 		end
 	end
 

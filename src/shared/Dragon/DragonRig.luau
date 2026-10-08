@@ -85,13 +85,13 @@ function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: numbe
 	local frames: { [string]: CFrame } = {}
 	local jointFrames: { [string]: CFrame } = {}
 
-	-- Honour the imported size: scale = (imported Torso size / manifest Torso size) * scale.
-	local mult = scale
+		local mult = scale
 	local srcTorso = sourceRoot and findMesh(sourceRoot, "Torso")
 	local srcHead = sourceRoot and findMesh(sourceRoot, "Head")
-	if srcTorso then
-		scale *= srcTorso.Size.Y / Joints[1].size.Y
-	end
+	-- The import is often much larger than the manifest (e.g. 7x): sizes always come from the
+	-- manifest * Config.SCALE (a MeshPart rescales its mesh to Size), only the ratio is needed
+	-- to convert source offsets into rig units.
+	local srcRatio = if srcTorso then srcTorso.Size.Y / Joints[1].size.Y else 1
 
 	-- Facing: the import may be mirrored vs the manifest (Roblox importers flip Z). Compare the
 	-- Torso->Head direction in the source with the manifest's; if opposite, work in the source's
@@ -145,7 +145,7 @@ function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: numbe
 		if src and srcTorso and flip == -1 then
 			-- Mirrored import: keep each part's own orientation/offset relative to the Torso part.
 			local rel = srcTorso.CFrame:ToObjectSpace(src.CFrame)
-			frames[j.name] = CFrame.new(torsoCenter + rel.Position * mult) * rel.Rotation
+			frames[j.name] = CFrame.new(torsoCenter + rel.Position * (mult / srcRatio)) * rel.Rotation
 		else
 			frames[j.name] = CFrame.new(map(j.pivot + j.center) * scale)
 		end
