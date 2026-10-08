@@ -241,6 +241,29 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 	st.pitch = approach(st.pitch, pitchRaw, 4, dt)
 	local fly, spd, m, f = st.fly, st.spd, rig.motors, rig.flip
 
+	-- Action layers (read from the character's replicated attributes):
+	-- charge = rear back, breathe in; cast = head/neck thrust forward then settle;
+	-- spawn = roar right after transforming (head up, wings flare).
+	local char = rig.model.Parent
+	local now = workspace:GetServerTimeNow()
+	local cs = char and char:GetAttribute("DragonChargeStart")
+	local ft = char and char:GetAttribute("DragonFireTime")
+	if not st.born then
+		st.born = t
+	end
+	st.charge = approach(st.charge or 0, if typeof(cs) == "number" then math.clamp((now - cs) / 1.5, 0, 1) else 0, 8, dt)
+	local sinceFire = if typeof(ft) == "number" then now - ft else 99
+	local cast = if sinceFire >= 0 and sinceFire < 0.6 then math.sin(math.min(sinceFire / 0.12, 1) * math.pi * 0.5) * (1 - math.clamp((sinceFire - 0.12) / 0.48, 0, 1)) else 0
+	local roarT = t - st.born
+	local roar = if roarT < 1.4 then math.sin(math.clamp(roarT / 1.4, 0, 1) * math.pi) else 0
+	-- idle look-around on the ground
+	st.lookT = (st.lookT or 0) - dt
+	if st.lookT <= 0 then
+		st.lookT = 2 + math.random() * 3
+		st.lookTarget = (math.random() - 0.5) * 0.9
+	end
+	st.look = approach(st.look or 0, (st.lookTarget or 0) * (1 - fly) * (1 - math.clamp(spd / 8, 0, 1)), 2, dt)
+
 	-- Wings: phase accumulates; downstroke faster than upstroke (sharper, more natural beat).
 	local hz = WING_FLAP_HZ_IDLE + (WING_FLAP_HZ_FLY - WING_FLAP_HZ_IDLE + math.clamp(spd / 80, 0, 1) * 1.2) * fly
 	st.wing += dt * hz * math.pi * 2
@@ -251,7 +274,12 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 	local flap = wave * amp + 0.15 * fly * glide
 	for _, side in ipairs({ "L", "R" }) do
 		local s = (if side == "R" then 1 else -1) * f
-		rot(m[side .. "_Wing_UpperArm"], 0, 0, s * flap)
+		-- grounded & idle: wings fold back along the body; roar/charge flares them open
+		local fold = (1 - fly) * (1 - roar) * (1 - st.charge) * 0.55
+		local flare = (roar * 0.5 + st.charge * 0.3) * (1 - fly)
+		if m[side .. "_Wing_UpperArm"] then
+			m[side .. "_Wing_UpperArm"].Transform = CFrame.Angles(0, -s * fold, s * (flap + flare - fold * 0.3))
+		end
 		-- forearm/hand lag behind the upper arm (follow-through)
 		local lag = wave * amp
 		rot(m[side .. "_Wing_Forearm"], 0, 0, s * (flap * 0.5 + lag * 0.15))
@@ -290,13 +318,16 @@ function DragonRig.animate(rig: Rig, t: number, speedRaw: number, flying: boolea
 		rot(m[string.format("Tail_%02d", i)], math.sin(st.idle * 2.2 - i * 0.45) * 0.035 * f, math.sin(st.idle * 1.8 + st.walk * 0.5 - i * 0.5) * sway - st.bank * 0.25 * k, 0)
 	end
 	for i = 1, 4 do
-		rot(m[string.format("Neck_%02d", i)], (math.sin(st.idle * 1.5 - i * 0.3) * 0.03 - wave * amp * 0.04) * f, st.bank * 0.12, 0)
+		local rear = (-st.charge * 0.12 - roar * 0.14 + cast * 0.16) -- negative = head back/up
+		rot(m[string.format("Neck_%02d", i)], (math.sin(st.idle * 1.5 - i * 0.3) * 0.03 - wave * amp * 0.04 + rear) * f, st.bank * 0.12 + st.look * 0.25, 0)
 	end
-	rot(m.Head, -st.pitch * 0.3 * f, st.bank * 0.1, 0)
+	rot(m.Head, (-st.pitch * 0.3 - roar * 0.25 + cast * 0.2) * f, st.bank * 0.1 + st.look * 0.3, 0)
 
 	-- Body: bob from wingbeat (lifts on downstroke) or footfalls, pitch and bank.
 	local bob = (fly * -wave * amp * 0.5 + (1 - fly) * math.abs(math.sin(st.walk)) * 0.1 * walkW + math.sin(st.idle * 1.5) * 0.03) * rig.scale
-	rig.weld.C0 = rig.baseC0 * CFrame.new(0, bob, 0) * CFrame.Angles(st.pitch * f, 0, st.bank * f)
+	bob -= (st.charge * 0.25 * (1 - fly)) * rig.scale -- crouch while charging on the ground
+	local recoil = -cast * 0.08 -- body rocks back as the fireball leaves
+	rig.weld.C0 = rig.baseC0 * CFrame.new(0, bob, 0) * CFrame.Angles((st.pitch + recoil - roar * 0.1) * f, 0, st.bank * f)
 end
 
 function DragonRig.setJaw(rig: Rig, open: number)
