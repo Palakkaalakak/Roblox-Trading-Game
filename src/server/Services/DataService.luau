@@ -17,7 +17,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local SessionStore = require(script.Parent.Parent.Stores.SessionStore)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 
-local SCHEMA_VERSION = 6
+local SCHEMA_VERSION = 10
 
 local DataService = {}
 
@@ -40,6 +40,9 @@ local function template()
 		Inventory = {},
 		StarterGranted = false,
 		StarterGrantId = "",
+		StarterVariant = "",
+		StarterGrantItems = {},
+		StarterRevealShown = false,
 		ClaimedIds = {},
 		StorePurchases = {}, -- itemId -> lifetime count bought from the limited store
 		Meta = { firstJoin = os.time(), lastLogin = os.time(), joins = 0 },
@@ -48,7 +51,7 @@ local function template()
 		StatChips = {},
 		Status = "",
 		Privacy = { hideValue = false, hideShowcase = false },
-		Lifetime = { gemsEarned = 0, trades = 0 },
+		Lifetime = { gemsEarned = 0, trades = 0, playSeconds = 0, peakWorth = 0 },
 		-- v3: rewarded-ad counters. `day` is a UTC day stamp, so the daily cap
 		-- resets simply by no longer matching — no scheduled job needed.
 		Ads = { day = "", count = 0, lastAt = 0, bonusUsed = 0 },
@@ -85,6 +88,14 @@ local function template()
 		-- v6: gamepass-granted permanent ad perks. Stamped onto listings at post
 		-- time so sorting on OTHER servers needs no lookup for an absent poster.
 		AdPerks = { priority = false, duration = false },
+		-- v9: rank/quests. `counts` is per-kind lifetime totals (never reset --
+		-- a quest's `target` is checked against this, so quest 7 "complete 5
+		-- trades" just means counts.complete_trade >= 5); `completed` is how
+		-- many quests in QuestConfig's ORDER are done, the only number
+		-- RankConfig reads.
+		-- v10: `unclaimed` = main-quest ids done but not yet claimed; `daily` =
+		-- today's 3 quests {day, picks, base, claimed}; `streak` = {count, lastDay}.
+		Progression = { counts = {}, completed = 0, unclaimed = {}, daily = nil, streak = { count = 0, lastDay = -1 } },
 	}
 end
 
@@ -125,6 +136,40 @@ local migrations: { [number]: (any) -> any } = {
 		data.TradeAds.credits = data.TradeAds.credits or {}
 		data.AdPerks = data.AdPerks or { priority = false, duration = false }
 		data.SchemaVersion = 6
+		return data
+	end,
+	[6] = function(data)
+		-- v7: lifetime playtime, read by Community Rewards rate modifiers
+		data.Lifetime = data.Lifetime or { gemsEarned = 0, trades = 0 }
+		data.Lifetime.playSeconds = data.Lifetime.playSeconds or 0
+		data.SchemaVersion = 7
+		return data
+	end,
+	[7] = function(data)
+		-- v8: the first-join reveal takeover. An account migrating in here
+		-- already went through the (silent, UI-less) starter grant under the
+		-- old code -- it must never retroactively show the new takeover, so a
+		-- StarterGranted account is stamped as already-shown on arrival.
+		-- Genuinely new profiles never pass through migrate() at all (they
+		-- come straight from template()), so this only ever touches existing
+		-- players.
+		data.StarterVariant = data.StarterVariant or ""
+		data.StarterGrantItems = data.StarterGrantItems or {}
+		data.StarterRevealShown = data.StarterGranted == true
+		data.SchemaVersion = 8
+		return data
+	end,
+	[8] = function(data)
+		data.Progression = data.Progression or { counts = {}, completed = 0 }
+		data.Progression.counts = data.Progression.counts or {}
+		data.Progression.completed = data.Progression.completed or 0
+		data.SchemaVersion = 9
+		return data
+	end,
+	[9] = function(data)
+		data.Progression.unclaimed = data.Progression.unclaimed or {}
+		data.Progression.streak = data.Progression.streak or { count = 0, lastDay = -1 }
+		data.SchemaVersion = 10
 		return data
 	end,
 }

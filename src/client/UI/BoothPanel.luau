@@ -33,7 +33,7 @@ local Format = require(ReplicatedStorage.Shared.Util.Format)
 
 local BoothPanel = {}
 
-local CELL = 104 -- slot square, px
+local CELL = 116 -- slot square, px
 local GAP = 10
 local SWATCH_W, SWATCH_H = 116, 118
 
@@ -266,13 +266,13 @@ local function refreshComposer()
 		name.Position = UDim2.fromScale(0.05, 0.57)
 		name.Size = UDim2.fromScale(0.9, 0.17)
 		name.Font = Theme.Font
-		name.TextSize = 10
+		name.TextSize = 12
 		name.TextScaled = true
 		name.TextColor3 = Theme.TextPrimary
 		name.Text = snap and snap.name or itemId
 		name.ZIndex = Z_TILE_TOP
 		name.Parent = tile
-		Instance.new("UITextSizeConstraint", name).MaxTextSize = 10
+		Instance.new("UITextSizeConstraint", name).MaxTextSize = 12
 
 		local count = Instance.new("TextLabel")
 		count.BackgroundTransparency = 1
@@ -339,7 +339,7 @@ local function cellAt(i: number): TextButton
 	cell.ZIndex = Z_CELL
 	cell.Parent = grid
 	corner(cell, 8)
-	stroke(cell, Theme.Stroke, 1.5).Name = "Edge"
+	stroke(cell, Theme.Stroke, 2).Name = "Edge"
 	-- connected ONCE: connecting inside render stacked listeners, so a click
 	-- fired as many times as the panel had repainted
 	cell.Activated:Connect(function()
@@ -376,13 +376,13 @@ local function cellAt(i: number): TextButton
 	name.Position = UDim2.fromScale(0.05, 0.48)
 	name.Size = UDim2.fromScale(0.9, 0.15)
 	name.Font = Theme.Font
-	name.TextSize = 12
+	name.TextSize = 14
 	name.TextScaled = true
 	name.TextColor3 = Theme.TextPrimary
 	name.Text = ""
 	name.ZIndex = Z_CELL_TOP
 	name.Parent = cell
-	Instance.new("UITextSizeConstraint", name).MaxTextSize = 12
+	Instance.new("UITextSizeConstraint", name).MaxTextSize = 15
 
 	local price = Instance.new("TextLabel")
 	price.Name = "Price"
@@ -1042,18 +1042,23 @@ function BoothPanel.build(gui: ScreenGui, toastFn: (string, Color3) -> (), tip: 
 	totalLabel.ZIndex = Z_COMPOSER_TOP
 	totalLabel.Parent = confirm
 
-	local confirmCancel = button("Cancel", "Cancel", Theme.BgLight, confirm, Z_COMPOSER_TOP)
-	confirmCancel.AnchorPoint = Vector2.new(1, 1)
-	confirmCancel.Position = UDim2.new(1, -124, 1, -14)
-	confirmCancel.Size = UDim2.fromOffset(104, 32)
+	-- Buy is the big obvious action; declining is a small, quiet text link
+	-- worded as missing out.
+	local confirmCancel = button("Cancel", "No thanks, I'll miss out", Theme.Panel, confirm, Z_COMPOSER_TOP)
+	confirmCancel.AnchorPoint = Vector2.new(0, 1)
+	confirmCancel.Position = UDim2.new(0, 16, 1, -18)
+	confirmCancel.Size = UDim2.fromOffset(150, 20)
+	confirmCancel.BackgroundTransparency = 1
+	confirmCancel.TextColor3 = Theme.TextDim
+	confirmCancel.TextSize = 11
 	confirmCancel.Activated:Connect(function()
 		confirm.Visible = false
 	end)
 
 	local confirmBuy = button("Buy", "Buy", Theme.Good, confirm, Z_COMPOSER_TOP)
 	confirmBuy.AnchorPoint = Vector2.new(1, 1)
-	confirmBuy.Position = UDim2.new(1, -10, 1, -14)
-	confirmBuy.Size = UDim2.fromOffset(108, 32)
+	confirmBuy.Position = UDim2.new(1, -10, 1, -12)
+	confirmBuy.Size = UDim2.fromOffset(150, 40)
 
 	local confirmStepper: any = nil
 	local confirmRow: any = nil

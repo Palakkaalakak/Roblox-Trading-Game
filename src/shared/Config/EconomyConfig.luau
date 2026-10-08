@@ -92,6 +92,12 @@ local EconomyConfig = {
 	TradeBroadcastTopic = "trade_signal",
 	MailboxBroadcastTopic = "mailbox_ping",
 	BoardBroadcastTopic = "board_delta",
+	-- Settlement can't take from a poster who's live on ANOTHER server (their
+	-- session lock means a detached write here would race their own save).
+	-- Instead of refusing and waiting for a later retry pass, ask that server
+	-- to make the take itself -- see TradeBoardService's BoardSettleTopic use.
+	BoardSettleTopic = "board_settle",
+	BoardSettleWaitSeconds = 3, -- how long to wait for the owning server's answer
 }
 
 return EconomyConfig

@@ -14,13 +14,17 @@ local Components = require(script.Parent.Components)
 local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
+local State = require(ReplicatedStorage.Shared.Util.State)
 local Format = require(ReplicatedStorage.Shared.Util.Format)
 local Net = require(script.Parent.Parent.Net)
 local EconomyController = require(script.Parent.Parent.Controllers.EconomyController)
+local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local TradeController = require(script.Parent.Parent.Controllers.TradeController)
 local NotificationController = require(script.Parent.Parent.Controllers.NotificationController)
+local QuestController = require(script.Parent.Parent.Controllers.QuestController)
 local TradeScreen = require(script.Parent.TradeScreen)
 local MarketScreen = require(script.Parent.MarketScreen)
+local BulkBuyScreen = require(script.Parent.BulkBuyScreen)
 local ShopScreen = require(script.Parent.ShopScreen)
 
 local BoardScreen = {}
@@ -156,7 +160,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local busy = false
 	local refresh
 	local openBoostSheet: (scope: string, listingId: string?) -> ()
-	local activeTab: "swap" | "market" = "swap"
+	local activeTab: "swap" | "market" | "bulk" = "swap"
 	-- default "server": bot ads are all server-scoped, so the global feed
 	-- looks empty at low population — a new player's first look at the board
 	-- should show ads, not a void
@@ -167,6 +171,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		panel.Visible = false
 		postBoostPanel.Visible = false -- a half-answered post picker must not survive a close
 		MarketScreen.hide() -- stop background refreshes while closed
+		BulkBuyScreen.hide()
 	end)
 
 	-- Set by renderBoard; cleared here so a teardown can never leave the cache
@@ -239,7 +244,14 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- Both sides share one density even when their counts differ. A 2x2 facing
 	-- a 3x3 makes the smaller side's items look more valuable than the other's
 	-- purely because their art is bigger, which is a lie about the trade.
-	local function applyChipGrid(holder: Frame, cols: number)
+	--
+	-- `reserveGems`: a "+N gems" line lives in the bottom strip of each block,
+	-- and a side with 3+ items fills that strip with its second tile row, so the
+	-- line printed straight over the tiles. When EITHER side carries gems both
+	-- blocks shrink their tiles slightly (still square, still one shared size)
+	-- to leave that strip clear -- shrinking only the side with gems would
+	-- reintroduce the mismatched-art problem described above.
+	local function applyChipGrid(holder: Frame, cols: number, reserveGems: boolean)
 		local grid = holder:FindFirstChildWhichIsA("UIGridLayout")
 		if grid == nil then
 			return
@@ -248,8 +260,14 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		-- of near-full-width tiles read as one solid slab rather than four
 		-- separate things you could count; the air between them is what makes
 		-- them read as individual items.
-		local cell = cols == 2 and 0.40 or 0.28
-		local pad = cols == 2 and 0.20 or 0.08
+		-- Reserved sizes keep the last tile row ending at ~0.80 of the block,
+		-- above the gems line (which starts at ~0.81).
+		local cell, pad
+		if cols == 2 then
+			cell, pad = if reserveGems then 0.34 else 0.40, if reserveGems then 0.12 else 0.20
+		else
+			cell, pad = if reserveGems then 0.24 else 0.28, if reserveGems then 0.04 else 0.08
+		end
 		grid.CellSize = UDim2.fromScale(cell, cell)
 		grid.CellPadding = UDim2.fromScale(pad, pad)
 		grid.FillDirectionMaxCells = cols
@@ -260,10 +278,11 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		gemsIcon: ImageLabel,
 		gemsLabel: TextLabel,
 		offer: any,
-		cols: number
+		cols: number,
+		reserveGems: boolean
 	)
 		local more = holder:WaitForChild("MoreLabel") :: TextLabel
-		applyChipGrid(holder, cols)
+		applyChipGrid(holder, cols, reserveGems)
 		-- The cap is the post panel's own slot count, so in practice nothing is
 		-- ever truncated; it only guards against a malformed payload.
 		local shown = math.min(#offer.items, CHIP_CAP)
@@ -694,6 +713,22 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- `parent` is the feed by default and the featured rail when a listing is
 	-- featured. Same template, same wiring, same everything -- a featured ad IS
 	-- a normal ad, it just sits in the gold box instead of the feed.
+	-- Why this player can't take an auto-trade ad right now, or nil if they can.
+	-- Accept is greyed out instead of green-then-error: a player should see
+	-- BEFORE tapping that they don't hold what the poster wants.
+	local function shortfall(listing: any): string?
+		local held = InventoryController.inventory:get()
+		for _, e in listing.want.items do
+			if not e.wildcard and (held[e.itemId] or 0) < e.count then
+				return "Need items"
+			end
+		end
+		if (listing.want.gems or 0) > InventoryController.gems:get() then
+			return "Need gems"
+		end
+		return nil
+	end
+
 	local function renderListing(listing: any, order: number, parent: Instance?)
 		local row = rowTemplate:Clone()
 		row.Name = "listing_" .. listing.id
@@ -730,8 +765,9 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		badge.TextColor3 = listing.autoTrade and Theme.Good or Theme.Warn
 		-- one density for both sides, driven by whichever side carries more
 		local chipCols = gridColsFor(math.max(#listing.give.items, #listing.want.items))
-		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give, chipCols) -- what the poster GIVES you
-		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want, chipCols) -- what they WANT from you
+		local reserveGems = listing.give.gems > 0 or listing.want.gems > 0
+		fillOfferChips(giveHolder, giveGemsIcon, giveGemsLabel, listing.give, chipCols, reserveGems) -- what the poster GIVES you
+		fillOfferChips(wantHolder, wantGemsIcon, wantGemsLabel, listing.want, chipCols, reserveGems) -- what they WANT from you
 
 		-- the verdict, right after the want side so it reads as part of the trade
 		valueChip.Text, valueChip.TextColor3 = verdictFor(listing)
@@ -858,9 +894,15 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				end)
 			end
 		elseif listing.autoTrade then
-			action.Text = "Accept"
-			action.BackgroundColor3 = Theme.Good
+			local lack = shortfall(listing)
+			action.Text = lack or "Accept"
+			action.BackgroundColor3 = lack and Theme.Bg or Theme.Good
+			action.TextColor3 = lack and Theme.TextDim or Theme.TextPrimary
+			action.AutoButtonColor = lack == nil
 			action.Activated:Connect(function()
+				if lack then
+					return
+				end
 				-- Accepting hands over real items and cannot be undone, so it asks
 				-- first rather than resolving on one stray tap.
 				if not askConfirm(listing) then
@@ -945,6 +987,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				tostring(l.expiresAt or 0),
 				tostring(l.mine),
 				tostring(l.autoTrade),
+				tostring(l.mine or not l.autoTrade or shortfall(l) == nil),
 				tostring(#l.interested),
 			}, ",")
 		end
@@ -996,6 +1039,8 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 				lastListings = result.listings
 				if panel.Visible and activeTab == "swap" then
 					renderBoard(result.listings)
+				elseif panel.Visible and activeTab == "bulk" then
+					BulkBuyScreen.render(result.listings)
 				end
 			end
 		end)
@@ -1006,6 +1051,17 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	-- player to switch tabs before admitting the purchase worked.
 	Net.on("AdBoostStateChanged", function()
 		refreshBoostInventory()
+	end)
+
+	State.Observe(InventoryController.inventory, function()
+		if panel.Visible and activeTab == "swap" and lastListings then
+			renderBoard(lastListings)
+		end
+	end)
+	State.Observe(InventoryController.gems, function()
+		if panel.Visible and activeTab == "swap" and lastListings then
+			renderBoard(lastListings)
+		end
 	end)
 
 	local function selectScope(scope: string)
@@ -1040,14 +1096,20 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local tabButtons = {
 		swap = tabRow:WaitForChild("TabTrades") :: TextButton,
 		market = tabRow:WaitForChild("TabMarket") :: TextButton,
+		bulk = tabRow:WaitForChild("TabBulk") :: TextButton,
 	}
-	local function selectTab(tab: "swap" | "market")
+	BulkBuyScreen.wire(gui, panel, list, tooltip, toast, function()
+		refresh()
+	end)
+	local function selectTab(tab: "swap" | "market" | "bulk")
 		activeTab = tab
 		for key, btn in tabButtons do
 			btn.BackgroundColor3 = (key == tab) and Theme.Accent or Theme.BgLight
 		end
 		if tab == "swap" then
 			MarketScreen.hide()
+			BulkBuyScreen.hide()
+			postBtn.Text = "+ Post trade"
 			list.Visible = true
 			postBtn.Visible = true
 			scopeRow.Visible = true
@@ -1057,7 +1119,20 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			end
 			refresh()
 			refreshBoostInventory()
+		elseif tab == "bulk" then
+			MarketScreen.hide()
+			clearRendered()
+			emptyLabel.Visible = false
+			list.Visible = false
+			scopeRow.Visible = false
+			setFeaturedVisible(false)
+			boostStrip.Visible = false
+			postBtn.Text = "+ Post bulk buy"
+			postBtn.Visible = true
+			BulkBuyScreen.show()
+			refresh()
 		else
+			BulkBuyScreen.hide()
 			clearRendered()
 				emptyLabel.Visible = false
 			list.Visible = false
@@ -1070,6 +1145,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 	for tab, btn in tabButtons do
 		btn.Activated:Connect(function()
+			if tab == "bulk" and not QuestController.hasUnlock("bulkbuy") then
+				toast("Reach Regular rank to unlock Bulk Buy.", Theme.Warn)
+				return
+			end
 			selectTab(tab :: any)
 		end)
 	end
@@ -1090,7 +1169,7 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end
 
 	-- public: open the board straight to a given tab (pillar deep-link / tests)
-	function BoardScreen.openTab(tab: "swap" | "market")
+	function BoardScreen.openTab(tab: "swap" | "market" | "bulk")
 		activeTab = tab
 		BoardScreen.open()
 	end
@@ -1237,6 +1316,10 @@ function BoardScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end)
 
 	postBtn.Activated:Connect(function()
+		if activeTab == "bulk" then
+			BulkBuyScreen.openBuilder()
+			return
+		end
 		panel.Visible = false
 		TradeScreen.openCompose(function(give, want, auto)
 			pendingPost = { give = give, want = want, auto = auto, scope = activeScope }

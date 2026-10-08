@@ -195,19 +195,56 @@ local function withRetry<T>(label: string, attempts: number, fn: () -> T): (bool
 	return false, nil
 end
 
+-- Budget gate. Roblox allots ~60 + 10/player requests per MINUTE per request
+-- type, shared across every store in the experience. Firing blind and retrying
+-- on rejection (what this used to do) turns one throttled read into three, and
+-- starves player-profile saves. Instead ask Roblox for the live budget and WAIT
+-- until there is headroom. Background stores (item economy, leaderboards) keep a
+-- reserve untouched so a player's profile load/save is never queued behind them.
+local PROFILE_RESERVE = { [Enum.DataStoreRequestType.GetAsync] = 25, [Enum.DataStoreRequestType.UpdateAsync] = 12, [Enum.DataStoreRequestType.SetIncrementAsync] = 12 }
+local function awaitBudget(requestType: Enum.DataStoreRequestType, background: boolean)
+	local need = background and (PROFILE_RESERVE[requestType] or 10) or 1
+	local waited = 0
+	while DataStoreService:GetRequestBudgetForRequestType(requestType) <= need and waited < 60 do
+		task.wait(1)
+		waited += 1
+	end
+end
+
 local function liveDataStore(name: string)
 	local ds = DataStoreService:GetDataStore(name)
 	local api = {}
+	local background = name:find("Economy") ~= nil or name:find("Leaderboard") ~= nil
+	-- Several callers asking for the SAME key at once (boot warm-up + a bot sweep +
+	-- a snapshot) each cost a request. Share one in-flight read among them.
+	local inflight: { [string]: { thread } } = {}
 	function api.GetAsync(_, key: string): any
+		local waiters = inflight[key]
+		if waiters then
+			table.insert(waiters, coroutine.running())
+			local ok, v = coroutine.yield()
+			if not ok then
+				error("datastore_get_failed:" .. key)
+			end
+			return v
+		end
+		inflight[key] = {}
+		awaitBudget(Enum.DataStoreRequestType.GetAsync, background)
 		local ok, v = withRetry("GetAsync " .. name .. "/" .. key, 3, function()
 			return ds:GetAsync(key)
 		end)
+		local pending = inflight[key]
+		inflight[key] = nil
+		for _, thread in pending do
+			task.spawn(thread, ok, v)
+		end
 		if not ok then
 			error("datastore_get_failed:" .. key)
 		end
 		return v
 	end
 	function api.SetAsync(_, key: string, value: any)
+		awaitBudget(Enum.DataStoreRequestType.SetIncrementAsync, background)
 		local ok = withRetry("SetAsync " .. name .. "/" .. key, 3, function()
 			return ds:SetAsync(key, value)
 		end)
@@ -216,6 +253,7 @@ local function liveDataStore(name: string)
 		end
 	end
 	function api.UpdateAsync(_, key: string, transform: (any) -> any): any
+		awaitBudget(Enum.DataStoreRequestType.UpdateAsync, background)
 		local ok, v = withRetry("UpdateAsync " .. name .. "/" .. key, 3, function()
 			return ds:UpdateAsync(key, transform)
 		end)

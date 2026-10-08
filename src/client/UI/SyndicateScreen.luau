@@ -23,6 +23,7 @@ local SyndicateScreen = {}
 -- server error code -> something a player can act on
 local ERRORS = {
 	already_in_syndicate = "You're already in a group.",
+	rank_locked = "Reach Trader rank to unlock Syndicates.",
 	not_in_syndicate = "You're not in a group.",
 	insufficient_gems = "You don't have enough gems.",
 	name_too_short = "That name is too short.",

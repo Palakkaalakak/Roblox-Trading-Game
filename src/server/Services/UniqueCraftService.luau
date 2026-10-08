@@ -177,7 +177,19 @@ function UniqueCraftService.buildOffer(outputs: { any }, inputs: { any }, rng: R
 			picked += 1
 		end
 	end
-	if picked == 0 or inputValue <= 0 then
+	-- Total pieces going in must be at least 2 -- a Unique Craft is "several
+	-- things become one better thing", and a single copy of a single item
+	-- swapping for one output is neither that nor a sacrifice (this path
+	-- never runs sacrifice-shaped recipes; output is always worth MORE than
+	-- the inputs). A small candidate pool (e.g. the starter-forced offer,
+	-- constrained to whatever the player's roll happened to contain) can
+	-- otherwise dedupe down to picked=1, count=1 and slip through as a
+	-- degenerate 1-for-1 swap.
+	local totalPieces = 0
+	for _, count in chosen do
+		totalPieces += count
+	end
+	if picked == 0 or inputValue <= 0 or totalPieces < 2 then
 		return nil
 	end
 	-- Inputs are drawn from the general cheap-leaning pool, not filtered to what
@@ -219,6 +231,46 @@ function UniqueCraftService.buildOffer(outputs: { any }, inputs: { any }, rng: R
 		inputs = chosen,
 		expiresAt = at + settings.DurationSeconds,
 	}
+end
+
+-- Forces slot 1's very first offer to be buildable EXCLUSIVELY from items the
+-- player was just granted by the starter roll -- the tutorial's whole premise
+-- (walk to the Crafts NPC, make something) only holds if the ask is something
+-- already in their bag, zero trading required. Reuses buildOffer as-is (same
+-- output-picking, same proportionality math) with the INPUT pool constrained
+-- to `grant`'s itemIds instead of the general cheap-leaning catalogue -- not a
+-- parallel mechanism, just a narrower candidate list into the existing one.
+-- Counts are then clamped to what was actually granted, since buildOffer
+-- itself no longer consults ownership (see its own comment) -- deliberately
+-- so everywhere else, but the tutorial's one guarantee is real completability.
+function UniqueCraftService.buildStarterOffer(grant: { [string]: number }, now: number, seed: number): any?
+	local forcedInputs = {}
+	for itemId in grant do
+		local snap = EconomyService.snapshot(itemId)
+		if snap and snap.value and (snap.value.value or 0) > 0 then
+			table.insert(forcedInputs, { itemId = itemId, value = snap.value.value })
+		end
+	end
+	if #forcedInputs == 0 then
+		return nil
+	end
+	local outputs = UniqueCraftService.outputCandidates(now)
+	local rng = Random.new(seed)
+	local offer = nil
+	for _ = 1, 8 do
+		offer = UniqueCraftService.buildOffer(outputs, forcedInputs, rng, now)
+		if offer ~= nil then
+			break
+		end
+	end
+	if offer == nil then
+		return nil
+	end
+	for itemId, count in offer.inputs do
+		local owned = grant[itemId] or 0
+		offer.inputs[itemId] = math.min(count, owned)
+	end
+	return offer
 end
 
 --------------------------------------------------------------------------------

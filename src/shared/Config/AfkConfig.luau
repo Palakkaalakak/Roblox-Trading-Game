@@ -9,6 +9,11 @@
 -- payout is bigger than the last, so a player who sits through eight ticks has
 -- earned far more than eight players who each sat through one. It caps so an
 -- overnight session cannot print an unbounded amount.
+--
+-- TODO: AfkScreen's panel currently sits over the middle/bottom of the
+-- screen while parked. Once Roblox video ads are wired in, redesign that
+-- layout so an ad has clear screen space instead of being blocked by the
+-- AFK panel -- an idle player is exactly who an ad should reach.
 
 local AfkConfig = {
 	Enabled = true,

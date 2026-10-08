@@ -136,8 +136,8 @@ local function buildFace(boothId: string, anchor: BasePart): any
 	-- band on a wide, short board and the ScrollingFrame clips the bottom row
 	-- off. Whichever axis is tighter wins, so the requested columns AND rows
 	-- always fit whatever shape board the model brings.
-	local boardW = anchor.Size.X * SURFACE_PIXELS_PER_STUD * 0.93 -- minus L/R padding
-	local boardH = anchor.Size.Y * SURFACE_PIXELS_PER_STUD * 0.77 * 0.92 -- grid band, minus T/B padding
+	local boardW = anchor.Size.X * SURFACE_PIXELS_PER_STUD * 0.96 -- minus L/R padding
+	local boardH = anchor.Size.Y * SURFACE_PIXELS_PER_STUD * 0.8 * 0.94 -- grid band, minus T/B padding
 	local gap = math.max(2, math.floor(boardW * 0.014))
 	local byWidth = (boardW - gap * (BoothConfig.GridColumns - 1)) / BoothConfig.GridColumns
 	local byHeight = (boardH - gap * (BoothConfig.GridRows - 1)) / BoothConfig.GridRows
@@ -212,7 +212,7 @@ local function makeCell(face: any, order: number): TextButton
 	local stroke = Instance.new("UIStroke")
 	stroke.Name = "Edge"
 	stroke.Color = Theme.Stroke
-	stroke.Thickness = 2
+	stroke.Thickness = 2.5
 	stroke.Parent = cell
 
 	local icon = Instance.new("ImageLabel")
@@ -246,7 +246,7 @@ local function makeCell(face: any, order: number): TextButton
 	name.TextColor3 = Theme.TextPrimary
 	name.Text = ""
 	name.Parent = cell
-	Instance.new("UITextSizeConstraint", name).MaxTextSize = 18
+	Instance.new("UITextSizeConstraint", name).MaxTextSize = 21
 
 	-- The price is the CALL TO ACTION, so it looks like one: a solid green
 	-- button across the bottom of the tile rather than a dim subtitle under the
@@ -554,6 +554,7 @@ openBoothById = function(boothId: string)
 			elseif result then
 				BoothScreen.toast(({
 					taken = "Someone just took that booth.",
+					rank_locked = "Reach Trader rank to claim a booth.",
 					disabled = "Booths are switched off right now.",
 					loading = "Still loading your profile.",
 					no_such_booth = "That booth isn't set up yet.",
@@ -591,6 +592,16 @@ openBuy = function(cell: TextButton)
 	local totalLbl = buy:WaitForChild("Total") :: TextLabel
 	local ok = buy:WaitForChild("OkButton") :: TextButton
 	local cancel = buy:WaitForChild("CancelButton") :: TextButton
+	-- Buy is the obvious action; declining is a small quiet link worded as
+	-- missing out. Restyled here so the StarterGui panel needs no rebuild.
+	cancel.Text = "No thanks, I'll miss out"
+	cancel.BackgroundTransparency = 1
+	cancel.TextColor3 = Color3.fromRGB(160, 165, 180)
+	cancel.Size = UDim2.fromOffset(150, 22)
+	local cancelCap = cancel:FindFirstChildWhichIsA("UITextSizeConstraint")
+	if cancelCap then
+		cancelCap.MaxTextSize = 12
+	end
 
 	local listingId = cell:GetAttribute("listingId") :: string
 	local itemName = cell:GetAttribute("itemName") :: string

@@ -6,6 +6,15 @@ local DebugConfig = {
 	GiveGemsEnabled = true,
 	GiveGemsAmount = 100,
 
+	-- Run the test suites once at the end of boot and print the summary.
+	--
+	-- Needed because the Studio MCP `execute_luau` sandbox has its OWN module
+	-- cache: services required from there are fresh, uninitialised copies (a
+	-- loaded player reads as zero loaded players), so anything touching live
+	-- service state has to run inside the real server instead. Pure modules
+	-- are unaffected and can still be tested from outside.
+	RunTestsOnBoot = false,
+
 	-- Admin-only tooling (temporary): the bot inspector panel + its remote are
 	-- gated to these userIds. Empty => nobody. Remove with the panel for release.
 	AdminUserIds = {

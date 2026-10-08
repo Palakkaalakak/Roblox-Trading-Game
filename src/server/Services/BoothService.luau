@@ -435,6 +435,9 @@ function BoothService.Start()
 	end)
 
 	Net.bindFunction("ClaimBooth", function(player, boothId)
+		if not require(script.Parent.QuestService).hasUnlock(player.UserId, "booth") then
+			return { ok = false, err = "rank_locked" }
+		end
 		return BoothService.claim(player, boothId)
 	end)
 	Net.bindFunction("ReleaseBooth", function(player)

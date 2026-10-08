@@ -8,7 +8,6 @@
 -- .SectionOrder; a section with no live offers is skipped entirely, which is
 -- why unreleased categories simply don't appear.
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Theme = require(script.Parent.Theme)
 local Components = require(script.Parent.Components)
 local Net = require(script.Parent.Parent.Net)
@@ -45,7 +44,7 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 	local featureTemplate = featuresTemplate:WaitForChild("FeatureCard") :: Frame
 	local emptyLabel = panel:WaitForChild("EmptyLabel") :: TextLabel
 
-	local closeBtn = (panel:WaitForChild("TitleBar") :: Frame):WaitForChild("CloseButton") :: TextButton
+	local closeBtn = panel:WaitForChild("CloseButton") :: TextButton
 	closeBtn.Activated:Connect(function()
 		panel.Visible = false
 	end)
@@ -168,16 +167,31 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		Components.setIcon(cardInst:WaitForChild("Icon") :: ImageLabel, { imageId = offer.imageId, name = offer.name })
 
 		-- the art panel is light, so these read as dark ink (the reference does
-		-- the same); gem counts stay the emphasis line, just not cyan-on-white
+		-- the same); the actual gem count is what you're buying, so it stays
+		-- the big legible line -- bonus% is a real, secondary highlight under
+		-- it, never a replacement for showing what you get.
 		local contents = cardInst:WaitForChild("Contents") :: TextLabel
-		contents.Text = offer.gems and (comma(offer.gems) .. " Gems") or (offer.description or "")
-
 		local bonus = cardInst:WaitForChild("Bonus") :: TextLabel
+		contents.Text = offer.gems and (comma(offer.gems) .. " Gems") or (offer.description or "")
+		contents.TextColor3 = Color3.fromRGB(24, 26, 34) -- dark ink on the light art panel
 		if offer.bonusPercent then
-			bonus.Text = ("+%d%% BONUS"):format(offer.bonusPercent)
+			bonus.Text = ("+%d%% BONUS!"):format(offer.bonusPercent)
+			bonus.TextColor3 = Color3.fromRGB(226, 30, 170)
 			bonus.Visible = true
 		else
 			bonus.Visible = false
+		end
+
+		-- Real rate, computed from actual gems/price, not a claimed bonus%. A
+		-- player can check this against any other card themselves.
+		local rate = cardInst:FindFirstChild("ValueRate", true) :: TextLabel?
+		if rate then
+			if offer.gems and offer.price and offer.price > 0 then
+				rate.Text = ("≈%.1f gems / Robux"):format(offer.gems / offer.price)
+				rate.Visible = true
+			else
+				rate.Visible = false
+			end
 		end
 
 		local wasPrice = cardInst:FindFirstChild("WasPrice", true) :: TextLabel
@@ -220,8 +234,19 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		timeLeft.Text = offer.availableUntil and timeLeftText(offer.availableUntil) or ""
 
 		local badge = card:WaitForChild("Badge") :: TextLabel
-		badge.Visible = offer.badge ~= nil
-		badge.Text = offer.badge or ""
+		if offer.badge and offer.bonusPercent then
+			-- this card's small footprint only budgets room for one line here --
+			-- merge instead of stacking bonus% + badge, which cramped Chest of
+			-- Gems (three lines: count / bonus / badge in ~196px). One line, no
+			-- extra height needed, no dead space on cards with only one or the
+			-- other.
+			local bonus = card:WaitForChild("Bonus") :: TextLabel
+			bonus.Text = bonus.Text .. "  ·  " .. offer.badge
+			badge.Visible = false
+		else
+			badge.Visible = offer.badge ~= nil
+			badge.Text = offer.badge or ""
+		end
 
 		card.Parent = parent
 		table.insert(spawned, card)
@@ -265,6 +290,7 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 		end
 
 		local layouts = payload.sectionLayout or {}
+		local blurbs = payload.sectionBlurbs or {}
 
 		local order = 0
 		local seen: { [string]: boolean } = {}
@@ -280,6 +306,11 @@ function ShopScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, col
 			sec.Visible = true
 			sec.LayoutOrder = order
 			;((sec:WaitForChild("SectionHeader") :: Frame):WaitForChild("Label") :: TextLabel).Text = sectionName
+
+			local blurb = sec:WaitForChild("SectionBlurb") :: TextLabel
+			local blurbText = blurbs[sectionName]
+			blurb.Text = blurbText or ""
+			blurb.Visible = blurbText ~= nil
 
 			local features = sec:WaitForChild("Features") :: Frame
 			local grid = sec:WaitForChild("Grid") :: Frame

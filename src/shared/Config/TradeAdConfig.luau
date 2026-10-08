@@ -225,7 +225,7 @@ local BOOST_ICON = TradeAdConfig.Icons.Boost
 local FEATURED_ICON = TradeAdConfig.Icons.Featured
 
 TradeAdConfig.ShopSections = {
-	server = "⚡ AD BOOSTS · THIS SERVER",
+	server = "⚡ AD BOOSTS · SERVER",
 	global = "⚡ AD BOOSTS · GLOBAL",
 }
 

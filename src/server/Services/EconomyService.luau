@@ -2,8 +2,9 @@
 -- EconomyService: authoritative shared economy state.
 --   * Global Item Registry (durable; any server resolves any itemId ever made)
 --   * Per-item EconomyRecord: reserve/circulating/demand/RAP
---     - durable copy in DataStore (source of truth; atomic UpdateAsync CAS)
---     - local cache per server, invalidated by MessagingService pings
+--     - durable copy packed into SHARD_COUNT DataStore keys (EconomyShards_v1)
+--     - whole economy loaded at boot; reads are memory-only after that
+--     - cross-server sync via the per-shard merge in flushDirty
 --   * value/demand/supply/RAP snapshots with explicit N/A (StatState)
 --
 -- NO MemoryStore here: its memory quota is EXPERIENCE-WIDE and tiny (~64KB
@@ -325,48 +326,94 @@ end
 -- Hot record access + mutation
 --------------------------------------------------------------------------------
 
--- Read-through: local cache -> durable -> fresh.
+-- SHARDED STORAGE. Every item's record lives inside one of SHARD_COUNT
+-- DataStore keys (EconomyShards_v1 / "s1".."sN"), not one key per item.
+-- Boot reads SHARD_COUNT keys and the whole economy is in memory; after that
+-- getRecord/snapshot/valueOf NEVER touch the DataStore. Writes batch into at
+-- most SHARD_COUNT merged UpdateAsyncs per flush, which also pulls in other
+-- servers' changes. The old layout did one GetAsync per item per cache miss
+-- (and every cross-server ping dropped the cache), i.e. hundreds of requests
+-- a minute against a ~70/min budget -- throttling was the design, not bad luck.
+local SHARD_COUNT = 4
+local shardStore: any -- DataStore "EconomyShards_v1", key "s<n>" -> {itemId -> EconomyRecord}
+local dsCalls = 0 -- every DataStore request this service makes; published as EcoDsCalls
+local function countCall()
+	dsCalls += 1
+	ReplicatedStorage:SetAttribute("EcoDsCalls", dsCalls)
+end
+
+local function shardOf(itemId: string): string
+	local h = 0
+	for i = 1, #itemId do
+		h = (h * 31 + string.byte(itemId, i)) % 1000003
+	end
+	return "s" .. (h % SHARD_COUNT + 1)
+end
+
+-- Items not found in any shard at boot: they still live under the legacy
+-- one-key-per-item layout (EconomyStore_v6). Read once, on demand, then they
+-- are marked dirty so the next flush lands them in their shard -- after one
+-- full cycle this path never fires again.
+local legacyChecked: { [string]: boolean } = {}
+
+-- Memory-first. The only DataStore touch is the one-time legacy migration read
+-- for an item that is in no shard yet.
 local function getRecord(itemId: string): any?
-	if hotCache[itemId] then
+	local rec = hotCache[itemId]
+	if rec then
+		return rec
+	end
+	local item = EconomyService.getItem(itemId)
+	if item == nil then
+		return nil
+	end
+	if not legacyChecked[itemId] then
+		legacyChecked[itemId] = true
+		countCall()
+		pcall(function()
+			rec = econStore:GetAsync(itemId)
+		end)
+	end
+	if hotCache[itemId] then -- filled while we yielded
 		return hotCache[itemId]
 	end
-	local rec
-	pcall(function()
-		rec = econStore:GetAsync(itemId)
-	end)
-	if rec == nil then
-		local item = EconomyService.getItem(itemId)
-		if item == nil then
-			return nil
-		end
-		rec = freshRecord(itemId, item.totalSupply, os.time())
-	end
+	rec = rec or freshRecord(itemId, item.totalSupply, os.time())
 	hotCache[itemId] = rec
+	dirty[itemId] = true -- persist into its shard
 	return rec
 end
 
--- STRONG mutation: atomic durable CAS (DataStore UpdateAsync). For
--- correctness-critical counts (reserve/circulating) that must never
--- double-apply across servers.
--- CRITICAL: the transform must be PURE — no yields, no store reads. The
--- store may invoke it multiple times, and yielding inside it double-applies
--- mutations (this exact bug inflated circulating counts). The item lookup
--- happens BEFORE the CAS for the same reason.
+-- STRONG mutation: atomic cross-server CAS on the item's SHARD. For
+-- correctness-critical counts that must never double-apply across servers.
+-- CRITICAL: the transform must be PURE -- no yields, no store reads. The
+-- store may invoke it multiple times.
 local function mutateRecord(itemId: string, transform: (any) -> any?): any?
 	local item = EconomyService.getItem(itemId)
 	if item == nil then
 		return nil
 	end
+	local base = getRecord(itemId) -- pre-read so the transform never yields
 	local result
+	countCall()
 	local ok = pcall(function()
-		result = econStore:UpdateAsync(itemId, function(old)
-			return transform(old or freshRecord(itemId, item.totalSupply, os.time()))
+		shardStore:UpdateAsync(shardOf(itemId), function(old)
+			old = old or {}
+			local cur = old[itemId] or table.clone(base or freshRecord(itemId, item.totalSupply, os.time()))
+			local new = transform(cur)
+			if new == nil then
+				result = nil
+				return nil -- abort, nothing written
+			end
+			old[itemId] = new
+			result = new
+			return old
 		end)
 	end)
 	if not ok or result == nil then
 		return nil
 	end
 	hotCache[itemId] = result
+	dirty[itemId] = nil
 	return result
 end
 
@@ -624,6 +671,45 @@ function EconomyService.resetItem(itemId: string): (boolean, string?)
 	return true, nil
 end
 
+-- MAINTENANCE: reset every item in one UpdateAsync per shard (the per-item
+-- CAS version fired ~290 concurrent writes and throttled). Returns the count.
+function EconomyService.resetAllItems(): number
+	local now = os.time()
+	local byShard: { [string]: { [string]: any } } = {}
+	for itemId, item in registry do
+		local key = shardOf(itemId)
+		byShard[key] = byShard[key] or {}
+		byShard[key][itemId] = freshRecord(itemId, item.totalSupply, now)
+	end
+	local reset = 0
+	for key, fresh in byShard do
+		countCall()
+		local ok = pcall(function()
+			shardStore:UpdateAsync(key, function(old)
+				old = old or {}
+				for itemId, rec in fresh do
+					old[itemId] = rec
+				end
+				return old
+			end)
+		end)
+		if ok then
+			for itemId, rec in fresh do
+				hotCache[itemId] = rec
+				dirty[itemId] = nil
+				localOnly[itemId] = nil
+				reset += 1
+			end
+		end
+	end
+	local ids = {}
+	for itemId in registry do
+		table.insert(ids, itemId)
+	end
+	EconomyService.broadcastStats(ids)
+	return reset
+end
+
 -- Every registered itemId, so maintenance can sweep the whole catalogue.
 function EconomyService.allItemIds(): { string }
 	local out = {}
@@ -800,20 +886,66 @@ function EconomyService.pushStats(itemIds: { string })
 	end
 end
 
+-- One UpdateAsync per shard, per interval. Merges our dirty records in
+-- (per-item last-writer-wins by updatedAt) and hands back the merged shard,
+-- which is how OTHER servers' changes reach this one -- no per-item reads, no
+-- invalidation re-fetches. Every shard is written each cycle (not only dirty
+-- ones) so cross-server staleness stays bounded by the interval.
 local function flushDirty()
+	local byShard: { [string]: { [string]: any } } = {}
+	for i = 1, SHARD_COUNT do
+		byShard["s" .. i] = {}
+	end
 	for itemId in dirty do
-		dirty[itemId] = nil
 		local rec = hotCache[itemId]
-		if rec then
-			pcall(function()
-				econStore:UpdateAsync(itemId, function(old)
-					-- last-writer-wins by updatedAt; hot is newer in practice
-					if old and old.updatedAt and rec.updatedAt and old.updatedAt > rec.updatedAt then
-						return old
+		if rec and not localOnly[itemId] then
+			byShard[shardOf(itemId)][itemId] = table.clone(rec)
+		end
+	end
+	table.clear(dirty)
+	for key, mine in byShard do
+		local merged
+		countCall()
+		local ok = pcall(function()
+			merged = shardStore:UpdateAsync(key, function(old)
+				old = old or {}
+				for itemId, rec in mine do
+					local theirs = old[itemId]
+					if theirs == nil or (theirs.updatedAt or 0) <= (rec.updatedAt or 0) then
+						old[itemId] = rec
 					end
-					return rec
-				end)
+				end
+				return old
 			end)
+		end)
+		if not ok then
+			for itemId in mine do
+				dirty[itemId] = true -- retry next cycle
+			end
+		elseif type(merged) == "table" then
+			for itemId, rec in merged do
+				-- keep anything we touched mid-flush or hold session-locally
+				if not dirty[itemId] and not localOnly[itemId] then
+					hotCache[itemId] = rec
+				end
+			end
+		end
+	end
+end
+
+-- Boot: the whole economy in SHARD_COUNT reads.
+local function loadShards()
+	for i = 1, SHARD_COUNT do
+		local data
+		countCall()
+		pcall(function()
+			data = shardStore:GetAsync("s" .. i)
+		end)
+		if type(data) == "table" then
+			for itemId, rec in data do
+				hotCache[itemId] = rec
+				legacyChecked[itemId] = true
+			end
 		end
 	end
 end
@@ -873,13 +1005,16 @@ function EconomyService.applyResetToProfile(profile: any, gen: number): boolean
 		-- no starter bundle ever again, no unique-craft offer ever regenerates
 		-- for that slot, and a milestone reward already claimed against items
 		-- that no longer exist can never be claimed again after a future wipe.
-		-- Purchased permanents are the one thing this does NOT touch:
-		-- UniqueCraftSlots stays bought.
 		profile.StarterGranted = false
 		profile.StarterGrantId = ""
 		profile.UniqueCrafts = {}
 		profile.UniqueCraftNextAt = {}
 		profile.Crafting = nil
+		-- Slots ARE reset too -- pre-launch this is a dev/admin debug tool, not
+		-- a live economy wipe that has to respect a real purchase. Leaving
+		-- slots bought meant the unlock strip (and the slot-purchase flow it
+		-- exercises) silently vanished from every repeat test after the first.
+		profile.UniqueCraftSlots = 1
 	end
 	-- Gems go too. A reset that wipes every item but leaves balances intact is
 	-- not a reset -- the surviving gems are pure purchasing power against a
@@ -897,9 +1032,11 @@ function EconomyService.Init()
 	-- threshold + supplies) — bumped so already-registered items re-seed with
 	-- the new rarity/totalSupply instead of silently freezing at old values.
 	registryStore = StoreAdapters.dataStore("ItemRegistry_v6")
-	econStore = StoreAdapters.dataStore("EconomyStore_v6")
+	econStore = StoreAdapters.dataStore("EconomyStore_v6") -- legacy per-item layout (migration + reset gen)
+	shardStore = StoreAdapters.dataStore("EconomyShards_v1")
 	readResetGeneration()
 	EconomyService.loadRegistry()
+	loadShards()
 	-- NOTE: registry.storeCost is only ever persisted for items with an
 	-- EXPLICIT fixed price (NPC store catalog, product tokens). Everything
 	-- else derives its cost live from item.rarity + the current
@@ -950,15 +1087,14 @@ function EconomyService.Start()
 		if not (DebugConfig.AdminUserIds and DebugConfig.AdminUserIds[player.UserId]) then
 			return { ok = false, err = "not_admin" }
 		end
-		local reset, failed = 0, {}
-		for _, itemId in EconomyService.allItemIds() do
-			local ok, err = EconomyService.resetItem(itemId)
-			if ok then
-				reset += 1
-			else
-				table.insert(failed, itemId .. ":" .. tostring(err))
-			end
-		end
+		-- Fired concurrently rather than one at a time. Each resetItem is a
+		-- real DataStore UpdateAsync -- serially awaiting every item made this
+		-- take N times its per-call latency for no reason: nothing here reads
+		-- item[i]'s result before starting item[i+1]. task.spawn hands all of
+		-- them to Roblox's DataStore request queue at once, which is what
+		-- actually rate-limits them; this just stops paying the round trip
+		-- latency N times over on top of that.
+		local reset, failed = EconomyService.resetAllItems(), {}
 		-- The reserves are full again, so the copies already out there have to
 		-- stop existing -- otherwise the cap is simply mintable twice and
 		-- players keep stacks larger than the item's total supply.
@@ -986,23 +1122,40 @@ function EconomyService.Start()
 		-- the same safe detached-write pattern the offline-mailbox debit
 		-- already uses: peek the lock, then re-check it INSIDE the CAS, because
 		-- they can join a server in the gap between the two.
+		-- Same concurrency fix as the item loop above: this was the REAL cost
+		-- of a reset, not the item loop -- allSeenUserIds() covers everyone
+		-- who ever joined (every bot-simulation account included), each one a
+		-- separate DataStore round trip, previously awaited one at a time.
 		local wipedOffline, offlineSkipped = 0, 0
-		for _, userId in DataService.allSeenUserIds() do
-			if Players:GetPlayerByUserId(userId) == nil then -- not connected to THIS server
-				local ok2, err2 = DataService.wipeOfflineProfile(userId, function(data)
-					return EconomyService.applyResetToProfile(data, gen)
-				end)
-				if ok2 then
-					LeaderboardService.clearInventoryScoresFor(userId)
-					wipedOffline += 1
-				elseif err2 ~= "loaded_here" and err2 ~= "no_profile" then
-					-- "busy" (connected to a DIFFERENT server right now) is the
-					-- one real miss: that player's OWN server will catch them
-					-- on their next reconnect via the ProfileLoaded generation
-					-- check, same as any player who was never touched here
-					offlineSkipped += 1
-				end
+		local offlineIds = DataService.allSeenUserIds()
+		local offlineRemaining = 0
+		for _, userId in offlineIds do
+			if Players:GetPlayerByUserId(userId) == nil then
+				offlineRemaining += 1
 			end
+		end
+		for _, userId in offlineIds do
+			if Players:GetPlayerByUserId(userId) == nil then -- not connected to THIS server
+				task.spawn(function()
+					local ok2, err2 = DataService.wipeOfflineProfile(userId, function(data)
+						return EconomyService.applyResetToProfile(data, gen)
+					end)
+					if ok2 then
+						LeaderboardService.clearInventoryScoresFor(userId)
+						wipedOffline += 1
+					elseif err2 ~= "loaded_here" and err2 ~= "no_profile" then
+						-- "busy" (connected to a DIFFERENT server right now) is the
+						-- one real miss: that player's OWN server will catch them
+						-- on their next reconnect via the ProfileLoaded generation
+						-- check, same as any player who was never touched here
+						offlineSkipped += 1
+					end
+					offlineRemaining -= 1
+				end)
+			end
+		end
+		while offlineRemaining > 0 do
+			task.wait()
 		end
 
 		-- other servers need the new generation, or their players keep theirs
@@ -1063,65 +1216,19 @@ function EconomyService.Start()
 		if type(payload.items) ~= "table" then
 			return
 		end
-		for _, itemId in payload.items do
-			-- Only drop the cache for items we have NO unflushed local update
-			-- for. RAP/demand updates live in hotCache + dirty and are flushed
-			-- to durable only every HotFlushIntervalSeconds; a broadcast (incl.
-			-- our own, which MessagingService delivers back to the sender) that
-			-- nulls the cache would force a re-read of the STALE durable record,
-			-- making an actively-trading item's RAP flicker to N/A until the
-			-- next sale repopulates it. If it's dirty, our copy is the newest.
-			if type(itemId) == "string" and not dirty[itemId] and not localOnly[itemId] then
-				hotCache[itemId] = nil -- refetch from durable on next read
-			end
-		end
+		-- Records are NOT dropped here: cross-server changes arrive through the
+		-- shard merge in flushDirty. A ping only re-pushes snapshots to clients.
 		EconomyService.pushStats(payload.items)
 	end)
 
-	-- Pull every item's record into hotCache off the request path. getRecord
-	-- costs one DataStore round trip per cold item, so without this the first
-	-- caller to sweep the registry (the market directory) pays all of them in
-	-- series inside its own remote call and the panel sits blank for ~15s.
+	-- One-time migration: items that are in no shard yet (legacy per-item
+	-- layout). Paced, background, and empty after the first full flush cycle.
 	task.spawn(function()
-		local queue = {}
 		for itemId in registry do
 			if hotCache[itemId] == nil then
-				table.insert(queue, itemId)
+				getRecord(itemId)
+				task.wait(3)
 			end
-		end
-		-- A few readers in parallel: one round trip at a time takes ~45s over a
-		-- couple hundred items. Kept small on purpose — the DataStore request
-		-- budget is shared with profile loads, which must not be starved.
-		local next_ = 1
-		local running = 0
-		local WORKERS = 2
-		-- Roblox's GetAsync budget is about 60 + 10 per player PER MINUTE, shared
-		-- across the whole experience. Four workers looping with no delay issued
-		-- hundreds of reads as fast as latency allowed, blew that budget, and
-		-- every failure retried three times through withRetry -- which tripled
-		-- the load instead of relieving it. The storm starved profile loads and
-		-- saves too, because the budget is experience-wide, not per-store.
-		--
-		-- So pace it: two workers, one read each per PACE_SECONDS, is ~1 read a
-		-- second and stays under budget even on a one-player server. This is a
-		-- BACKGROUND warm -- nothing waits on it, snapshotCached serves nil for
-		-- items not yet cached, and getRecord still reads through on demand. Slow
-		-- and quiet beats fast and throttled.
-		local PACE_SECONDS = 2
-		for _ = 1, WORKERS do
-			running += 1
-			task.spawn(function()
-				while next_ <= #queue do
-					local itemId = queue[next_]
-					next_ += 1
-					getRecord(itemId)
-					task.wait(PACE_SECONDS)
-				end
-				running -= 1
-			end)
-		end
-		while running > 0 do
-			task.wait(0.1)
 		end
 		warmed = true
 	end)

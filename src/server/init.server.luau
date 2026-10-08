@@ -25,6 +25,10 @@ local ordered = {
 	-- after Crafting: reads activeEvents() to pick an output nothing else makes
 	{ "UniqueCraft", require(Services.UniqueCraftService) },
 	{ "Roll", require(Services.RollService) },
+	-- after Roll: reuses its draw (pick) for the dig reward
+	{ "Dig", require(Services.DigService) },
+	-- the dig field in the world (static; each player digs a local copy)
+	{ "DigField", require(Services.DigFieldService) },
 	{ "Product", require(Services.ProductService) },
 	-- after Product: registers its reward on that service's receipt registry
 	{ "AdReward", require(Services.AdRewardService) },
@@ -39,7 +43,12 @@ local ordered = {
 	-- after TradeBoard: a booth's slots ARE its owner's open sell listings
 	{ "Booth", require(Services.BoothService) },
 	{ "Bots", require(Services.BotService) },
+	-- after Bots: its level switch also toggles the bot population
+	{ "SimPlayers", require(Services.SimPlayerService) },
+	{ "Liquidity", require(Services.LiquidityService) },
 	{ "Afk", require(Services.AfkService) },
+	{ "Rewards", require(Services.RewardsService) },
+	{ "Quests", require(Services.QuestService) },
 }
 
 for _, entry in ordered do
@@ -62,3 +71,16 @@ for _, entry in ordered do
 end
 
 print(("[Server] trading core booted in %.1fs"):format(os.clock() - t0))
+
+-- Debug-only: run the suites in the REAL server context, where services are
+-- actually initialised. Off by default; costs nothing when off.
+if require(game:GetService("ReplicatedStorage").Shared.Config.DebugConfig).RunTestsOnBoot then
+	task.spawn(function()
+		local summary, allPassed = require(script.Tests.TestRunner).run()
+		print("[Tests]\n" .. summary)
+		if not allPassed then
+			warn("[Tests] FAILURES ABOVE")
+		end
+	end)
+end
+

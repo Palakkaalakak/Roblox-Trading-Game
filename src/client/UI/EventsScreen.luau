@@ -27,6 +27,44 @@ local EconomyController = require(script.Parent.Parent.Controllers.EconomyContro
 local InventoryController = require(script.Parent.Parent.Controllers.InventoryController)
 local Format = require(game:GetService("ReplicatedStorage").Shared.Util.Format)
 local EventConfig = require(game:GetService("ReplicatedStorage").Shared.Config.EventConfig)
+local TweenService = game:GetService("TweenService")
+local TutorialGuide = require(script.Parent.TutorialGuide)
+local Players = game:GetService("Players")
+
+-- One-shot "Nice! You already made a profit of X gems!" screen shown right
+-- after the tutorial's forced first Unique Craft completes. Same family as
+-- Welcome/Reveal -- reuses the "Profit" state already built onto the
+-- StarterRollGui's Root (GuiBuilder.buildStarterRollOverlay) instead of a
+-- bespoke popup, since all three are one continuous tutorial takeover and
+-- have to look like it (IgnoresGuiInset, full-screen dark Root, same pill
+-- Continue button).
+local function showProfitPopup(profit: number)
+	local playerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
+	local starterRollGui = playerGui:WaitForChild("StarterRollGui")
+	local root = starterRollGui:WaitForChild("Root") :: Frame
+	local state = root:WaitForChild("Profit") :: Frame
+	local body = state:WaitForChild("Stack"):WaitForChild("Body") :: TextLabel
+	local continueBtn = state:WaitForChild("Stack")
+		:WaitForChild("ContinueHolder")
+		:WaitForChild("ContinueButton") :: TextButton
+
+	body.Text = ("You already made a profit of %d gems!"):format(math.max(0, profit))
+
+	for _, child in root:GetChildren() do
+		if child:IsA("GuiObject") and child.Name ~= "Flash" then
+			child.Visible = false
+		end
+	end
+	state.Visible = true
+	root.Visible = true
+
+	local conn: RBXScriptConnection
+	conn = continueBtn.Activated:Connect(function()
+		conn:Disconnect()
+		root.Visible = false
+		state.Visible = false
+	end)
+end
 
 local EventsScreen = {}
 
@@ -137,6 +175,43 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 	local refresh -- fwd decl
 	local renderEvents -- fwd decl
 	local openChain -- fwd decl
+
+	-- A real pointer, not a border tint: a bold bouncing gold arrow floating
+	-- left of the target, matching the world marker's own glyph language
+	-- (per tutorial-UI research: "big, bold, highlighted arrow icon," teach
+	-- through action, not a text callout). Declared early: renderEvents
+	-- (assigned further down but closes over locals in this scope) calls
+	-- this from inside its row loop.
+	local function pointAt(obj: GuiObject): Frame
+		local holder = Instance.new("Frame")
+		holder.Name = "TutorialPointer"
+		holder.AnchorPoint = Vector2.new(1, 0.5)
+		holder.Position = UDim2.new(0, -10, 0.5, 0)
+		holder.Size = UDim2.fromOffset(34, 34)
+		holder.BackgroundTransparency = 1
+		holder.ZIndex = 10
+		holder.Parent = obj
+
+		local arrow = Instance.new("TextLabel")
+		arrow.Name = "Arrow"
+		arrow.Size = UDim2.fromScale(1, 1)
+		arrow.BackgroundTransparency = 1
+		arrow.Font = Enum.Font.GothamBlack
+		arrow.Text = "▶"
+		arrow.TextScaled = true
+		arrow.TextColor3 = Theme.Gold
+		arrow.TextStrokeTransparency = 0
+		arrow.TextStrokeColor3 = Color3.new(0, 0, 0)
+		arrow.ZIndex = 10
+		arrow.Parent = holder
+
+		TweenService:Create(
+			holder,
+			TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Position = UDim2.new(0, -18, 0.5, 0) }
+		):Play()
+		return holder
+	end
 	-- headers whose countdown ticks live: { label, untilUnix, prefix }
 	local ticking: { { label: TextLabel, at: number, prefix: string } } = {}
 
@@ -844,6 +919,15 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 				local want = stepper and stepper.get() or 1
 				local result = Net.invoke("CraftItem", event.id, recipe.rid, want)
 				if result.ok then
+					if TutorialGuide.active and recipe.rid == "unique_1" then
+						-- The tutorial's whole ask was "make this one thing" --
+						-- once it's done, the glow/arrow pointing at it (and at
+						-- the NPC) would be pointing at nothing meaningful.
+						TutorialGuide.stop()
+						if result.profit then
+							showProfitPopup(result.profit)
+						end
+					end
 					local made = result.made or 1
 					local name = result.output and result.output.name or recipe.output.name
 					-- perCraft > 1 is a SACRIFICE-shaped recipe (one expensive input,
@@ -954,22 +1038,27 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 							edge.Color = Theme.Gold
 							edge.Thickness = 2
 						end
-						local tag = Instance.new("TextLabel")
-						tag.Name = "YoursTag"
-						tag.BackgroundTransparency = 1
-						tag.AnchorPoint = Vector2.new(1, 1)
-						tag.Position = UDim2.new(1, -12, 1, -6)
-						tag.Size = UDim2.fromOffset(220, 14)
-						tag.Font = Theme.Font
-						tag.Text = "ONLY YOU CAN MAKE THIS"
-						tag.TextSize = 10
-						tag.TextColor3 = Theme.Gold
-						tag.TextXAlignment = Enum.TextXAlignment.Right
-						tag.Parent = row
+						-- No separate "ONLY YOU CAN MAKE THIS" tag -- the row is
+						-- already this dense (How to make / CRAFT / stepper all
+						-- stack on the right), and recipe.blurb already renders
+						-- "Only you can make this, and only for a while..." at
+						-- bottom-left (see UniqueCraftService.luau's blurb field).
+						-- A second copy of the same claim had nowhere to go
+						-- that didn't clip something else on the row.
 					end
 					row.Parent = list
 					table.insert(spawned, row)
 					renderRow(row, event, recipe, order)
+					-- Slot 1 specifically (rid "unique_1") -- StarterService
+					-- forces exactly that slot's offer to be buildable from the
+					-- player's starter items, so that's the one real target,
+					-- not every Unique Craft the player happens to have.
+					if TutorialGuide.active and recipe.rid == "unique_1" then
+						local actionBtn = row:FindFirstChild("ActionButton")
+						if actionBtn and actionBtn:IsA("GuiObject") then
+							pointAt(actionBtn)
+						end
+					end
 				end
 			end
 		end
@@ -1281,9 +1370,30 @@ function EventsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, c
 		end
 	end)
 
+	-- The Unique-tab pointer is owned here (not spawned per render) so it can be
+	-- removed the moment the tutorial craft is done, and never stacks on reopen.
+	local tabPointer: Frame? = nil
+	local function dropTabPointer()
+		if tabPointer then
+			tabPointer:Destroy()
+			tabPointer = nil
+		end
+	end
+	TutorialGuide.Stopped:Connect(dropTabPointer)
+
 	function EventsScreen.open()
 		Components.closeOtherPanels(panel)
 		panel.Visible = true
+		-- Still mid-tutorial: jump straight to the Unique Crafts tab (that's
+		-- the whole point of sending them here) and pulse it, so there's no
+		-- chance they land on "Can Craft" and never notice the real target.
+		if TutorialGuide.active then
+			selectTab("unique")
+			dropTabPointer()
+			tabPointer = pointAt(tabButtons.unique)
+		else
+			dropTabPointer()
+		end
 		if lastEvents then
 			renderEvents(lastEvents)
 		end

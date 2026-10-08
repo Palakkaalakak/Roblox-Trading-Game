@@ -104,7 +104,10 @@ local MonetizationConfig = {
 	--   width  — cell width; the grid fits as many per row as the panel allows
 	--   height — cell height
 	SectionLayout = {
-		["💎 GEM PACKS"] = { width = 150, height = 196 },
+		-- 3 equal cards fill one row (was width=150 for a 4-across shelf; keeping
+		-- the same total row footprint and splitting it into 3 instead of 4
+		-- avoids a stranded, half-empty row when the pack count changed).
+		["💎 GEM PACKS"] = { width = 200, height = 196 },
 		["🏪 BOOTH"] = { width = 150, height = 196 },
 		["🎟 PASSES"] = { width = 236, height = 250 },
 		["⭐ SUBSCRIPTIONS"] = { width = 236, height = 250 },
@@ -113,10 +116,20 @@ local MonetizationConfig = {
 		[TradeAdConfig.ShopSections.global] = { width = 236, height = 250 },
 	} :: { [string]: { width: number, height: number } },
 
+	-- One-line value framing shown under a section header, above its price
+	-- grid. Sections without an entry show nothing -- this is not a place for
+	-- copy on every shelf, just the one that actually needs the reminder.
+	SectionBlurbs = {
+		["💎 GEM PACKS"] = "Gems buy rolls, Unique Craft slots, and trade board boosts.",
+	} :: { [string]: string },
+
 	Offers = {
 		-- ── Gem packs ────────────────────────────────────────────────────
-		-- Escalating bonus % gives players a reason to buy the bigger pack;
-		-- the "+N% BONUS" flourish and BEST VALUE ribbon are what sell it.
+		-- Three, on purpose. Five tiers is choice paralysis -- one SaaS case
+		-- study cut 5 tiers to 3, added one clear "Most Popular" badge, and
+		-- conversion went 1.2% -> 3.1% with no price change at all. The classic
+		-- three-option anchor structure: cheap entry / the actual target,
+		-- highlighted / an expensive anchor that makes the target look smart.
 		{
 			id = "gems_handful",
 			kind = "gems",
@@ -130,19 +143,6 @@ local MonetizationConfig = {
 			sortOrder = 1,
 		},
 		{
-			id = "gems_pouch",
-			kind = "gems",
-			section = "💎 GEM PACKS",
-			name = "Pouch of Gems",
-			description = "Enough for a few good rolls.",
-			imageId = "rbxassetid://15402892798", -- gem bag
-			productType = "devproduct",
-			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
-			grants = { gems = 550 },
-			bonusPercent = 10,
-			sortOrder = 2,
-		},
-		{
 			id = "gems_chest",
 			kind = "gems",
 			section = "💎 GEM PACKS",
@@ -153,21 +153,17 @@ local MonetizationConfig = {
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 1200 },
 			bonusPercent = 20,
-			badge = "MOST POPULAR", -- decoy anchor: pulls buyers up the ladder
-			sortOrder = 3,
-		},
-		{
-			id = "gems_vault",
-			kind = "gems",
-			section = "💎 GEM PACKS",
-			name = "Vault of Gems",
-			description = "Stock up for the long haul.",
-			imageId = "rbxassetid://15402885986", -- gem pile
-			productType = "devproduct",
-			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
-			grants = { gems = 2600 },
-			bonusPercent = 30,
-			sortOrder = 4,
+			badge = "MOST POPULAR",
+			accent = { 253, 179, 30 }, -- gold border+banner: the one card meant to stand out
+			-- NOT featured: a separate hero banner above a lone 2-card row looked
+			-- broken (huge card, then a half-empty stranded shelf below it). Three
+			-- equal peer cards -- cheap / THIS one gold-bordered+badged / expensive
+			-- -- is the actual classic compare layout. Research: a highlighted
+			-- middle option in a peer row lifts its own pick rate 25-35% from the
+			-- badge alone, center position +38% more. The expensive pack is the
+			-- anchor -- it makes this one look reasonable by comparison -- but an
+			-- anchor should never carry its own competing badge.
+			sortOrder = 2,
 		},
 		{
 			id = "gems_hoard",
@@ -180,9 +176,12 @@ local MonetizationConfig = {
 			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
 			grants = { gems = 6000 },
 			bonusPercent = 40,
-			badge = "BEST VALUE",
-			featured = true, -- hero card: anchor high with the biggest pack
-			sortOrder = 5,
+			-- NO badge, NOT featured: this is the price anchor, not a competing
+			-- pitch. An anchor's only job is to sit there priced high so
+			-- gems_chest's hero card looks like the smart choice next to it. A
+			-- second "BEST VALUE" ribbon on THIS card argued with the hero over
+			-- who's the real deal -- one persuasive message on screen, not two.
+			sortOrder = 3,
 		},
 
 		-- ── Passes / subscriptions / bundles ─────────────────────────────
@@ -293,6 +292,23 @@ local MonetizationConfig = {
 		-- 	availableUntil = 1790000000,
 		-- 	sortOrder = 1,
 		-- },
+
+		-- ── Quests ───────────────────────────────────────────────────────
+		-- Skips the CURRENT quest outright (see QuestService.skipCurrentQuest).
+		-- Real shortcut, not fake: it advances rank the same as earning it.
+		{
+			id = "quest_skip",
+			kind = "bundle",
+			section = "🎯 QUESTS",
+			name = "Skip Current Quest",
+			description = "Instantly complete your active quest and move to the next rank.",
+			imageId = "rbxassetid://17368118782", -- Quests icon
+			productType = "devproduct",
+			productId = PLACEHOLDER_PRODUCT_ID, -- TODO: real id at publish
+			grants = {},
+			questSkip = true,
+			sortOrder = 1,
+		},
 
 		-- ── Booth ────────────────────────────────────────────────────────
 		-- Storefront cosmetics and shelf space. Skins are COSMETIC ONLY: never

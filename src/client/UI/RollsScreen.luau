@@ -408,10 +408,18 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	local reelTiles: { Instance } = {}
 	local WINNER_INDEX = 34 -- how many tiles scroll past before the prize
 	local TRAILING = 4 -- filler tiles after the prize (no blank edge on land)
-	local SCROLL_TIME = 4.5
+	local SCROLL_TIME = 8.5 -- long, heavily eased crawl: most of it is the slow final stretch (anticipation)
+	local MARKER_PAD = 10 -- px of border around the tile the marker frames
+
+	-- Relic Dig reuses this exact reel: playReveal() sets these for one reveal
+	local poolOverride: { any }? = nil
+	local customReveal: any? = nil
 
 	-- candidate icons for the reel: the selected tier's live pool
 	local function spinPool(): { any }
+		if poolOverride then
+			return poolOverride
+		end
 		local out = {}
 		for _, o in (selectedTier() or {}).odds or {} do
 			if o.imageId then
@@ -428,25 +436,64 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		table.clear(reelTiles)
 	end
 
+	-- Rarer pulls get a bigger payoff moment. Rare rewards measurably raise
+	-- arousal and the urge to open another (loot-box experiments), so the reveal
+	-- scales with rarity instead of every result getting the same small flash.
+	local RARITY_RANK = { Common = 1, Rare = 2, Legendary = 3, Mythical = 4, Godly = 5, Celestial = 6 }
+	local WON_TEXT = { [3] = "Nice pull!", [4] = "RARE PULL!", [5] = "INSANE PULL!", [6] = "CELESTIAL!!" }
+	-- Again is the big action; No thanks is a normal secondary button -- it was
+	-- previously forced BackgroundTransparency=1 to read as bare floating text,
+	-- which just made it look broken rather than intentionally quiet.
+	revealDone.Text = "No thanks"
+	local doneCap = revealDone:FindFirstChildWhichIsA("UITextSizeConstraint") or Instance.new("UITextSizeConstraint")
+	doneCap.MaxTextSize = 15
+	doneCap.Parent = revealDone
+	local nameScale = revealName:FindFirstChildWhichIsA("UIScale") or Instance.new("UIScale")
+	nameScale.Parent = revealName
+	local flashBaseColor = revealFlash.BackgroundColor3
+
 	local function landReveal(item: any)
 		local color = Components.rarityColor(item.rarity)
+		local rank = RARITY_RANK[item.rarity] or 1
 		if markerGlow then
 			markerGlow.Color = color
 			markerGlow.Transparency = 0.1
 		end
-		revealWon.Text = "You rolled…"
+		revealWon.Text = WON_TEXT[rank] or (customReveal and customReveal.wonText) or "You rolled…"
+		revealWon.TextColor3 = rank >= 3 and color or Theme.TextPrimary
 		revealName.Text = item.name or "?"
 		revealName.TextColor3 = color
 		revealName.Visible = true
 		revealSub.Text = ("%s  ·  worth about %d gems"):format(item.rarity or "?", item.value or 0)
 		revealSub.Visible = true
-		revealAgain.Visible = true
-		revealDone.Visible = true
-		-- payoff flash — punctuates the exact instant the reel stops
-		revealFlash.BackgroundTransparency = 0.1
-		TweenService:Create(revealFlash, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+
+		-- payoff flash — punctuates the exact instant the reel stops. Rare+ pulls
+		-- flash in their rarity colour, harder and longer.
+		revealFlash.BackgroundColor3 = rank >= 4 and color or flashBaseColor
+		revealFlash.BackgroundTransparency = rank >= 4 and 0 or 0.1
+		local flashTime = ({ 0.5, 0.5, 0.8, 1.2, 1.5, 1.8 })[rank]
+		TweenService:Create(revealFlash, TweenInfo.new(flashTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 			BackgroundTransparency = 1,
 		}):Play()
+
+		-- name pops in bigger then settles, scaled by rarity
+		local pop = ({ 1, 1, 1.25, 1.45, 1.6, 1.8 })[rank]
+		nameScale.Scale = pop
+		TweenService:Create(nameScale, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = 1,
+		}):Play()
+
+		-- hold the buttons back briefly on rare+ so the moment lands before the
+		-- player can click past it
+		local hold = rank >= 4 and 0.7 or 0
+		local token = spinToken
+		task.delay(hold, function()
+			if spinToken ~= token then
+				return
+			end
+			revealAgain.Visible = true
+			revealDone.Visible = true
+		end)
 	end
 
 	local function showReveal(item: any)
@@ -471,6 +518,10 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local tileW = reelH * 0.86 -- strip height = tile size (square)
 		local stride = tileW * 1.14 -- tile + gap
 		local reelW = reel.AbsoluteSize.X
+		-- Marker sized directly off the ACTUAL tile size (+ fixed padding), not
+		-- an independently-guessed fraction of reel height -- that drift is
+		-- exactly what left a loose, uneven gap around the winning tile.
+		marker.Size = UDim2.fromOffset(tileW + MARKER_PAD, tileW + MARKER_PAD)
 
 		-- build the strip: random pool icons, the PRIZE at WINNER_INDEX, and a
 		-- deliberately high-rarity neighbour just before it (the near-miss you
@@ -484,8 +535,12 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 			end
 			return best
 		end
+		-- Buffer tiles before 0 and after TRAILING so the strip's true start/end
+		-- edges are never visible (positions are absolute i*stride, so this is
+		-- the only change needed -- see StarterRollScreen.spinBand for the same fix).
+		local LEAD = 8
 		local lastIndex = WINNER_INDEX + TRAILING
-		for i = 0, lastIndex do
+		for i = -LEAD, lastIndex + LEAD do
 			local tile = reelTileTemplate:Clone()
 			tile.Visible = true
 			tile.Position = UDim2.new(0, i * stride, 0.5, 0)
@@ -517,12 +572,19 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		local targetX = reelW / 2 - (WINNER_INDEX * stride + tileW / 2)
 		strip.Position = UDim2.new(0, startX, 0.5, 0)
 
-		local tween = TweenService:Create(
+		-- ONE continuous tween, not two stitched together: a Linear-cruise then
+		-- a Quint/Out-snap has a real velocity discontinuity at the join
+		-- (Quint/Out's INITIAL speed is higher than the cruise's constant
+		-- speed, so motion visibly speeds up right before it decelerates --
+		-- "slow, then fast, then slow"). Still snappy though, not gentle --
+		-- Quint's t^5 curve is basically stationary for over a second at this
+		-- duration; Quart is one power lower, still a firm decisive stop, much
+		-- shorter crawl.
+		TweenService:Create(
 			strip,
 			TweenInfo.new(SCROLL_TIME, Enum.EasingStyle.Quint, Enum.EasingDirection.Out),
 			{ Position = UDim2.new(0, targetX, 0.5, 0) }
-		)
-		tween:Play()
+		):Play()
 		-- "almost there" text for the final crawl, then land
 		task.spawn(function()
 			task.wait(SCROLL_TIME * 0.72)
@@ -538,14 +600,160 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 		end)
 	end
 
+	local againDefault, doneDefault = revealAgain.Text, revealDone.Text
+	-- Full-screen takeover (like the starter roll): a solid dark cover hides the
+	-- world and every other UI, the panel's own box and border disappear, and
+	-- the reel spans the whole screen on its own.
+	local coverGui: ScreenGui? = nil
+	local savedOrder = 0
+	local savedLook: { size: UDim2, pos: UDim2, bg: number, revealBg: number, stroke: boolean, corner: UDim, revealCorner: UDim }? = nil
+	local function showCover()
+		if coverGui then
+			return
+		end
+		savedOrder = gui.DisplayOrder
+		local c = Instance.new("ScreenGui")
+		c.Name = "RevealCover"
+		c.IgnoreGuiInset = true
+		c.ResetOnSpawn = false
+		c.DisplayOrder = savedOrder + 199
+		local f = Instance.new("Frame")
+		f.Size = UDim2.fromScale(1, 1)
+		f.BackgroundColor3 = Color3.fromRGB(5, 5, 9)
+		f.BackgroundTransparency = 1
+		f.BorderSizePixel = 0
+		f.Active = true -- swallow clicks meant for the world behind
+		f.Parent = c
+		-- a faint warm glow behind the strip
+		local glow = Instance.new("Frame")
+		glow.AnchorPoint = Vector2.new(0.5, 0.5)
+		glow.Position = UDim2.fromScale(0.5, 0.36)
+		glow.Size = UDim2.fromScale(1, 0.5)
+		glow.BackgroundColor3 = Color3.fromRGB(255, 196, 96)
+		glow.BackgroundTransparency = 0.93
+		glow.BorderSizePixel = 0
+		glow.Parent = f
+		local gr = Instance.new("UIGradient")
+		gr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0), NumberSequenceKeypoint.new(1, 1) })
+		gr.Rotation = 90
+		gr.Parent = glow
+		c.Parent = gui.Parent
+		gui.DisplayOrder = savedOrder + 200
+		TweenService:Create(f, TweenInfo.new(0.4), { BackgroundTransparency = 0 }):Play()
+		coverGui = c
+
+		local stroke = panel:FindFirstChildOfClass("UIStroke")
+		local corner = panel:FindFirstChildOfClass("UICorner")
+		local rcorner = reveal:FindFirstChildOfClass("UICorner")
+		savedLook = {
+			size = panel.Size,
+			pos = panel.Position,
+			bg = panel.BackgroundTransparency,
+			revealBg = reveal.BackgroundTransparency,
+			stroke = stroke ~= nil and stroke.Enabled,
+			corner = corner and corner.CornerRadius or UDim.new(0, 0),
+			revealCorner = rcorner and rcorner.CornerRadius or UDim.new(0, 0),
+		}
+		panel.Size = UDim2.fromScale(1, 1)
+		panel.Position = UDim2.fromScale(0.5, 0.5)
+		panel.BackgroundTransparency = 1
+		reveal.BackgroundTransparency = 1
+		if stroke then
+			stroke.Enabled = false
+		end
+		if corner then
+			corner.CornerRadius = UDim.new(0, 0)
+		end
+		if rcorner then
+			rcorner.CornerRadius = UDim.new(0, 0)
+		end
+	end
+	local function hideCover()
+		if coverGui then
+			coverGui:Destroy()
+			coverGui = nil
+			gui.DisplayOrder = savedOrder
+		end
+		local look = savedLook
+		if look then
+			savedLook = nil
+			panel.Size = look.size
+			panel.Position = look.pos
+			panel.BackgroundTransparency = look.bg
+			reveal.BackgroundTransparency = look.revealBg
+			local stroke = panel:FindFirstChildOfClass("UIStroke")
+			local corner = panel:FindFirstChildOfClass("UICorner")
+			local rcorner = reveal:FindFirstChildOfClass("UICorner")
+			if stroke then
+				stroke.Enabled = look.stroke
+			end
+			if corner then
+				corner.CornerRadius = look.corner
+			end
+			if rcorner then
+				rcorner.CornerRadius = look.revealCorner
+			end
+		end
+	end
+
+	local hiddenSiblings: { GuiObject } = {}
+	local function endCustomReveal(): any?
+		hideCover()
+		for _, g in hiddenSiblings do
+			g.Visible = true
+		end
+		table.clear(hiddenSiblings)
+		local c = customReveal
+		customReveal = nil
+		poolOverride = nil
+		revealAgain.Text = againDefault
+		revealDone.Text = doneDefault
+		return c
+	end
+
 	revealDone.Activated:Connect(function()
 		spinToken += 1 -- supersede any in-flight scroll
 		reveal.Visible = false
+		if customReveal then
+			local c = endCustomReveal()
+			panel.Visible = false
+			if c and c.onDone then
+				c.onDone()
+			end
+		end
 	end)
 
 	-- built here, not earlier: the strip can replay the reveal, so it needs
 	-- showReveal to already exist
 	buildDevBatchRoll(panel, showReveal)
+
+	-- Plays the SAME reveal reel for a prize that came from somewhere else (Relic
+	-- Dig). `pool` is the list of {name, imageId, rarity} tiles to scroll past.
+	-- opts: { againText, doneText, onAgain, onDone }
+	function RollsScreen.playReveal(item: any, pool: { any }, opts: any?)
+		Components.closeOtherPanels(panel)
+		customReveal = opts or {}
+		if opts and opts.fullscreen then
+			showCover()
+		end
+		poolOverride = pool
+		if opts and opts.againText then
+			revealAgain.Text = opts.againText
+		end
+		if opts and opts.doneText then
+			revealDone.Text = opts.doneText
+		end
+		-- show ONLY the reveal reel, not the Lucky Rolls tiers behind it
+		table.clear(hiddenSiblings)
+		for _, child in panel:GetChildren() do
+			if child ~= reveal and child:IsA("GuiObject") and child.Visible then
+				child.Visible = false
+				table.insert(hiddenSiblings, child)
+			end
+		end
+		panel.Visible = true
+		showReveal(item)
+	end
 
 	----------------------------------------------------------------------
 	-- Rolling
@@ -595,6 +803,14 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 	end)
 	;(reveal:WaitForChild("AgainButton") :: TextButton).Activated:Connect(function()
 		reveal.Visible = false
+		if customReveal then
+			local c = endCustomReveal()
+			panel.Visible = false
+			if c and c.onAgain then
+				c.onAgain()
+			end
+			return
+		end
 		doRoll(nil)
 	end)
 
@@ -744,6 +960,9 @@ function RollsScreen.wire(gui: ScreenGui, tooltip: any, toast: (text: string, co
 
 	function RollsScreen.open()
 		Components.closeOtherPanels(panel)
+		if customReveal then
+			endCustomReveal()
+		end
 		panel.Visible = true
 		reveal.Visible = false
 		if tiers then

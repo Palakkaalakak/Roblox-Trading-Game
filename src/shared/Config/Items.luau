@@ -22,6 +22,26 @@ local Items = {
 	-- arrives with the shop phase; use the debug button meanwhile.
 	StarterGems = 0,
 
+	-- The first-join reveal shows one of two asymmetric shapes, chosen once per
+	-- account and never told apart to the player as anything but "lucky" (see
+	-- the starter-roll takeover UI). This is what seeds day-one trading: a
+	-- minority hold a few valuable things, the majority hold a lot of cheap
+	-- things, so both sides of a trade exist from the first session.
+	--   super  -- few items, drawn only from the upper rarity window
+	--   multi  -- many items, drawn from the normal full pool (commons likely)
+	StarterVariants = {
+		SuperChance = 0.25, -- fraction of new accounts that land on "super"
+		Super = { count = 3, minRarity = "Legendary" }, -- Legendary/Mythical/Godly/Celestial
+		Multi = { count = 6 }, -- keep <= GuiBuilder's STARTER_MAX_ITEMS (one reel band each)
+		-- Hook psychology: every new account must land on the reveal screen
+		-- worth AT LEAST this many gems (5000 gems = 50 Robux at
+		-- RewardsConfig.BaseGemsPerRobux=100). StarterService tops this up
+		-- after the normal weighted draw by adding extra copies of whatever
+		-- was ALREADY granted (never new distinct items), so the reveal grid
+		-- doesn't balloon and the number always matches real inventory.
+		MinTotalValue = 5000,
+	},
+
 	-- totalSupply >= threshold -> that tier (checked top-down). Below all ->
 	-- Celestial (the rarest). SIX tiers: the top three (Mythical/Godly/
 	-- Celestial) sit close together in supply so the VALUE ladder has no big

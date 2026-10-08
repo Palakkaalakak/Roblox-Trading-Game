@@ -33,7 +33,7 @@ return {
 				Inventory = { itm_a = 5 },
 				UniqueCrafts = { [1] = { outputItemId = "itm_old" } },
 				UniqueCraftNextAt = { [1] = 999 },
-				UniqueCraftSlots = 3, -- bought with gems; gems untouched by a reset
+				UniqueCraftSlots = 3, -- reset too: see the assertion below
 				Crafting = { count = 40, claimed = { ["1"] = true } },
 				EconomyGen = 0,
 			}
@@ -44,7 +44,11 @@ return {
 			eq(next(profile.UniqueCrafts), nil, "stale unique-craft offers cleared")
 			eq(next(profile.UniqueCraftNextAt), nil, "stale cooldowns cleared")
 			eq(profile.Crafting, nil, "milestone/goal progress cleared")
-			eq(profile.UniqueCraftSlots, 3, "a slot bought with gems is not economy state")
+			-- Slots reset as well. Pre-launch this is a dev tool, not a live
+			-- wipe that has to respect a real purchase: leaving slots bought
+			-- meant the unlock strip vanished from every repeat test after the
+			-- first, so the purchase flow could never be exercised twice.
+			eq(profile.UniqueCraftSlots, 1, "a debug reset returns the account to one slot")
 			eq(profile.EconomyGen, 1, "generation stamped")
 		end,
 

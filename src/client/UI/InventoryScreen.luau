@@ -52,8 +52,26 @@ function InventoryScreen.wire(gui: ScreenGui, tooltip: any)
 		EconomyController.ensure(wanted)
 	end
 
-	State.Observe(InventoryController.inventory, refresh)
-	State.Observe(EconomyController.stats, refresh)
+	-- Both sources fire constantly (every stats broadcast, every inventory
+	-- change) and refresh touches every tile, so a closed panel just marks itself
+	-- stale and catches up the moment it becomes visible.
+	local dirty = true
+	local function refreshIfVisible()
+		if panel.Visible then
+			dirty = false
+			refresh()
+		else
+			dirty = true
+		end
+	end
+	panel:GetPropertyChangedSignal("Visible"):Connect(function()
+		if panel.Visible and dirty then
+			dirty = false
+			refresh()
+		end
+	end)
+	State.Observe(InventoryController.inventory, refreshIfVisible)
+	State.Observe(EconomyController.stats, refreshIfVisible)
 
 	function InventoryScreen.toggle()
 		if panel.Visible then

@@ -36,6 +36,8 @@ local ICONS = {
 	Inventory = "rbxassetid://15402958715",
 	Player = "rbxassetid://92109681457452",
 	Star = "rbxassetid://17368097932",
+	Rewards = "rbxassetid://17368068524",
+	Quests = "rbxassetid://17368118782", -- Simulator Icon Pack / Menus / Quests
 	Trophy = "rbxassetid://16912465495", -- crown (ranking / leaderboards)
 	Shop = "rbxassetid://15402855334", -- coin chest
 	Friends = "rbxassetid://17368071983", -- Simulator Icon Pack / Menus / Friends (syndicates)
@@ -120,7 +122,7 @@ end
 -- HUD
 --------------------------------------------------------------------------------
 
-local function buildHud(parent: Instance)
+local function buildHud(parent: Instance, topOverlay: Instance)
 	local gui = new("ScreenGui", {
 		Name = "TradingHUD",
 		ResetOnSpawn = false,
@@ -149,8 +151,10 @@ local function buildHud(parent: Instance)
 		TextColor3 = C.Gem,
 	}, pill)
 
-	-- icon button in the style of the user's StarterGui example
-	local function iconButton(name: string, image: string, caption: string, position: UDim2)
+	-- icon button in the style of the user's StarterGui example. parentOverride
+	-- lets one button live in a different ScreenGui (FreeGemsButton needs the
+	-- ignore-inset overlay) while still matching every other icon's style.
+	local function iconButton(name: string, image: string, caption: string, position: UDim2, parentOverride: Instance?)
 		local btn = new("ImageButton", {
 			Name = name,
 			Image = image,
@@ -160,7 +164,7 @@ local function buildHud(parent: Instance)
 			Position = position,
 			Size = UDim2.fromScale(0.074, 0.106),
 			ScaleType = Enum.ScaleType.Fit,
-		}, gui)
+		}, parentOverride or gui)
 		new("UIAspectRatioConstraint", { AspectRatio = 1 }, btn)
 		new("UICorner", { CornerRadius = UDim.new(0.22, 0) }, btn)
 		local cap = new("TextLabel", {
@@ -190,12 +194,32 @@ local function buildHud(parent: Instance)
 	iconButton("InventoryButton", ICONS.Inventory, "INVENTORY", UDim2.fromScale(0.955, 0.830))
 	iconButton("TradeButton", ICONS.Trade, "TRADE", UDim2.fromScale(0.955, 0.690))
 	iconButton("ProfileButton", ICONS.Player, "PROFILES", UDim2.fromScale(0.955, 0.550))
-	-- Robux shop and the (deliberately separate) free-gems screen
+	-- Robux shop and the (deliberately separate) free-gems screen. FreeGemsButton
+	-- lives in the ignore-inset overlay, not this ScreenGui -- same treatment as
+	-- RewardsBar, per explicit request.
 	iconButton("ShopButton", ICONS.Shop, "SHOP", UDim2.fromScale(0.955, 0.410))
-	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.270))
+	iconButton("FreeGemsButton", ICONS.Star, "FREE GEMS", UDim2.fromScale(0.955, 0.270), topOverlay)
 	-- no RANKS button: leaderboards are the physical boards in the world
 	iconButton("SyndicateButton", ICONS.Friends, "GROUP", UDim2.fromScale(0.955, 0.130))
-	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.06, 0.93))
+	-- RewardsButton takes the spot DebugGemsButton used to sit in; Debug moved
+	-- to its current live spot. Opens the standalone RewardsPanel (distinct
+	-- from the Community Rewards gem-conversion bar/tab).
+	-- Instance name (RewardsButton) stays -- HUD.luau/init.client.luau
+	-- WaitForChild it by that name. Only the visible label + icon change.
+	iconButton("RewardsButton", ICONS.Quests, "QUESTS", UDim2.fromScale(0.044, 0.578))
+	iconButton("DebugGemsButton", ICONS.Gem, "+100 (DEBUG)", UDim2.fromScale(0.1784, 0.0746))
+	-- SettingsPlaceholder: added live in Studio by the user for a future
+	-- settings panel; ported here so a fresh GuiBuilder.build() keeps it.
+	new("ImageButton", {
+		Name = "SettingsPlaceholder",
+		Image = "rbxassetid://81576980381871",
+		BackgroundTransparency = 1,
+		AutoButtonColor = true,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.0237, 0.1035),
+		Size = UDim2.fromScale(0.0335, 0.0413),
+		ScaleType = Enum.ScaleType.Fit,
+	}, gui)
 
 	-- toast area (bottom center); ToastTemplate cloned at runtime
 	local toastArea = new("Frame", {
@@ -938,7 +962,7 @@ local function buildBoardPanel(parent: Instance)
 		-- and the boost slots -- nothing looked wrong, but every hit test in
 		-- that band had to fight it.
 		Position = UDim2.fromScale(0.014, 0.086),
-		Size = UDim2.fromScale(0.262, 0.062),
+		Size = UDim2.fromScale(0.40, 0.062),
 	}, boardPanel)
 	new("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
@@ -959,8 +983,9 @@ local function buildBoardPanel(parent: Instance)
 		capText(b, 17)
 		return b
 	end
-	tab("TabTrades", "🔁 Trade Ads", 1, 0.50)
-	tab("TabMarket", "📈 Market", 2, 0.42)
+	tab("TabTrades", "🔁 Trade Ads", 1, 0.34)
+	tab("TabMarket", "📈 Market", 2, 0.28)
+	tab("TabBulk", "📦 Bulk Buy", 3, 0.34)
 
 	-- scope filter: server-only vs game-wide feed. Defaults to "server" at
 	-- runtime (BoardScreen) so a low-pop server's first look at the board
@@ -991,7 +1016,7 @@ local function buildBoardPanel(parent: Instance)
 			PaddingRight = UDim.new(0, 10),
 		}, b)
 	end
-	scopeBtn("ScopeServer", "THIS SERVER", C.Accent, 1)
+	scopeBtn("ScopeServer", "SERVER", C.Accent, 1)
 	scopeBtn("ScopeGlobal", "GLOBAL", C.BgLight, 2)
 
 	-- Banked boost credits as SLOTS, not a sentence. Right-ALIGNED and
@@ -2619,16 +2644,23 @@ local function buildShopPanel(parent: Instance)
 		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
 	end
 
-	-- title bar: flat black, big white centred SHOP, gold underline, red X
+	-- Single page, no tabs: Community Rewards detail lives in its own
+	-- standalone RewardsPanel now (opened by the HUD's RewardsButton and by
+	-- the top conversion bar), not nested inside the Shop.
+	--
+	-- title bar: flat black, big white centred SHOP, gold underline. Spans
+	-- almost the full panel width -- the close button lives INSIDE it (small,
+	-- right-anchored), not stacked beside it as its own oversized tile.
 	local titleBar = new("Frame", {
 		Name = "TitleBar",
+		Position = UDim2.fromScale(0.011, 0.014), -- (1 - 0.978) / 2: centred
 		BackgroundColor3 = Color3.fromRGB(14, 14, 16),
 		BorderSizePixel = 0,
-		Size = UDim2.fromScale(1, 0.095),
+		Size = UDim2.fromScale(0.978, 0.084),
 	}, shop)
 	corner(titleBar, 6)
 	stroke(titleBar, GOLD_HI, 2)
-	local title = label("Title", {
+	label("Title", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.fromScale(0.6, 0.66),
@@ -2637,23 +2669,32 @@ local function buildShopPanel(parent: Instance)
 		TextColor3 = Color3.new(1, 1, 1),
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, titleBar)
-	capText(title, 30)
+	capText(titleBar.Title, 30)
+
+	-- ShopScreen.luau does panel:WaitForChild("CloseButton") -- must stay a
+	-- direct child of `shop`, not the title bar, or Close silently breaks
+	-- (infinite yield -> nil call). Positioned/sized to sit visually inside
+	-- the title bar's right edge without actually living inside it.
 	local close = button("CloseButton", {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -10, 0.5, 0),
-		Size = UDim2.fromOffset(28, 28),
+		Position = UDim2.fromScale(0.977, 0.014 + 0.084 / 2), -- title bar's vertical centre
+		Size = UDim2.fromScale(0.05, 0.084 * 0.6),
 		Text = "X",
 		TextScaled = true,
 		BackgroundColor3 = C.Bad,
-	}, titleBar)
+		ZIndex = 2,
+	}, shop)
 	corner(close, 5)
 	capText(close, 18)
+
+	local PAGE_POS = UDim2.fromScale(0.022, 0.132)
+	local PAGE_SIZE = UDim2.fromScale(0.956, 0.85)
 
 	-- scrolling body: SectionTemplate cloned per section
 	local body = new("ScrollingFrame", {
 		Name = "Body",
-		Position = UDim2.fromScale(0.022, 0.115),
-		Size = UDim2.fromScale(0.956, 0.868),
+		Position = PAGE_POS,
+		Size = PAGE_SIZE,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ScrollBarThickness = 6,
@@ -2698,13 +2739,30 @@ local function buildShopPanel(parent: Instance)
 		Size = UDim2.new(0.976, 0, 0, 2),
 	}, header)
 
+	-- Optional one-line value framing under the header, above the price grid.
+	-- Hidden/empty by default -- ShopScreen only fills this in for sections
+	-- that define SectionBlurbs, so most sections show nothing here at all.
+	-- Paywall research: screens that state the outcome before showing price
+	-- outperform leading straight with pricing, which anchors on cost first.
+	label("SectionBlurb", {
+		Name = "SectionBlurb",
+		Size = UDim2.new(1, 0, 0, 16),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextSize = 13,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Visible = false,
+		LayoutOrder = 2,
+	}, section)
+
 	-- feature-card column (wide hero cards)
 	local features = new("Frame", {
 		Name = "Features",
 		BackgroundTransparency = 1,
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		LayoutOrder = 2,
+		LayoutOrder = 3,
 	}, section)
 	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, features)
 
@@ -2713,7 +2771,7 @@ local function buildShopPanel(parent: Instance)
 		BackgroundTransparency = 1,
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		LayoutOrder = 3,
+		LayoutOrder = 4,
 	}, section)
 	new("UIGridLayout", {
 		CellSize = UDim2.fromOffset(164, 202),
@@ -2831,6 +2889,24 @@ local function buildShopPanel(parent: Instance)
 	}, card)
 	capText(timeLeft, 11)
 
+	-- Real rate, computed from actual gems/price -- not a marketing claim, a
+	-- number the player can verify themselves. Sits in the gap between the
+	-- content stack and the price bar (both already end/start clear of this
+	-- band). Research: showing the real per-unit rate measurably raises
+	-- purchase trust and conversion versus a bonus% claim alone.
+	local rate = label("ValueRate", {
+		Position = UDim2.fromScale(0.03, 0.755),
+		Size = UDim2.fromScale(0.94, 0.05),
+		Text = "",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = Color3.fromRGB(120, 124, 136),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Visible = false,
+		ZIndex = 3,
+	}, card)
+	capText(rate, 11)
+
 	-- 4. full-width green price bar, flush to the bottom edge
 	local buyBtn = button("BuyButton", {
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -2927,7 +3003,9 @@ local function buildShopPanel(parent: Instance)
 	}, ribbon)
 	capText(ribbonLbl, 18)
 
-	-- big art left, on a halo
+	-- big art left, on a halo. Larger than before -- short gem-pack content
+	-- (name + one bonus line + one gem-count line) left this mostly empty at
+	-- the old size, with the text block floating in a sea of dead card space.
 	local fglow = new("Frame", {
 		Name = "IconGlow",
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
@@ -2936,8 +3014,8 @@ local function buildShopPanel(parent: Instance)
 		-- centred in the gap between the ribbon and the price bar; any bigger and
 		-- the art clips into the green bar
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.17, 0.49),
-		Size = UDim2.fromOffset(104, 104),
+		Position = UDim2.fromScale(0.19, 0.49),
+		Size = UDim2.fromOffset(140, 140),
 		ZIndex = 2,
 	}, feat)
 	corner(fglow, 100)
@@ -2947,36 +3025,38 @@ local function buildShopPanel(parent: Instance)
 		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
 		BackgroundTransparency = 1,
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.17, 0.49),
-		Size = UDim2.fromOffset(92, 92),
+		Position = UDim2.fromScale(0.19, 0.49),
+		Size = UDim2.fromOffset(124, 124),
 		ScaleType = Enum.ScaleType.Fit,
 		ZIndex = 3,
 	}, feat)
 
-	-- text block right, coloured sub-lines like the reference
+	-- text block right, vertically centred as a group (short gem-pack content
+	-- is 2-3 lines; top-anchoring it left a dead gap below on the hero card).
+	-- Longer offers (pass/subscription descriptions) still fit this same span.
 	local fName = label("OfferName", {
-		Position = UDim2.fromScale(0.34, 0.24),
-		Size = UDim2.fromScale(0.62, 0.14),
+		Position = UDim2.fromScale(0.38, 0.28),
+		Size = UDim2.fromScale(0.58, 0.16),
 		Text = "Offer",
 		TextScaled = true,
 		TextColor3 = BF_INK,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 3,
 	}, feat)
-	capText(fName, 24)
+	capText(fName, 26)
 	local fContents = label("Contents", {
-		Position = UDim2.fromScale(0.34, 0.4),
-		Size = UDim2.fromScale(0.62, 0.15),
+		Position = UDim2.fromScale(0.38, 0.47),
+		Size = UDim2.fromScale(0.58, 0.17),
 		Text = "",
 		TextScaled = true,
 		TextColor3 = BF_INK,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 3,
 	}, feat)
-	capText(fContents, 28)
+	capText(fContents, 30)
 	local fBonus = label("Bonus", {
-		Position = UDim2.fromScale(0.34, 0.57),
-		Size = UDim2.fromScale(0.62, 0.12),
+		Position = UDim2.fromScale(0.38, 0.65),
+		Size = UDim2.fromScale(0.58, 0.13),
 		Text = "",
 		Font = FONT,
 		BackgroundTransparency = 1,
@@ -3073,6 +3153,368 @@ local function buildShopPanel(parent: Instance)
 	}, shop)
 
 	return shop
+end
+
+--------------------------------------------------------------------------------
+-- Rewards panel — its own standalone screen, opened by the HUD's
+-- RewardsButton. Not a purchase and not the gem-conversion detail (that's
+-- ConversionPanel, below) -- blank shell for now.
+--------------------------------------------------------------------------------
+
+local function buildRewardsPanel(parent: Instance)
+	local rewards = panel("RewardsPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.66, 0.84),
+		Visible = false,
+	}, parent)
+	new("UISizeConstraint", { MaxSize = Vector2.new(900, 700) }, rewards)
+
+	local title = label("Title", {
+		Position = UDim2.fromScale(0.05, 0.04),
+		Size = UDim2.fromScale(0.7, 0.1),
+		Text = "REWARDS",
+		TextScaled = true,
+		TextColor3 = C.Gem,
+	}, rewards)
+	new("UITextSizeConstraint", { MaxTextSize = 22 }, title)
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(30, 30),
+		Text = "X",
+		BackgroundColor3 = C.Bad,
+	}, rewards)
+	local empty = label("EmptyLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.8, 0.3),
+		Text = "More rewards are coming soon.",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+	}, rewards)
+	new("UITextSizeConstraint", { MaxTextSize = 18 }, empty)
+
+	return rewards
+end
+
+--------------------------------------------------------------------------------
+-- Conversion panel — the Community Rewards gem->Robux detail. Opened by the
+-- top RewardsBar (bar click + info button), NOT by the HUD's RewardsButton --
+-- separate concept, separate panel. Used to be a Shop tab (Layout3); same
+-- content and footprint, just standalone now instead of nested under Shop.
+--------------------------------------------------------------------------------
+
+local function buildConversionPanel(parent: Instance)
+	local conv = panel("ConversionPanel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.66, 0.84),
+		BackgroundColor3 = C.Panel,
+		Visible = false,
+	}, parent)
+	new("UISizeConstraint", { MaxSize = Vector2.new(900, 700) }, conv)
+	stroke(conv, GOLD_HI, 2.5)
+
+	local function capText(inst: Instance, maxSize: number)
+		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
+	end
+
+	button("CloseButton", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 8),
+		Size = UDim2.fromOffset(30, 30),
+		Text = "X",
+		BackgroundColor3 = C.Bad,
+	}, conv)
+
+	-- Two columns, same split Layout3 always used: left = conversion detail,
+	-- right = boost checklist, headers aligned across the divider.
+	local body = new("Frame", {
+		Name = "Body",
+		Position = UDim2.fromScale(0.04, 0.05),
+		Size = UDim2.fromScale(0.92, 0.91),
+		BackgroundTransparency = 1,
+	}, conv)
+	local leftCol = new("Frame", {
+		Name = "Left",
+		Size = UDim2.fromScale(0.5, 1),
+		BackgroundTransparency = 1,
+	}, body)
+	new("Frame", {
+		Name = "Divider",
+		BackgroundColor3 = GOLD_LO,
+		BackgroundTransparency = 0.45,
+		BorderSizePixel = 0,
+		Position = UDim2.fromScale(0.53, 0),
+		Size = UDim2.new(0, 2, 1, 0),
+	}, body)
+	local rightCol = new("Frame", {
+		Name = "Right",
+		Position = UDim2.fromScale(0.57, 0),
+		Size = UDim2.fromScale(0.43, 1),
+		BackgroundTransparency = 1,
+	}, body)
+
+	-- Header bar, but scoped to the LEFT column only (not spanning the whole
+	-- panel) -- same look as the top HUD bar (icon, "ROBUX REWARDS" title,
+	-- dark track with gold fill, % centred inside it), just bigger. No X/Y
+	-- gem count shown anywhere near it: the fill curve is front-loaded on
+	-- purpose, and a literal gem count next to the % would let a player do
+	-- the math and notice it doesn't move linearly.
+	local bar = new("Frame", {
+		Name = "Bar",
+		Size = UDim2.new(1, 0, 0, 70),
+		BackgroundColor3 = Color3.fromRGB(38, 41, 51),
+	}, leftCol)
+	corner(bar, 12)
+	grad(bar, Color3.fromRGB(50, 53, 66), Color3.fromRGB(26, 28, 36))
+	gradStroke(bar, GOLD_HI, GOLD_EDGE, 2)
+	new("ImageLabel", {
+		Name = "Icon",
+		Image = ICONS.Robux,
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 10, 0.5, 0),
+		Size = UDim2.fromOffset(30, 30),
+		ScaleType = Enum.ScaleType.Fit,
+	}, bar)
+	local barTitle = label("Title", {
+		Position = UDim2.fromOffset(50, 6),
+		Size = UDim2.new(1, -62, 0, 18),
+		Text = "ROBUX REWARDS",
+		TextSize = 14,
+		TextColor3 = GOLD_HI,
+	}, bar)
+	textStroke(barTitle)
+	local track = new("Frame", {
+		Name = "Track",
+		Position = UDim2.fromOffset(50, 27),
+		Size = UDim2.new(1, -62, 0, 18),
+		BackgroundColor3 = Color3.fromRGB(14, 15, 20),
+		BorderSizePixel = 0,
+	}, bar)
+	corner(track, 9)
+	new("UIStroke", { Color = Color3.new(0, 0, 0), Transparency = 0.35, Thickness = 1 }, track)
+	local fill = new("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+	}, track)
+	corner(fill, 9)
+	goldFill(fill)
+	local percent = label("Percent", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		Text = "0%",
+		TextSize = 13,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 2,
+	}, track)
+	textStroke(percent, 1.2, 0.15)
+
+	-- more detail than the top bar, but still no raw gem count: the target
+	-- (threshold), the rate, and what it pays out -- never current/threshold
+	-- as a pair, which is what would expose the curve.
+	label("RateLine", {
+		Position = UDim2.fromOffset(0, 82),
+		Size = UDim2.new(1, 0, 0, 22),
+		Text = "Conversion rate: 100 gems / Robux",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, leftCol)
+	capText(leftCol.RateLine, 16)
+	label("ThresholdLine", {
+		Position = UDim2.fromOffset(0, 108),
+		Size = UDim2.new(1, 0, 0, 22),
+		Text = "Goal: 100,000 gems",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, leftCol)
+	capText(leftCol.ThresholdLine, 16)
+
+	local robuxNow = label("RobuxNowLine", {
+		Position = UDim2.fromOffset(0, 138),
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = "You'd get ≈0 Robux right now",
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, leftCol)
+	capText(robuxNow, 18)
+
+	-- gems <-> Robux exchange calculator: type into either box, the other
+	-- computes automatically off the live conversion rate.
+	local calc = new("Frame", {
+		Name = "Calculator",
+		Position = UDim2.fromOffset(0, 174),
+		Size = UDim2.new(1, 0, 0, 96),
+		BackgroundColor3 = Color3.fromRGB(30, 32, 41),
+		BorderSizePixel = 0,
+	}, leftCol)
+	corner(calc, 6)
+	gradStroke(calc, GOLD_HI, GOLD_EDGE, 1.5)
+	label("CalcHeader", {
+		Position = UDim2.fromOffset(12, 6),
+		Size = UDim2.new(1, -24, 0, 18),
+		Text = "EXCHANGE CALCULATOR",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, calc)
+	capText(calc.CalcHeader, 12)
+
+	local gemsBox = new("TextBox", {
+		Name = "GemsBox",
+		Position = UDim2.fromOffset(12, 30),
+		Size = UDim2.new(0.42, -12, 0, 30),
+		BackgroundColor3 = Color3.fromRGB(14, 15, 20),
+		BorderSizePixel = 0,
+		Font = FONT,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextSize = 16,
+		Text = "0",
+		PlaceholderText = "Gems",
+		ClearTextOnFocus = false,
+	}, calc)
+	corner(gemsBox, 6)
+	label("GemsUnit", {
+		Position = UDim2.fromOffset(12, 62),
+		Size = UDim2.new(0.42, -12, 0, 16),
+		Text = "gems",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, calc)
+	capText(calc.GemsUnit, 12)
+
+	label("Equals", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 34),
+		Size = UDim2.new(0.16, 0, 0, 24),
+		Text = "=",
+		TextScaled = true,
+		TextColor3 = GOLD_HI,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, calc)
+
+	local robuxBox = new("TextBox", {
+		Name = "RobuxBox",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 30),
+		Size = UDim2.new(0.42, -12, 0, 30),
+		BackgroundColor3 = Color3.fromRGB(14, 15, 20),
+		BorderSizePixel = 0,
+		Font = FONT,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextSize = 16,
+		Text = "0",
+		PlaceholderText = "Robux",
+		ClearTextOnFocus = false,
+	}, calc)
+	corner(robuxBox, 6)
+	label("RobuxUnit", {
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 62),
+		Size = UDim2.new(0.42, -12, 0, 16),
+		Text = "Robux",
+		Font = FONT_LIGHT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Right,
+	}, calc)
+	capText(calc.RobuxUnit, 12)
+
+	-- right column: boost checklist
+	label("ChecklistHeader", {
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(1, 0, 0, 24),
+		Text = "BOOST YOUR RATE",
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+	}, rightCol)
+	capText(rightCol.ChecklistHeader, 18)
+	new("Frame", {
+		Name = "Rule",
+		BackgroundColor3 = GOLD_LO,
+		BackgroundTransparency = 0.45,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(0, 26),
+		Size = UDim2.new(1, 0, 0, 2),
+	}, rightCol)
+
+	local checklist = new("ScrollingFrame", {
+		Name = "Checklist",
+		Position = UDim2.fromOffset(0, 36),
+		Size = UDim2.new(1, 0, 1, -36),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+	}, rightCol)
+	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, checklist)
+
+	-- one row template -- filled in per unlocked/locked modifier once
+	-- RewardsConfig.RateModifiers actually has entries
+	local checkRow = new("Frame", {
+		Name = "CheckRow",
+		BackgroundColor3 = Color3.fromRGB(30, 32, 41),
+		BorderSizePixel = 0,
+		Size = UDim2.new(1, 0, 0, 44),
+		Visible = false,
+	}, checklist)
+	corner(checkRow, 6)
+	label("Check", {
+		Position = UDim2.fromOffset(12, 0),
+		Size = UDim2.fromOffset(24, 44),
+		Text = "\226\151\139",
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, checkRow)
+	label("RowLabel", {
+		Position = UDim2.fromOffset(44, 0),
+		Size = UDim2.new(1, -140, 1, 0),
+		Text = "",
+		TextSize = 14,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, checkRow)
+	label("RowBonus", {
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.5, 0),
+		Size = UDim2.fromOffset(80, 20),
+		Text = "",
+		Font = FONT,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextScaled = true,
+	}, checkRow)
+	capText(checkRow.RowBonus, 14)
+
+	label("EmptyLabel", {
+		Name = "EmptyLabel",
+		Position = UDim2.fromOffset(0, 8),
+		Size = UDim2.new(1, 0, 0, 40),
+		Text = "No boosts unlocked yet — check back later.",
+		Font = FONT_LIGHT,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextWrapped = true,
+	}, checklist)
+
+	return conv
 end
 
 --------------------------------------------------------------------------------
@@ -3855,6 +4297,121 @@ local function buildSyndicatePanel(parent: Instance)
 	return syn
 end
 
+-- The REEL: a horizontal, clipped strip of item icons that scrolls past a
+-- fixed center marker and decelerates to a stop with the prize under the
+-- marker. The tiles either side of it stay visible — the "item before and
+-- the item after" — so every pull ends on a near-miss (you SEE the icons
+-- that slid past, and the one that almost stopped). A caller clones
+-- Strip.ReelTile and animates Strip.Position; LOCKED shape, shared by the
+-- Rolls panel and the starter-roll takeover so both read the same mechanic.
+-- Returns the Reel frame (Reel > Strip > ReelTile template, Reel > CenterMarker).
+local function buildReelStrip(parent: Instance, pos: UDim2, size: UDim2): Frame
+	local function capText(inst: Instance, maxSize: number)
+		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
+	end
+
+	local reel = new("Frame", {
+		Name = "Reel",
+		BackgroundColor3 = C.Bg,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = pos,
+		Size = size,
+		ZIndex = 31,
+	}, parent)
+	corner(reel, 10)
+	stroke(reel, C.Stroke, 1)
+	local strip = new("Frame", {
+		Name = "Strip",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromScale(0, 0.86),
+		ZIndex = 31,
+	}, reel)
+	-- one reel cell: square art, sized to the strip's height (the caller sets
+	-- explicit X offsets, so no layout — landing math stays exact)
+	local reelTile = new("ImageLabel", {
+		Name = "ReelTile",
+		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
+		BackgroundColor3 = C.BgLight,
+		BackgroundTransparency = 0.4,
+		BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.fromScale(0, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		ScaleType = Enum.ScaleType.Fit,
+		Visible = false, -- template
+		ZIndex = 31,
+	}, strip)
+	corner(reelTile, 8)
+	-- Name caption. An icon alone does not tell a player WHAT just went past,
+	-- which is most of the tension while the reel spins. Laid on a dark band
+	-- rather than straight onto the art: item icons are bright and busy, and
+	-- bare text over them reads as smudge however heavy the stroke is.
+	local nameBar = new("Frame", {
+		Name = "NameBar",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.fromScale(0.5, 1),
+		Size = UDim2.fromScale(1, 0.19),
+		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
+		BackgroundTransparency = 0.25,
+		BorderSizePixel = 0,
+		ZIndex = 32,
+	}, reelTile)
+	corner(nameBar, 8)
+	-- the band is rounded on all four corners but only the bottom two should
+	-- show; this square-off patch covers the top pair so it sits flush
+	new("Frame", {
+		Name = "Squareoff",
+		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 0.5),
+		ZIndex = 32,
+	}, nameBar)
+
+	local reelName = label("ReelName", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Text = "",
+		TextScaled = true,
+		TextColor3 = C.Text,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		ZIndex = 33,
+	}, nameBar)
+	capText(reelName, 11)
+	new("UIPadding", {
+		PaddingLeft = UDim.new(0, 4),
+		PaddingRight = UDim.new(0, 4),
+	}, reelName)
+	-- center marker: the fixed "you get this" window, on top of the strip, with
+	-- the rarity-colored glow the caller recolors as the reel lands
+	local marker = new("Frame", {
+		Name = "CenterMarker",
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 0.90), -- tightened: was 0.94, noticeably looser than
+		-- the 0.86-tile it frames, leaving a visible gap around the winning tile
+		SizeConstraint = Enum.SizeConstraint.RelativeYY,
+		ZIndex = 33,
+	}, reel)
+	corner(marker, 8)
+	new("UIStroke", {
+		Name = "Glow",
+		Color = C.Gold,
+		Thickness = 4,
+		Transparency = 0.15,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, marker)
+
+	return reel
+end
+
 local function buildRollsPanel(parent: Instance)
 	-- Scale-native panel: the root and every child are sized in SCALE units,
 	-- so the layout stretches to any screen — phone to ultrawide — with no
@@ -4174,109 +4731,7 @@ local function buildRollsPanel(parent: Instance)
 		ZIndex = 31,
 	}, reveal)
 	capText(wonLabel, 16)
-	-- The REEL: a horizontal, clipped strip of item icons that scrolls past a
-	-- fixed center marker and decelerates to a stop with the prize under the
-	-- marker. The tiles either side of it stay visible — the "item before and
-	-- the item after" — so every pull ends on a near-miss (you SEE the icons
-	-- that slid past, and the one that almost stopped). RollsScreen clones
-	-- ReelTile into Strip and animates Strip.Position.
-	local reel = new("Frame", {
-		Name = "Reel",
-		BackgroundColor3 = C.Bg,
-		BorderSizePixel = 0,
-		ClipsDescendants = true,
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.fromScale(0.5, 0.15),
-		Size = UDim2.fromScale(0.94, 0.36),
-		ZIndex = 31,
-	}, reveal)
-	corner(reel, 10)
-	stroke(reel, C.Stroke, 1)
-	local strip = new("Frame", {
-		Name = "Strip",
-		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.fromScale(0, 0.5),
-		Size = UDim2.fromScale(0, 0.86),
-		ZIndex = 31,
-	}, reel)
-	-- one reel cell: square art, sized to the strip's height (RollsScreen sets
-	-- explicit X offsets, so no layout — landing math stays exact)
-	local reelTile = new("ImageLabel", {
-		Name = "ReelTile",
-		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-		BackgroundColor3 = C.BgLight,
-		BackgroundTransparency = 0.4,
-		BorderSizePixel = 0,
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.fromScale(0, 0.5),
-		Size = UDim2.fromScale(1, 1),
-		SizeConstraint = Enum.SizeConstraint.RelativeYY,
-		ScaleType = Enum.ScaleType.Fit,
-		Visible = false, -- template
-		ZIndex = 31,
-	}, strip)
-	corner(reelTile, 8)
-	-- Name caption. An icon alone does not tell a player WHAT just went past,
-	-- which is most of the tension while the reel spins. Laid on a dark band
-	-- rather than straight onto the art: item icons are bright and busy, and
-	-- bare text over them reads as smudge however heavy the stroke is.
-	local nameBar = new("Frame", {
-		Name = "NameBar",
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.fromScale(0.5, 1),
-		Size = UDim2.fromScale(1, 0.19),
-		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
-		BackgroundTransparency = 0.25,
-		BorderSizePixel = 0,
-		ZIndex = 32,
-	}, reelTile)
-	corner(nameBar, 8)
-	-- the band is rounded on all four corners but only the bottom two should
-	-- show; this square-off patch covers the top pair so it sits flush
-	new("Frame", {
-		Name = "Squareoff",
-		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
-		BackgroundTransparency = 0.15,
-		BorderSizePixel = 0,
-		Size = UDim2.fromScale(1, 0.5),
-		ZIndex = 32,
-	}, nameBar)
-
-	local reelName = label("ReelName", {
-		BackgroundTransparency = 1,
-		Size = UDim2.fromScale(1, 1),
-		Text = "",
-		TextScaled = true,
-		TextColor3 = C.Text,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextYAlignment = Enum.TextYAlignment.Center,
-		ZIndex = 33,
-	}, nameBar)
-	capText(reelName, 11)
-	new("UIPadding", {
-		PaddingLeft = UDim.new(0, 4),
-		PaddingRight = UDim.new(0, 4),
-	}, reelName)
-	-- center marker: the fixed "you get this" window, on top of the strip, with
-	-- the rarity-colored glow RollsScreen recolors as the reel lands
-	local marker = new("Frame", {
-		Name = "CenterMarker",
-		BackgroundTransparency = 1,
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromScale(1, 0.94),
-		SizeConstraint = Enum.SizeConstraint.RelativeYY,
-		ZIndex = 33,
-	}, reel)
-	corner(marker, 8)
-	new("UIStroke", {
-		Name = "Glow",
-		Color = C.Gold,
-		Thickness = 4,
-		Transparency = 0.15,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-	}, marker)
+	buildReelStrip(reveal, UDim2.fromScale(0.5, 0.15), UDim2.fromScale(0.94, 0.36))
 	local rName = label("ItemName", {
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.55),
@@ -5155,6 +5610,8 @@ local function buildModals(parent: Instance)
 	buildEventsPanel(gui)
 	buildBoardPanel(gui)
 	buildProfilePanel(gui)
+	buildRewardsPanel(gui)
+	buildConversionPanel(gui)
 	buildFreeGemsPanel(gui)
 	-- Rolls, Shop and Syndicate are NOT built here. They are the three heaviest
 	-- panels a player may never open in a session (352 instances between them),
@@ -5547,17 +6004,670 @@ local function buildModals(parent: Instance)
 end
 
 --------------------------------------------------------------------------------
+-- Community Rewards bar (top-centre of the HUD)
+--
+-- Names are the contract with UI/RewardsBar: RewardsBar > Track > Fill,
+-- Track > Percent, RewardsBar > Info. The bar itself is a button, and so
+-- is Info; both open the conversion panel.
+--------------------------------------------------------------------------------
+
+local function buildRewardsBar(hud: Instance)
+	local bar = new("TextButton", {
+		Name = "RewardsBar",
+		Text = "",
+		AutoButtonColor = false,
+		AnchorPoint = Vector2.new(0.5, 0),
+		-- shifted left by half of (info gap + info width) so bar + info sit centred
+		Position = UDim2.new(0.5, -19, 0, 10),
+		Size = UDim2.new(0.3, 0, 0, 46),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+	}, hud)
+	new("UISizeConstraint", { MinSize = Vector2.new(250, 46), MaxSize = Vector2.new(420, 46) }, bar)
+	corner(bar, 12)
+	grad(bar, Color3.fromRGB(50, 53, 66), Color3.fromRGB(26, 28, 36))
+	gradStroke(bar, GOLD_HI, GOLD_EDGE, 2)
+
+	new("ImageLabel", {
+		Name = "Icon",
+		Image = ICONS.Robux,
+		BackgroundTransparency = 1,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 8, 0.5, 0),
+		Size = UDim2.fromOffset(30, 30),
+		ScaleType = Enum.ScaleType.Fit,
+	}, bar)
+
+	local title = label("Title", {
+		Position = UDim2.fromOffset(46, 5),
+		Size = UDim2.new(1, -56, 0, 16),
+		Text = "ROBUX REWARDS",
+		TextSize = 13,
+		TextColor3 = GOLD_HI,
+	}, bar)
+	textStroke(title)
+
+	local track = new("Frame", {
+		Name = "Track",
+		Position = UDim2.fromOffset(46, 25),
+		Size = UDim2.new(1, -56, 0, 13),
+		BackgroundColor3 = Color3.fromRGB(14, 15, 20),
+		BorderSizePixel = 0,
+	}, bar)
+	corner(track, 7)
+	new("UIStroke", { Color = Color3.new(0, 0, 0), Transparency = 0.35, Thickness = 1 }, track)
+
+	local fill = new("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+	}, track)
+	corner(fill, 7)
+	goldFill(fill)
+
+	-- % inside the track, centred over the fill -- matches the original bar's
+	-- style (not a separate label off to the side). White + stroke so it stays
+	-- legible whether it's sitting on the dark track or the gold fill.
+	local percent = label("Percent", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		Text = "0%",
+		TextSize = 11,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 2,
+	}, track)
+	textStroke(percent, 1.2, 0.15)
+	local gloss = new("Frame", {
+		Name = "Gloss",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(3, 1),
+		Size = UDim2.new(1, -6, 0.42, 0),
+	}, fill)
+	corner(gloss, 4)
+
+	local info = new("TextButton", {
+		Name = "Info",
+		Text = "",
+		AutoButtonColor = true,
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(1, 8, 0.5, 0),
+		Size = UDim2.fromOffset(30, 30),
+		BackgroundColor3 = Color3.fromRGB(30, 32, 41),
+		BorderSizePixel = 0,
+	}, bar)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, info)
+	gradStroke(info, GOLD_HI, GOLD_EDGE, 2)
+	-- separate label so the glyph can be nudged without moving the circle
+	label("Glyph", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		Text = "i",
+		TextSize = 19,
+		TextColor3 = GOLD_HI,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Center,
+	}, info)
+end
+
+-- HUD nodes added after a place's StarterGui HUD was last built. Builds into
+-- the live HUD when missing, so shipping one never needs a StarterGui rebuild
+-- (which discards manual edits). Safe to call repeatedly.
+local HUD_BUILDERS: { [string]: (Instance) -> () } = {
+	RewardsBar = buildRewardsBar,
+}
+
+function GuiBuilder.ensureHudNode(hud: Instance, name: string): Instance?
+	local existing = hud:FindFirstChild(name)
+	if existing then
+		return existing
+	end
+	local builder = HUD_BUILDERS[name]
+	if builder == nil then
+		return nil
+	end
+	builder(hud)
+	return hud:FindFirstChild(name)
+end
+
+-- Own ScreenGui, IgnoreGuiInset = true: the RewardsBar sits top-centre and
+-- must not be pushed down by Roblox's top inset (menu/backpack bar), unlike
+-- TradingHUD's corner buttons which are meant to sit below it.
+function GuiBuilder.ensureTopOverlay(parent: Instance): ScreenGui
+	local existing = parent:FindFirstChild("TradingHUDTop")
+	if existing then
+		return existing :: ScreenGui
+	end
+	local gui = new("ScreenGui", {
+		Name = "TradingHUDTop",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = 10,
+		Enabled = true,
+	}, parent)
+	return gui
+end
+
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+-- Starter-roll takeover — the first-join welcome + reveal. Own ScreenGui, on
+-- top of everything, un-closable (no CloseButton anywhere in here on purpose).
+-- Four states as four Frames, one Visible at a time; ShopScreen-style state
+-- switch on the client, not baked in here. Max footprint is built once (the
+-- larger Multi variant, 8 reel bands / 8 reveal cards); the client just hides
+-- whichever tail it doesn't need for the variant a player actually got.
+--------------------------------------------------------------------------------
+
+local STARTER_MAX_ITEMS = 6 -- Items.StarterVariants.Multi.count, mirrored here (GuiBuilder has no runtime deps on Items.luau)
+
+local function buildStarterRollOverlay(starterGui: Instance): ScreenGui
+	local gui = new("ScreenGui", {
+		Name = "StarterRollGui",
+		ResetOnSpawn = false,
+		IgnoreGuiInset = true,
+		DisplayOrder = 100, -- above everything else this game builds
+		Enabled = true,
+	}, starterGui)
+
+	local root = new("Frame", {
+		Name = "Root",
+		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
+		BackgroundTransparency = 0.04,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false, -- client flips true only when a reveal is actually pending
+	}, gui)
+
+	-- Flash mask for the Rolling -> Reveal cut, same convention as the normal
+	-- Rolls-NPC reveal's own crescendo flash (RollsScreen's "Flash" frame):
+	-- pop near-opaque, swap the state frame underneath, fade out -- turns a
+	-- hard instant jump-cut into a proper transition beat.
+	local flash = new("Frame", {
+		Name = "Flash",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 100,
+	}, root)
+
+	local function capText(inst: Instance, maxSize: number)
+		new("UITextSizeConstraint", { MaxTextSize = maxSize }, inst)
+	end
+
+	----------------------------------------------------------------------
+	-- STATE 1 — Welcome
+	----------------------------------------------------------------------
+	local welcome = new("Frame", {
+		Name = "Welcome",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+	}, root)
+	-- One centred auto-laid column, not four hand-placed rows: the block stays
+	-- optically centred on any screen instead of drifting as text wraps.
+	local welcomeStack = new("Frame", {
+		Name = "Stack",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0.86, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+	}, welcome)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 18),
+	}, welcomeStack)
+
+	local welcomeTitle = label("Title", {
+		LayoutOrder = 1,
+		Size = UDim2.new(1, 0, 0, 74),
+		Text = "WELCOME!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, welcomeStack)
+	capText(welcomeTitle, 74)
+
+	-- "◆ READY TO GET RICH? ◆" -- the Robux mark on BOTH sides, per the brief.
+	-- Icons take their width from the row height (aspect 1, dominant Y) so the
+	-- pair stays square and balanced no matter how the row scales.
+	local subRow = new("Frame", {
+		Name = "SubRow",
+		LayoutOrder = 2,
+		Size = UDim2.new(1, 0, 0, 42),
+		BackgroundTransparency = 1,
+	}, welcomeStack)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 10),
+	}, subRow)
+	local function robuxMark(name: string, order: number)
+		return new("ImageLabel", {
+			Name = name,
+			LayoutOrder = order,
+			Size = UDim2.fromOffset(36, 36), -- fixed square: matches the 42px row without a fragile scale+aspect chain
+			BackgroundTransparency = 1,
+			Image = ICONS.Robux,
+			ImageColor3 = Color3.new(1, 1, 1), -- the mark's own colors read as "Robux" -- tinting it broke that
+			ScaleType = Enum.ScaleType.Fit,
+		}, subRow)
+	end
+	robuxMark("RobuxLeft", 1)
+	-- AutomaticSize.X so the label hugs the actual text ("READY TO GET RICH?")
+	-- instead of a wide fixed box with the icons stranded out at its edges --
+	-- TextScaled can't combine with AutomaticSize (feedback loop), so this is a
+	-- fixed TextSize instead, same as every other UI text in this file.
+	local welcomeSub = label("Subtitle", {
+		LayoutOrder = 2,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
+		Text = "READY TO GET RICH?",
+		Font = FONT,
+		TextSize = 32,
+		TextColor3 = C.Good,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, subRow)
+	robuxMark("RobuxRight", 3)
+
+	local welcomeHook = label("Hook", {
+		LayoutOrder = 3,
+		Size = UDim2.new(1, 0, 0, 40),
+		Text = "THEN ROLL YOUR FIRST ITEMS!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, welcomeStack)
+	capText(welcomeHook, 38)
+
+	-- Round pill per the design, on a flat 6px drop-shadow ledge (design's own
+	-- `box-shadow:0 6px 0 #1a8f34`) -- same width/anchor as the button, no
+	-- gradient (that's what read wrong): both are solid pills, ledge just
+	-- offset straight down by the shadow depth.
+	local rollHolder = new("Frame", {
+		Name = "RollButtonHolder",
+		LayoutOrder = 4,
+		Size = UDim2.new(1, 0, 0, 68),
+		BackgroundTransparency = 1,
+	}, welcomeStack)
+	local rollLedge = new("Frame", {
+		Name = "Ledge",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 6),
+		Size = UDim2.new(0, 300, 0, 62),
+		BackgroundColor3 = Color3.fromRGB(26, 143, 52),
+		BorderSizePixel = 0,
+	}, rollHolder)
+	corner(rollLedge, 999)
+	local rollBtn = button("RollButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 0),
+		Size = UDim2.new(0, 300, 0, 62),
+		Text = "Roll starter items",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.fromRGB(15, 16, 22),
+		BackgroundColor3 = Color3.fromRGB(63, 232, 95),
+	}, rollHolder)
+	corner(rollBtn, 999)
+	capText(rollBtn, 26)
+
+	----------------------------------------------------------------------
+	-- STATE 2 — Rolling. Stacked reel bands, all spinning at once. Built via
+	-- the shared, LOCKED reel mechanic (buildReelStrip) -- same component the
+	-- normal Rolls panel uses, just several of them stacked with a gold or
+	-- purple outer glow the client switches per variant.
+	----------------------------------------------------------------------
+	local rolling = new("Frame", {
+		Name = "Rolling",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, root)
+	label("RollingLabel", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.08),
+		Size = UDim2.fromScale(0.8, 0.06),
+		Text = "ROLLING…",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, rolling)
+	local bandsHolder = new("Frame", {
+		Name = "Bands",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.54),
+		Size = UDim2.fromScale(0.94, 0.76),
+		BackgroundTransparency = 1,
+	}, rolling)
+	-- Built at the MAXIMUM band count, but sized here only as a placeholder:
+	-- the client re-sizes and re-stacks whichever bands it actually needs so a
+	-- 3-item super-roll gets three fat bands filling the holder rather than
+	-- three thin ones with an empty bottom third (see StarterRollScreen.layoutBands).
+	local bandGap = 0.025
+	local bandHeight = (1 - bandGap * (STARTER_MAX_ITEMS - 1)) / STARTER_MAX_ITEMS
+	for i = 1, STARTER_MAX_ITEMS do
+		local bandTop = (i - 1) * (bandHeight + bandGap)
+		local bandReel = buildReelStrip(
+			bandsHolder,
+			UDim2.fromScale(0.5, bandTop),
+			UDim2.fromScale(1, bandHeight)
+		)
+		bandReel.Name = "Reel" .. tostring(i)
+		bandReel.AnchorPoint = Vector2.new(0.5, 0)
+	end
+
+	----------------------------------------------------------------------
+	-- STATE 3 — Variant callout. "LUCKY! YOU GOT A SUPER-ROLL/MULTIROLL".
+	--
+	-- Shown BEFORE the reels spin, not after: the player learns they are lucky
+	-- going in, so the whole spin is watched through that lens instead of the
+	-- news landing when the outcome is already on screen. Its own full screen,
+	-- same as Welcome/Reveal -- the reel bands are NOT shown behind it. A
+	-- frozen, un-spun band sitting there while this banner is up just reads as
+	-- a stall, not a callout.
+	----------------------------------------------------------------------
+	local variantState = new("Frame", {
+		Name = "Variant",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, root)
+	new("Frame", {
+		Name = "Scrim",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(10, 11, 16),
+		BackgroundTransparency = 0.35,
+		BorderSizePixel = 0,
+		ZIndex = 1,
+	}, variantState)
+	local callout = new("Frame", {
+		Name = "Callout",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 460, 0, 176),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.08,
+		BorderSizePixel = 0,
+		ZIndex = 3,
+	}, variantState)
+	corner(callout, 20)
+	stroke(callout, C.Gold, 2)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 8),
+	}, callout)
+	new("UIPadding", {
+		PaddingTop = UDim.new(0, 22),
+		PaddingBottom = UDim.new(0, 22),
+		PaddingLeft = UDim.new(0, 26),
+		PaddingRight = UDim.new(0, 26),
+	}, callout)
+	local calloutTitle = label("Title", {
+		LayoutOrder = 1,
+		Size = UDim2.new(1, 0, 0, 62),
+		Text = "LUCKY!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = C.Gold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 3,
+	}, callout)
+	capText(calloutTitle, 62)
+	local calloutSub = label("Subtitle", {
+		LayoutOrder = 2,
+		Size = UDim2.new(1, 0, 0, 38),
+		Text = "YOU GOT A SUPER-ROLL",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 3,
+	}, callout)
+	capText(calloutSub, 34)
+
+	----------------------------------------------------------------------
+	-- STATE 4 — Reveal. "CONGRATULATIONS!" + the granted items + the worth
+	-- payoff line. Item cards are a clone-per-item template, same convention
+	-- as every other list in this file.
+	----------------------------------------------------------------------
+	local revealState = new("Frame", {
+		Name = "Reveal",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, root)
+	-- One centred auto-sized column rather than four fixed bands. A three-item
+	-- bundle fills a single grid row, and because the grid auto-sizes to its
+	-- content the whole stack simply gets shorter and re-centres -- no dead
+	-- band of empty space above the button, no button pinned to the floor.
+	local revealStack = new("Frame", {
+		Name = "Stack",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0.92, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+	}, revealState)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 24),
+	}, revealStack)
+
+	local congrats = label("Congrats", {
+		LayoutOrder = 1,
+		Size = UDim2.new(1, 0, 0, 58),
+		Text = "CONGRATULATIONS!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, revealStack)
+	capText(congrats, 56)
+
+	local itemsGrid = new("Frame", {
+		Name = "ItemsGrid",
+		LayoutOrder = 2,
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+	}, revealStack)
+	new("UIGridLayout", {
+		CellSize = UDim2.fromOffset(126, 168), -- the ItemTile template's own real size
+		CellPadding = UDim2.fromOffset(12, 12),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+	}, itemsGrid)
+
+	-- The exact ItemTile Inventory uses -- Stripe/Icon/CountBadge/ItemName/
+	-- Existence/Rarity/Stats(Value/StoreCost/RAP), filled at runtime by the
+	-- same Components.fillItemTile every other item grid in the game calls.
+	-- Not a bespoke card: a freshly-rolled item's card must look like every
+	-- other item card in this game, full stop.
+	buildItemTile(itemsGrid)
+
+	-- Worth payoff box: dark panel, glowing gold border -- matching the design
+	-- reference exactly (dim label line, then a big gold number line).
+	local worthBox = new("Frame", {
+		Name = "WorthBox",
+		LayoutOrder = 3,
+		Size = UDim2.new(0, 420, 0, 140),
+		BackgroundColor3 = C.Panel,
+		BackgroundTransparency = 0.08,
+		BorderSizePixel = 0,
+	}, revealStack)
+	corner(worthBox, 18)
+	stroke(worthBox, C.Gold, 2)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 10),
+	}, worthBox)
+	label("Label", {
+		LayoutOrder = 1,
+		Size = UDim2.new(1, -20, 0, 20),
+		Text = "YOU'RE ALREADY WORTH",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = C.TextDim,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, worthBox)
+	local worthLine = label("WorthLine", {
+		LayoutOrder = 2,
+		Size = UDim2.new(1, -20, 0, 44),
+		Text = "≈0 ROBUX",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = GOLD_HI,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, worthBox)
+	textStroke(worthLine, 2, 0.15)
+	capText(worthLine, 40)
+
+	-- Exact same shape as the Welcome screen's RollButton: 300x62 pill on a
+	-- flat 6px drop-shadow ledge, same colors. The two are the bookends of the
+	-- same takeover and should read as the same control.
+	local continueHolder = new("Frame", {
+		Name = "ContinueHolder",
+		LayoutOrder = 4,
+		Size = UDim2.new(1, 0, 0, 68),
+		BackgroundTransparency = 1,
+	}, revealStack)
+	local continueLedge = new("Frame", {
+		Name = "Ledge",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 6),
+		Size = UDim2.new(0, 300, 0, 62),
+		BackgroundColor3 = Color3.fromRGB(26, 143, 52),
+		BorderSizePixel = 0,
+	}, continueHolder)
+	corner(continueLedge, 999)
+	local continueBtn = button("ContinueButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 0),
+		Size = UDim2.new(0, 300, 0, 62),
+		Text = "Let's go!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.fromRGB(15, 16, 22),
+		BackgroundColor3 = Color3.fromRGB(63, 232, 95),
+	}, continueHolder)
+	corner(continueBtn, 999)
+	capText(continueBtn, 28)
+
+	----------------------------------------------------------------------
+	-- STATE 3 — Profit (tutorial's first Unique Craft payoff)
+	----------------------------------------------------------------------
+	-- Same family as Welcome/Reveal: full-screen state frame on this same
+	-- Root, centred auto-laid Stack, same green pill Continue button. Not a
+	-- bespoke popup -- the tutorial's welcome/roll/craft beats all read as one
+	-- continuous takeover, so this has to look like the other two.
+	local profit = new("Frame", {
+		Name = "Profit",
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		Visible = false,
+	}, root)
+	local profitStack = new("Frame", {
+		Name = "Stack",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0.86, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+	}, profit)
+	new("UIListLayout", {
+		FillDirection = Enum.FillDirection.Vertical,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Padding = UDim.new(0, 18),
+	}, profitStack)
+	local profitTitle = label("Title", {
+		LayoutOrder = 1,
+		Size = UDim2.new(1, 0, 0, 74),
+		Text = "NICE!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, profitStack)
+	capText(profitTitle, 74)
+	local profitBody = label("Body", {
+		LayoutOrder = 2,
+		Size = UDim2.new(1, 0, 0, 40),
+		Text = "You already made a profit of 0 gems!",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = GOLD_HI,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	}, profitStack)
+	capText(profitBody, 32)
+
+	local profitHolder = new("Frame", {
+		Name = "ContinueHolder",
+		LayoutOrder = 3,
+		Size = UDim2.new(1, 0, 0, 68),
+		BackgroundTransparency = 1,
+	}, profitStack)
+	local profitLedge = new("Frame", {
+		Name = "Ledge",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 6),
+		Size = UDim2.new(0, 300, 0, 62),
+		BackgroundColor3 = Color3.fromRGB(26, 143, 52),
+		BorderSizePixel = 0,
+	}, profitHolder)
+	corner(profitLedge, 999)
+	local profitContinueBtn = button("ContinueButton", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 0),
+		Size = UDim2.new(0, 300, 0, 62),
+		Text = "Continue",
+		Font = FONT,
+		TextScaled = true,
+		TextColor3 = Color3.fromRGB(15, 16, 22),
+		BackgroundColor3 = Color3.fromRGB(63, 232, 95),
+	}, profitHolder)
+	corner(profitContinueBtn, 999)
+	capText(profitContinueBtn, 28)
+
+	return gui
+end
 
 function GuiBuilder.build()
 	local starterGui = game:GetService("StarterGui")
-	for _, name in { "TradingHUD", "TradingModals" } do
+	for _, name in { "TradingHUD", "TradingModals", "TradingHUDTop", "StarterRollGui" } do
 		local old = starterGui:FindFirstChild(name)
 		if old then
 			old:Destroy()
 		end
 	end
-	buildHud(starterGui)
+	local topOverlay = GuiBuilder.ensureTopOverlay(starterGui)
+	buildHud(starterGui, topOverlay)
+	buildRewardsBar(topOverlay)
 	buildModals(starterGui)
+	buildStarterRollOverlay(starterGui)
 
 	-- A ScrollingFrame clips its descendants, and a UIStroke straddles the
 	-- edge it is drawn on. Rows are sized (1, -8) and left-aligned, so they

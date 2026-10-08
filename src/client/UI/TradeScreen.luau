@@ -524,7 +524,30 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 	-- what happens when a picker tile is clicked, by (compose, source)
 	-- `count` is how many copies to add at once (the green + on a stacked tile).
 	-- Tapping the tile itself is still the one-at-a-time path, count = 1.
+	-- Set while another screen (the bulk order builder) borrows the picker: the
+	-- pick goes to its callback instead of into a trade or compose offer.
+	local pickOverride: ((itemId: string, count: number?) -> ())? = nil
+	-- The picker is built INSIDE the trade window, so a borrower has to lift it
+	-- out (else it is invisible whenever the trade window is closed) and it
+	-- goes back the moment it closes, by pick or by the X.
+	local pickerHome = picker.Parent
+	picker:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not picker.Visible then
+			pickOverride = nil
+			if picker.Parent ~= pickerHome then
+				picker.Parent = pickerHome
+			end
+		end
+	end)
+
 	local function onPicked(itemId: string, source: string, count: number?)
+		if pickOverride then
+			local cb = pickOverride
+			pickOverride = nil
+			picker.Visible = false
+			cb(itemId, count)
+			return
+		end
 		-- a quick-chat phrase waiting on an item ("I want your ...") claims the
 		-- pick instead of it going into the offer
 		if TradeScreen._consumeSlotPick(itemId) then
@@ -641,12 +664,15 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		bulkAdd = add
 	end
 
-	local function openBulkAdd(itemId: string, source: string, name: string, available: number)
+	-- most copies of one item a compose WANT side can ask for in one add
+	local WANT_MAX_COUNT = 999
+
+	local function openBulkAdd(itemId: string, source: string, name: string, available: number, startAt: number?)
 		ensureBulkPrompt()
 		local frame = bulkPrompt :: Frame
 		;(bulkTitle :: TextLabel).Text = ("Add %s"):format(name)
 		bulkStepper.setMax(available)
-		bulkStepper.set(available)
+		bulkStepper.set(startAt or available)
 		if bulkConn then
 			bulkConn:Disconnect()
 		end
@@ -728,8 +754,18 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 				tile.LayoutOrder = order
 				tile.Parent = pickerGrid
 				pickerTiles[itemId] = tile
+				local stackLabel = entry.name or itemId
 				tile.Activated:Connect(function()
-					onPicked(itemId, source)
+					-- A stack asks how many (typeable, default 1) instead of adding one per
+					-- tap; a single copy has nothing to ask, so it still adds instantly.
+					-- The WANT side has no stock limit, so every real item asks there too.
+					if (entry.count or 0) > 1 then
+						openBulkAdd(itemId, source, stackLabel, entry.count, 1)
+					elseif compose and source == "catalog" and not entry.wildcard then
+						openBulkAdd(itemId, source, stackLabel, WANT_MAX_COUNT, 1)
+					else
+						onPicked(itemId, source)
+					end
 				end)
 				-- Stacked holdings get a green + in the top-left: one tap to say
 				-- how many, instead of tapping the square that many times.
@@ -775,7 +811,14 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end)
 	end
 
+	function TradeScreen.pickItem(source: string, onPick: (itemId: string, count: number?) -> ())
+		TradeScreen.openPicker(source)
+		picker.Parent = gui
+		pickOverride = onPick
+	end
+
 	function TradeScreen.openPicker(source: string?)
+		pickOverride = nil
 		source = source or "inventory"
 		pickerSource = source
 		if pickerSearch and pickerSearch.Text ~= "" then
@@ -948,7 +991,7 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		-- the board ad composer reuses this panel and has nobody to talk to
 		chatPanel.Visible = compose == nil
 		title.Text = "📌 Post a board trade"
-		yourSide.header.Text = "You give (stays yours until someone takes it)"
+		yourSide.header.Text = "You give"
 		theirSide.header.Text = "You want — click slots to add"
 		renderSide(yourSide, compose.give, false, stats)
 		renderSide(theirSide, compose.want, false, stats)
@@ -1095,7 +1138,10 @@ function TradeScreen.wire(gui: ScreenGui, tooltip: any)
 		end
 	end)
 	State.Observe(EconomyController.stats, function()
-		render(TradeController.trade:get())
+		-- stats pushes are constant; a hidden trade window has nothing to repaint
+		if panel.Visible then
+			render(TradeController.trade:get())
+		end
 	end)
 
 	--------------------------------------------------------------------------

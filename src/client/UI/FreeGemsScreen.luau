@@ -129,7 +129,10 @@ function FreeGemsScreen.wire(gui: ScreenGui, toast: (text: string, color: Color3
 		watchView.Visible = snap.unlocked
 
 		if not snap.unlocked then
-			barFill.Size = UDim2.fromScale(snap.progress, 1)
+			-- front-loaded display: starts part-filled and races early, so the goal
+			-- always looks close. Capped below full until it actually unlocks.
+			local shown = math.min(0.12 + 0.88 * math.sqrt(math.clamp(snap.progress, 0, 1)), 0.97)
+			barFill.Size = UDim2.fromScale(shown, 1)
 			progressLbl.Text = ("%s / %s players"):format(comma(snap.players), comma(snap.target))
 			goalBlurb.Text = ("When we reach %s players ANYONE will be able to get gems with just a few ads!")
 				:format(comma(snap.target))

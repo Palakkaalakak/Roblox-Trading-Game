@@ -138,6 +138,8 @@ local EXCLUSIVE_PANELS = {
 	ShopPanel = true,
 	FreeGemsPanel = true,
 	SyndicatePanel = true,
+	RewardsPanel = true,
+	ConversionPanel = true,
 }
 
 -- Hide every other exclusive panel (call at the start of a panel's open()).

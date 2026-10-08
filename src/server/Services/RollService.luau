@@ -32,6 +32,7 @@ local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
+local QuestService = require(script.Parent.QuestService)
 
 local RollService = {}
 
@@ -447,6 +448,9 @@ local function rollCore(userId: number, tierId: any, ticket: number?, payment: a
 		paidValue = payment and paidValue or nil,
 		itemId = itemId,
 	})
+	if not isBot then
+		QuestService.notify(userId, "roll")
+	end
 	return {
 		ok = true,
 		item = {

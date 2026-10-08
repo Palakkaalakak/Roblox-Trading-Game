@@ -38,6 +38,7 @@ local DataService = require(script.Parent.DataService)
 local InventoryService = require(script.Parent.InventoryService)
 local EconomyService = require(script.Parent.EconomyService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
+local QuestService = require(script.Parent.QuestService)
 
 local ROTATING_EVENT_ID = "evt_rotating"
 local UNIQUE_EVENT_ID = "evt_unique"
@@ -799,7 +800,29 @@ local function craftCore(userId: number, eventId: any, rid: any)
 		output = outId,
 		gems = recipe.gems or 0,
 	})
-	return { ok = true, output = { itemId = outId, name = recipe.output.name, count = outputCount } }
+	if not isBot then
+		QuestService.notify(userId, "craft")
+	end
+
+	-- The tutorial's forced first craft (slot "unique_1") gets a profit figure
+	-- back so the client can show "you already made a profit of X gems" --
+	-- output value minus what the inputs (+ any gem cost) were worth, at the
+	-- same gem-equivalent valuation used everywhere else in the economy.
+	local profit = nil
+	if rid == "unique_1" then
+		local outValue = (EconomyService.valueOf(outId) or 0) * outputCount
+		local inValue = recipe.gems or 0
+		for itemId, count in recipe.inputs do
+			inValue += (EconomyService.valueOf(itemId) or 0) * count
+		end
+		profit = math.floor(outValue - inValue + 0.5)
+	end
+
+	return {
+		ok = true,
+		output = { itemId = outId, name = recipe.output.name, count = outputCount },
+		profit = profit,
+	}
 end
 
 local MAX_CRAFT_BATCH = EventConfig.MaxCraftBatch
@@ -838,7 +861,7 @@ local function handleCraft(player: Player, eventId: any, rid: any, count: any)
 	if made == 0 then
 		return last or { ok = false, err = "recipe_not_active" }
 	end
-	return { ok = true, made = made, asked = n, output = last and last.output }
+	return { ok = true, made = made, asked = n, output = last and last.output, profit = last and last.profit }
 end
 
 -- Bot entry points + helpers

@@ -233,6 +233,15 @@ local function grantOffer(player: Player, offer: any, claimId: string): boolean
 		return prof ~= nil
 	end
 
+	if offer.questSkip then
+		local QuestService = require(script.Parent.QuestService)
+		local granted = QuestService.skipCurrentQuest(player)
+		if granted then
+			AnalyticsService.log("offer_granted", { userId = player.UserId, offerId = offer.id, questSkip = true, claimId = claimId })
+		end
+		return granted
+	end
+
 	if offer.boothSlot or offer.boothSkin then
 		local booth = require(script.Parent.BoothService)
 		local granted = if offer.boothSkin
@@ -515,6 +524,7 @@ function ProductService.Start()
 			offers = offers,
 			sectionOrder = MonetizationConfig.SectionOrder,
 			sectionLayout = MonetizationConfig.SectionLayout,
+			sectionBlurbs = MonetizationConfig.SectionBlurbs,
 		}
 	end)
 

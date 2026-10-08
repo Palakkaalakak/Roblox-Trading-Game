@@ -10,8 +10,11 @@
 --                                  profile key (safe because the profile is
 --                                  session-locked, so "no live lock" means
 --                                  nobody owns it) — see DataService.debitOffline
---   * poster is live elsewhere  -> we refuse ("busy") and the listing goes back
---                                  on the board to settle on a later attempt
+--   * poster is live elsewhere  -> that server owns the session lock, so we
+--                                  ask IT to take locally (BoardSettleTopic)
+--                                  and wait briefly for its answer; only if
+--                                  nothing answers in time do we give up and
+--                                  leave the listing for a later attempt
 -- If the take fails for any other reason, the poster can't cover the promise
 -- any more (they spent it, traded it, burned it), so the LISTING IS CANCELLED
 -- and nobody is paid for something that isn't there.
@@ -58,6 +61,7 @@ local EconomyConfig = require(ReplicatedStorage.Shared.Config.EconomyConfig)
 local WildcardConfig = require(ReplicatedStorage.Shared.Config.WildcardConfig)
 local BoothConfig = require(ReplicatedStorage.Shared.Config.BoothConfig)
 local TradeAdConfig = require(ReplicatedStorage.Shared.Config.TradeAdConfig)
+local RankConfig = require(ReplicatedStorage.Shared.Config.RankConfig)
 local TradeAdRules = require(ReplicatedStorage.Shared.Util.TradeAdRules)
 local Guard = require(ReplicatedStorage.Shared.Util.Guard)
 local Tax = require(ReplicatedStorage.Shared.Util.Tax)
@@ -71,6 +75,15 @@ local EconomyService = require(script.Parent.EconomyService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
 local NotificationService = require(script.Parent.NotificationService)
 local ProductService = require(script.Parent.ProductService)
+local QuestService = require(script.Parent.QuestService)
+
+local ownerId = game.JobId ~= "" and game.JobId or "studio-" .. tostring(math.floor(os.clock() * 1000))
+
+-- Cross-server settlement handshake: when a poster is live on ANOTHER server,
+-- that server owns the session lock and is the only one who can safely take
+-- from them. We ask; it takes locally and answers; we finish the listing.
+-- Keyed by claimId (already unique per settlement attempt / idempotent).
+local pendingSettleResults: { [string]: { ok: boolean, reason: string? } } = {}
 
 local MAX_BULK_COUNT = 1000
 local BOARD_PAGE = 200 -- MemoryStore per-request ceiling
@@ -235,7 +248,35 @@ local function takeFromPoster(
 		end
 		return ok, err
 	end
-	return DataService.debitOffline(userId, items, gems, claimId)
+	local ok, err = DataService.debitOffline(userId, items, gems, claimId)
+	if ok or err ~= "busy" then
+		return ok, err
+	end
+	-- Busy: they're loaded on another server right now, which is the ONE
+	-- server that can take from them safely. Ask it to, and wait briefly for
+	-- its answer instead of just giving up and requeuing the listing.
+	pendingSettleResults[claimId] = nil
+	StoreAdapters.publish(EconomyConfig.BoardSettleTopic, {
+		kind = "request",
+		claimId = claimId,
+		userId = userId,
+		items = items,
+		gems = gems,
+		source = source,
+		from = ownerId,
+	})
+	local deadline = os.clock() + EconomyConfig.BoardSettleWaitSeconds
+	while os.clock() < deadline do
+		local result = pendingSettleResults[claimId]
+		if result then
+			pendingSettleResults[claimId] = nil
+			return result.ok, result.reason
+		end
+		task.wait(0.2)
+	end
+	-- Nobody answered in time (message lost, or they left mid-flight) --
+	-- fall back to the old behaviour: leave the listing for a later pass.
+	return false, "busy"
 end
 
 -- Does this user hold all of it right now? Used at POST time only — a listing
@@ -643,6 +684,27 @@ local function describe(listing: any, viewerId: number): any
 			table.insert(interested, { userId = tonumber(uid), name = name })
 		end
 		out.interested = interested
+	elseif listing.kind == "bulkbuy" then
+		local name, imageId = itemInfo(listing.wantItemId)
+		out.itemId = listing.wantItemId
+		out.itemName = name
+		out.imageId = imageId
+		out.wantedCount = listing.wantedCount
+		out.remainingCount = listing.remainingCount
+		out.unitIn = listing.unitIn
+		local payItems = {}
+		local payValue = (listing.payout.gems or 0)
+		for itemId, n in listing.payout.items do
+			local pname, pimage = itemInfo(itemId)
+			table.insert(payItems, { itemId = itemId, name = pname, imageId = pimage, count = n })
+			payValue += n * EconomyService.valueOf(itemId)
+		end
+		table.sort(payItems, function(a, b)
+			return a.itemId < b.itemId
+		end)
+		out.payout = { items = payItems, gems = listing.payout.gems or 0 }
+		out.payoutValue = math.floor(payValue)
+		out.wantValue = math.floor(listing.unitIn * EconomyService.valueOf(listing.wantItemId))
 	else
 		-- bulk + sell share the same shape (item, counts, gemsPerCopy)
 		local name, imageId = itemInfo(listing.itemId)
@@ -755,6 +817,7 @@ local function handleGetItemBook(player: Player, itemId: any)
 	if EconomyService.getItem(itemId) == nil then
 		return { ok = false, err = "unknown_item" }
 	end
+	QuestService.notify(player.UserId, "market_check")
 	local asks, bids = BookIndex.book(bookIndex, itemId :: string, os.time())
 	local function describeAll(list)
 		local out = {}
@@ -956,6 +1019,75 @@ local function postCore(userId: number, userName: string, payload: any)
 			createdAt = now,
 			v = 1,
 		}
+	elseif payload.kind == "bulkbuy" then
+		if userId > 0 and not QuestService.hasUnlock(userId, "bulkbuy") then
+			return { ok = false, err = "rank_locked" }
+		end
+		-- Item-for-item standing order: "I want `count` of X, and pay `payout`
+		-- for every `unitIn` copies." Its own kind (not an extension of `bulk`)
+		-- so the gem order book's crossing never sees an item payout.
+		if not Guard.isString(payload.itemId, 64) or EconomyService.getItem(payload.itemId) == nil then
+			return { ok = false, err = "unknown_item" }
+		end
+		if not Guard.isPositiveInt(payload.count) or payload.count > MAX_BULK_COUNT then
+			return { ok = false, err = "bad_count" }
+		end
+		local unitIn = payload.unitIn or 1
+		if not Guard.isPositiveInt(unitIn) or unitIn > payload.count or payload.count % unitIn ~= 0 then
+			return { ok = false, err = "bad_count" }
+		end
+		local units = payload.count // unitIn
+		local payItems: { [string]: number } = {}
+		local payGems = 0
+		if type(payload.payout) ~= "table" then
+			return { ok = false, err = "bad_payout" }
+		end
+		for itemId, n in payload.payout.items or {} do
+			if
+				not Guard.isString(itemId, 64)
+				or itemId == payload.itemId
+				or EconomyService.getItem(itemId) == nil
+				or not Guard.isPositiveInt(n)
+				or n > MAX_BULK_COUNT
+			then
+				return { ok = false, err = "bad_payout" }
+			end
+			payItems[itemId] = n
+		end
+		if payload.payout.gems ~= nil then
+			if not Guard.isPositiveInt(payload.payout.gems) then
+				return { ok = false, err = "bad_payout" }
+			end
+			payGems = payload.payout.gems
+		end
+		if next(payItems) == nil and payGems == 0 then
+			return { ok = false, err = "bad_payout" }
+		end
+
+		-- checked, never held: the payout stays spendable until a contribution lands
+		local totalItems: { [string]: number } = {}
+		for itemId, n in payItems do
+			totalItems[itemId] = n * units
+		end
+		local holdsIt, holdErr = posterHolds(userId, totalItems, payGems * units)
+		if not holdsIt then
+			return { ok = false, err = holdErr }
+		end
+
+		listing = {
+			id = id,
+			kind = "bulkbuy",
+			posterId = userId,
+			posterName = userName,
+			wantItemId = payload.itemId,
+			wantedCount = payload.count,
+			remainingCount = payload.count,
+			unitIn = unitIn,
+			payout = { items = payItems, gems = payGems },
+			status = "open",
+			createdAt = now,
+			v = 1,
+		}
 	elseif payload.kind == "sell" then
 		if not Guard.isString(payload.itemId, 64) or EconomyService.getItem(payload.itemId) == nil then
 			return { ok = false, err = "unknown_item" }
@@ -1041,6 +1173,9 @@ local function postCore(userId: number, userName: string, payload: any)
 	end
 	actorSave(userId)
 	AnalyticsService.log("board_posted", { id = id, kind = listing.kind, userId = userId })
+	if listing.kind == "swap" and userId > 0 then
+		QuestService.notify(userId, "post_trade")
+	end
 
 	-- matching on post: swaps look for their mirror; gem-denominated orders
 	-- (sell/bulk) cross against the resting book automatically
@@ -1446,6 +1581,12 @@ local function acceptCore(userId: number, userName: string, id: any)
 
 	announce(("%s ⇄ %s: %s for %s"):format(userName, claimed.posterName, offerLabel(claimed.want), offerLabel(claimed.give)))
 	AnalyticsService.log("board_accepted", { id = id, by = userId })
+	if userId > 0 then
+		QuestService.notify(userId, "complete_trade")
+	end
+	if claimed.posterId > 0 then
+		QuestService.notify(claimed.posterId, "complete_trade")
+	end
 	return { ok = true }
 end
 
@@ -1588,6 +1729,99 @@ local function contributeCore(userId: number, userName: string, id: any, count: 
 end
 
 --------------------------------------------------------------------------------
+-- Bulk Buy contribute (item-for-item standing order)
+--------------------------------------------------------------------------------
+
+-- `units` is a count of unitIn-sized contributions, so whole multiples fall out
+-- of the arithmetic. Same reserve -> charge -> take -> deliver shape as
+-- contributeCore; the payout is taken from the poster at settlement, never held.
+local function contributeBulkBuyCore(userId: number, userName: string, id: any, units: any)
+	if not Guard.isString(id, 64) or not Guard.isPositiveInt(units) then
+		return { ok = false, err = "bad_args" }
+	end
+
+	local took = 0
+	local committed, err = mutate(id, function(l)
+		if l.kind ~= "bulkbuy" or l.status ~= "open" then
+			return nil, "gone"
+		end
+		if l.posterId == userId then
+			return nil, "own_listing"
+		end
+		took = math.min(units, l.remainingCount // l.unitIn)
+		if took <= 0 then
+			return nil, "filled"
+		end
+		l.remainingCount -= took * l.unitIn
+		if l.remainingCount < l.unitIn then
+			l.status = "done"
+		end
+		l.v += 1
+		return l
+	end)
+	if committed == nil then
+		return { ok = false, err = err }
+	end
+
+	local function revert()
+		return mutate(id, function(l)
+			l.remainingCount += took * l.unitIn
+			l.status = "open"
+			l.v += 1
+			return l
+		end)
+	end
+
+	local copies = took * committed.unitIn
+	local paid, payErr = actorDelta(userId, { items = { [committed.wantItemId] = -copies } }, Enums.GrantSource.Bulk)
+	if not paid then
+		revert()
+		return { ok = false, err = payErr }
+	end
+
+	local payItems: { [string]: number } = {}
+	for itemId, n in committed.payout.items do
+		payItems[itemId] = n * took
+	end
+	local grossGems = (committed.payout.gems or 0) * took
+	local tookPayout, takeErr = takeFromPoster(
+		committed.posterId, payItems, grossGems, Enums.GrantSource.Bulk,
+		("bb_take_%s_%d_%d"):format(id, userId, committed.remainingCount))
+	if not tookPayout then
+		actorDelta(userId, { items = { [committed.wantItemId] = copies } }, Enums.GrantSource.Refund)
+		local reverted = revert()
+		if reverted then
+			reopenOrCancel(reverted, takeErr)
+		end
+		return { ok = false, err = takeErr == "busy" and "poster_busy" or "poster_cannot_pay" }
+	end
+
+	-- gem component is taxed like every gem flow; the item side is not
+	local netGems, cut = Tax.split(grossGems)
+	actorDelta(userId, { items = payItems, gems = netGems }, Enums.GrantSource.Bulk)
+	actorSave(userId)
+	deliver(
+		committed.posterId,
+		{ [committed.wantItemId] = copies },
+		0,
+		Enums.GrantSource.Bulk,
+		("bb_fill_%s_%d_%d"):format(id, userId, committed.remainingCount)
+	)
+
+	if committed.status == "done" then
+		removeListing(id)
+	end
+	announce(("%s filled %d x %s for %s's bulk order"):format(userName, copies, itemLabel(committed.wantItemId), committed.posterName))
+	syndicateXp(userId)
+	syndicateXp(committed.posterId)
+	AnalyticsService.log("bulkbuy_contributed", { id = id, by = userId, units = took, copies = copies, tax = cut })
+	if userId > 0 then
+		QuestService.notify(userId, "bulk_contribute")
+	end
+	return { ok = true, units = took, count = copies, payout = { items = payItems, gems = netGems } }
+end
+
+--------------------------------------------------------------------------------
 -- Gem-only shop: buy from a sell listing
 --------------------------------------------------------------------------------
 
@@ -1686,6 +1920,9 @@ local function buyCore(userId: number, userName: string, id: any, count: any)
 	syndicateXp(userId)
 	syndicateXp(committed.posterId)
 	AnalyticsService.log("sell_bought", { id = id, by = userId, count = taken, spent = spent })
+	if committed.posterId > 0 then
+		QuestService.notify(committed.posterId, "sell")
+	end
 	return { ok = true, spent = spent, count = taken }
 end
 
@@ -2013,6 +2250,263 @@ function TradeBoardService.rawOpenListings(cap: number?): { any }
 	return out
 end
 
+--------------------------------------------------------------------------------
+-- N-party chain settlement
+--------------------------------------------------------------------------------
+--
+-- Generalises the 2-party mirror-match path above from 2 legs to N. Same three
+-- movements, same order, same reasons:
+--
+--   1. CLAIM every listing (CAS open -> "claimed"). Nothing has moved yet, so a
+--      lost claim just reverts the ones already taken and aborts. This is also
+--      what stops a player accepting one of these listings mid-settlement and
+--      double-debiting its poster.
+--   2. TAKE from every poster. The take is what proves each can still honour
+--      their promise (listings are promises, not deposits). If ANY take fails,
+--      everything already taken is handed straight back.
+--   3. DELIVER to everyone, then finalise the listings.
+--
+-- "Atomic" here means ALL-OR-COMPENSATE, not database atomicity: takes can hit
+-- DataStore or hand off cross-server, and none of that is transactional. The
+-- journal below is what makes the compensate half survive a crash — without it,
+-- dying between TAKE and DELIVER leaves a player permanently debited, which is
+-- the worst bug this system could have.
+
+local liquidityJournal: any = nil
+-- Short on purpose: MemoryStore quota is EXPERIENCE-WIDE and tight, and a
+-- completed op drops its entry immediately, so steady-state size is ~0. This
+-- TTL only bounds what a leaked entry can cost. An hour is still far longer
+-- than the 90s leader lease, so recovery always has time to run.
+local JOURNAL_TTL = 3600
+
+local function journalPut(opId: string, rec: any)
+	if liquidityJournal == nil then
+		return
+	end
+	pcall(function()
+		liquidityJournal:SetAsync(opId, rec, JOURNAL_TTL)
+	end)
+end
+
+local function journalDrop(opId: string)
+	if liquidityJournal == nil then
+		return
+	end
+	pcall(function()
+		liquidityJournal:RemoveAsync(opId)
+	end)
+end
+
+-- Test seam: lets the settlement tests stage a "crashed" op without having to
+-- actually kill a server mid-settlement. Not used by anything in production.
+function TradeBoardService.__testJournalPut(opId: string, rec: any)
+	journalPut(opId, rec)
+end
+
+-- Put a claimed listing back the way we found it. `units` consumed is applied
+-- only on the success path, so this is a pure revert.
+local function releaseClaim(listingId: string)
+	mutate(listingId, function(l)
+		if l.status == "claimed" then
+			l.status = "open"
+			l.v += 1
+		end
+		return l
+	end)
+end
+
+-- Consume `units` from a settled listing: divisible kinds count down and
+-- reopen, indivisible ones (swap) are simply done.
+local function finaliseLeg(leg: any)
+	local terminal = false
+	mutate(leg.listingId, function(l)
+		if l.remainingCount ~= nil then
+			l.remainingCount = math.max(0, (l.remainingCount or 0) - (leg.units or 1))
+			if l.remainingCount <= 0 then
+				l.status = "done"
+				terminal = true
+			else
+				l.status = "open"
+			end
+		else
+			l.status = "done"
+			terminal = true
+		end
+		l.v += 1
+		return l
+	end)
+	if terminal then
+		removeListing(leg.listingId)
+	end
+end
+
+-- Hand back everything a partially-completed op already took. Idempotent: the
+-- claimId differs from the take's, and applyDelta no-ops on a repeated claim,
+-- so running this twice (crash recovery re-running it) is safe.
+local function compensate(opId: string, legs: { any }, takenIds: { [string]: boolean })
+	for _, leg in legs do
+		if takenIds[leg.listingId] then
+			deliver(
+				leg.posterId,
+				leg.takeItems or {},
+				leg.takeGems or 0,
+				Enums.GrantSource.Refund,
+				("liq_%s_undo_%s"):format(opId, leg.listingId)
+			)
+		end
+	end
+end
+
+-- Settle a whole chain. `legs` is a list of:
+--   { listingId, posterId, takeItems, takeGems, giveItems, giveGems, units }
+-- where take* is what that poster hands over and give* is what they receive
+-- (already including any bonus from leftover distribution).
+--
+-- Returns (true) on success, or (false, reason) having left every participant
+-- exactly as they started.
+function TradeBoardService.settleChain(opId: string, legs: { any }): (boolean, string?)
+	if type(opId) ~= "string" or #legs < 2 then
+		return false, "bad_args"
+	end
+
+	-- Guard against self-dealing at the settlement boundary too, not just in
+	-- the solver: two legs from one poster would let an op net goods to itself.
+	local seenPoster: { [number]: boolean } = {}
+	for _, leg in legs do
+		if seenPoster[leg.posterId] then
+			return false, "self_deal"
+		end
+		seenPoster[leg.posterId] = true
+	end
+
+	journalPut(opId, { opId = opId, phase = "claiming", legs = legs, at = os.time() })
+
+	-- 1. CLAIM ---------------------------------------------------------------
+	local claimed: { any } = {}
+	for _, leg in legs do
+		local got = mutate(leg.listingId, function(l)
+			if l.status ~= "open" then
+				return nil, "gone"
+			end
+			if l.remainingCount ~= nil and (l.remainingCount or 0) < (leg.units or 1) then
+				return nil, "insufficient_remaining"
+			end
+			l.status = "claimed"
+			l.v += 1
+			return l
+		end)
+		if got == nil then
+			for _, done in claimed do
+				releaseClaim(done.listingId)
+			end
+			journalDrop(opId)
+			return false, "claim_failed"
+		end
+		table.insert(claimed, leg)
+	end
+
+	-- 2. TAKE ----------------------------------------------------------------
+	journalPut(opId, { opId = opId, phase = "taking", legs = legs, at = os.time() })
+	local takenIds: { [string]: boolean } = {}
+	for _, leg in legs do
+		local ok, err = takeFromPoster(
+			leg.posterId,
+			leg.takeItems or {},
+			leg.takeGems or 0,
+			Enums.GrantSource.Board,
+			("liq_%s_take_%s"):format(opId, leg.listingId)
+		)
+		if not ok then
+			compensate(opId, legs, takenIds)
+			-- The failing listing is dead unless its poster is merely live on
+			-- another server ("busy"), in which case it stays open to retry.
+			-- Every other leg was fine, so those just reopen.
+			for _, other in legs do
+				if other.listingId == leg.listingId then
+					reopenOrCancel(getListing(other.listingId) or other, err)
+				else
+					releaseClaim(other.listingId)
+				end
+			end
+			journalDrop(opId)
+			return false, err or "take_failed"
+		end
+		takenIds[leg.listingId] = true
+	end
+
+	-- 3. DELIVER -------------------------------------------------------------
+	-- Past this line nothing may abort: every poster's goods are already in
+	-- flight, and deliver falls back to the mailbox, so it always lands.
+	journalPut(opId, { opId = opId, phase = "delivering", legs = legs, taken = takenIds, at = os.time() })
+	for _, leg in legs do
+		local net = Tax.split(leg.giveGems or 0)
+		deliver(
+			leg.posterId,
+			leg.giveItems or {},
+			net,
+			Enums.GrantSource.Board,
+			("liq_%s_give_%s"):format(opId, leg.listingId)
+		)
+	end
+
+	for _, leg in legs do
+		finaliseLeg(leg)
+	end
+
+	journalDrop(opId)
+	AnalyticsService.log("liquidity_settled", { op = opId, legs = #legs })
+	return true, nil
+end
+
+-- Crash recovery. Runs on Start: any journal entry still present means an op
+-- died partway, so resolve it rather than leaving someone debited.
+--
+--   claiming   -> nothing moved; just release the claims
+--   taking     -> hand back whatever was taken, release the claims
+--   delivering -> every take succeeded, so finish the job (deliveries are
+--                 idempotent by claimId, so re-running is safe)
+function TradeBoardService.recoverLiquidityJournal(): number
+	if liquidityJournal == nil then
+		return 0
+	end
+	local entries: { any } = {}
+	pcall(function()
+		entries = liquidityJournal:GetRangeAsync(Enum.SortDirection.Ascending, 100)
+	end)
+
+	local handled = 0
+	for _, entry in entries do
+		local rec = entry.value
+		if type(rec) == "table" and type(rec.legs) == "table" then
+			local opId = rec.opId or entry.key
+			if rec.phase == "delivering" then
+				for _, leg in rec.legs do
+					local net = Tax.split(leg.giveGems or 0)
+					deliver(
+						leg.posterId,
+						leg.giveItems or {},
+						net,
+						Enums.GrantSource.Board,
+						("liq_%s_give_%s"):format(opId, leg.listingId)
+					)
+				end
+				for _, leg in rec.legs do
+					finaliseLeg(leg)
+				end
+			else
+				compensate(opId, rec.legs, rec.taken or {})
+				for _, leg in rec.legs do
+					releaseClaim(leg.listingId)
+				end
+			end
+			journalDrop(opId)
+			handled += 1
+			AnalyticsService.log("liquidity_recovered", { op = opId, phase = rec.phase })
+		end
+	end
+	return handled
+end
+
 function TradeBoardService.botPost(botId: number, botName: string, payload: any)
 	return postCore(botId, botName, payload)
 end
@@ -2025,6 +2519,9 @@ function TradeBoardService.botContribute(botId: number, botName: string, id: str
 	return contributeCore(botId, botName, id, count)
 end
 
+function TradeBoardService.botContributeBulkBuy(botId: number, botName: string, id: string, units: number)
+	return contributeBulkBuyCore(botId, botName, id, units)
+end
 function TradeBoardService.botBuy(botId: number, botName: string, id: string, count: number)
 	return buyCore(botId, botName, id, count)
 end
@@ -2044,6 +2541,7 @@ end
 function TradeBoardService.Init()
 	StoreAdapters.init()
 	board = StoreAdapters.sortedMap("TradeBoard_v8")
+	liquidityJournal = StoreAdapters.sortedMap("LiquidityJournal_v1")
 
 	-- One-time purge of retired MemoryStore maps (old boards + the retired
 	-- EconomyHot mirror). Their entries persist on multi-day TTLs and count
@@ -2077,6 +2575,16 @@ function TradeBoardService.Init()
 end
 
 function TradeBoardService.Start()
+	-- Resolve any chain settlement that died partway on a previous server
+	-- before anything else touches the board. Spawned so a slow store call
+	-- never blocks boot; nothing else depends on it having finished.
+	task.spawn(function()
+		local recovered = TradeBoardService.recoverLiquidityJournal()
+		if recovered > 0 then
+			warn(("[Board] recovered %d interrupted chain settlement(s)"):format(recovered))
+		end
+	end)
+
 	-- A server-scoped ad promises "the poster is HERE, so this settles now".
 	-- The moment they leave, that promise is false, so the ad goes with them
 	-- rather than lingering until its clock runs out and wasting the reader's
@@ -2110,6 +2618,42 @@ function TradeBoardService.Start()
 		end
 	end)
 
+	-- Cross-server settlement handshake (see takeFromPoster / BoardSettleTopic).
+	StoreAdapters.subscribe(EconomyConfig.BoardSettleTopic, function(payload)
+		if type(payload) ~= "table" or type(payload.claimId) ~= "string" then
+			return
+		end
+		if payload.kind == "request" then
+			if payload.from == ownerId then
+				return -- our own request; only the OTHER server should act on it
+			end
+			local player = Players:GetPlayerByUserId(payload.userId)
+			if player == nil or not DataService.isLoaded(player) then
+				return -- not loaded here; not our job to answer
+			end
+			local neg = {}
+			for itemId, count in payload.items or {} do
+				neg[itemId] = -count
+			end
+			local ok, err =
+				InventoryService.applyDelta(player, { items = neg, gems = -(payload.gems or 0) }, payload.source, payload.claimId)
+			if ok then
+				task.spawn(function()
+					DataService.saveNow(player)
+				end)
+			end
+			StoreAdapters.publish(EconomyConfig.BoardSettleTopic, {
+				kind = "result",
+				claimId = payload.claimId,
+				ok = ok,
+				reason = err,
+				from = ownerId,
+			})
+		elseif payload.kind == "result" then
+			pendingSettleResults[payload.claimId] = { ok = payload.ok == true, reason = payload.reason }
+		end
+	end)
+
 	Net.bindFunction("GetBoard", handleGetBoard)
 	Net.bindFunction("GetMarketSummary", handleGetMarketSummary)
 	Net.bindFunction("GetItemBook", handleGetItemBook)
@@ -2134,6 +2678,12 @@ function TradeBoardService.Start()
 			return { ok = false, err = "loading" }
 		end
 		return contributeCore(player.UserId, player.Name, id, count)
+	end)
+	Net.bindFunction("ContributeBulkBuy", function(player, id, units)
+		if not loadedGate(player) then
+			return { ok = false, err = "loading" }
+		end
+		return contributeBulkBuyCore(player.UserId, player.Name, id, units)
 	end)
 	Net.bindFunction("BuyFromListing", function(player, id, count)
 		if not loadedGate(player) then

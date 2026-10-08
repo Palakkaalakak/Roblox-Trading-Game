@@ -36,6 +36,7 @@ local Enums = {
 		Board = "board", -- trade-board settlements
 		Bulk = "bulk", -- bulk-order contributions/payouts
 		Roll = "roll", -- gem-paid gacha pulls (the main goods faucet)
+		Dig = "dig", -- Relic Dig minigame rewards (items only, never gems)
 	},
 
 	-- Remote names, single registry. Functions = request/response, Events = server pushes.
@@ -59,6 +60,7 @@ local Enums = {
 		"AcceptListing", -- (id) -> {ok, err?} — auto-trade swaps
 		"RegisterInterest", -- (id) -> {ok, err?} — ask-first swaps
 		"ContributeBulk", -- (id, count) -> {ok, payout?, err?}
+		"ContributeBulkBuy", -- (id, units) -> {ok, units?, payout?, err?}
 		"BuyFromListing", -- (id, count) -> {ok, spent?, err?} — gem-only sell listings
 		"RequestTrade", -- (targetUserId) -> {ok, tradeId?}
 		"RespondToRequest", -- (tradeId, accept) -> {ok}
@@ -73,6 +75,8 @@ local Enums = {
 		"GetShop", -- () -> {ok, offers, sectionOrder} — Robux shop catalogue
 		"PromptPurchase", -- (offerId) -> {ok, err?} — server-side purchase prompt
 		"GetRolls", -- () -> {ok, tiers = {{id, name, gems, luck, odds}}} — gacha tiers + live odds
+		"FinishDig", -- (score, deeper, cracks) -> {ok, level, item, reel, luck, err?} — Relic Dig reward
+		"GetDigStatus", -- () -> {ok, xp} — saved Relic Dig mastery xp
 		"RollItem", -- (tierId, payment?) -> {ok, item?, spent?, err?} — pay gems (or items, burned) for a roll
 		"GetLeaderboard", -- (boardId, scope) -> {ok, rows, you, resetsAt?} — scope "alltime"|"weekly"
 		"GetSyndicate", -- () -> {ok, syndicate?, invites} — your clan + pending invites
@@ -118,6 +122,12 @@ local Enums = {
 		"LeaveAfk", -- () -> {ok, afk} — stand back up; drops the reward ladder
 		"GetAfkState", -- () -> {ok, afk, ticks?, secondsToNext?, nextReward, totalAfkSeconds}
 		"AfkIdlePing", -- () -> {ok} — client saw Player.Idled; server relays a nudge back
+		"GetRewardsStatus", -- () -> {ok, status} — Community Rewards progress/rate for the HUD bar
+		"GetQuestStatus", -- () -> {ok, status} — active quest + rank for the Quests panel
+		"GetStarterReveal", -- () -> {ok, variant, items, worthRobux} — first-join takeover; ok=false once shown
+		"AckStarterReveal", -- () -> {ok} — marks the takeover as seen, never shows again
+		"DebugResetStarter", -- () -> {ok, variant, items, worthRobux} — admin only: re-rolls + replays the takeover
+		"DebugSetLiquidityLevel", -- (level?) -> {ok, level} — admin only: sets OFF/LOW/MEDIUM/HIGH; no arg = read current
 	},
 	RemoteEvents = {
 		"InventoryChanged", -- (inventory, gems)
@@ -129,7 +139,7 @@ local Enums = {
 		"AdBoostStateChanged", -- () — a boost credit was banked; refetch GetAdBoostState
 		"AfkStateChanged", -- (state) — AFK session started, paid a tick, or ended
 		"AfkIdleNudge", -- () — Roblox will kick you soon; click the on-screen button
-		"Notify", -- (text) — generic notification toast
+		"Notify", -- (text, color: Color3?) — generic notification toast (e.g. rank/title changes)
 		"TradeChat", -- ({tradeId, fromUserId, fromName, text, at})
 		"GroupChat", -- ({groupId, userId, name, text, at}) — already filtered for this reader
 		"BoothsChanged", -- ({booth}) — plaza storefront state for every booth

@@ -93,6 +93,9 @@ export type Profile = {
 	Inventory: { [string]: number },
 	StarterGranted: boolean,
 	StarterGrantId: string,
+	StarterVariant: string, -- "super" | "multi" -- which first-join shape this account got
+	StarterGrantItems: { [string]: number }, -- itemId -> count, what the reveal takeover shows
+	StarterRevealShown: boolean, -- flips true once the takeover has played once
 	ClaimedIds: { [string]: boolean }, -- settlement/mailbox idempotency log
 	Meta: { firstJoin: number, lastLogin: number, joins: number },
 	-- v2: player profile (public-facing, opt-out privacy)
@@ -100,7 +103,7 @@ export type Profile = {
 	StatChips: { string }, -- <=4 stat keys; {} => default set
 	Status: string, -- filtered "looking for" text
 	Privacy: { hideValue: boolean, hideShowcase: boolean },
-	Lifetime: { gemsEarned: number, trades: number },
+	Lifetime: { gemsEarned: number, trades: number, playSeconds: number },
 }
 
 -- One showcased/priced item, resolved from live economy state.

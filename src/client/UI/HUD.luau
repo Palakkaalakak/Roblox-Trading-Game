@@ -20,8 +20,8 @@ function HUD.wire(
 		picker: () -> (),
 		profile: (() -> ())?,
 		shop: (() -> ())?,
-		freeGems: (() -> ())?,
 		syndicate: (() -> ())?,
+		rewardsPanel: (() -> ())?,
 	}
 )
 	local gemPill = gui:WaitForChild("GemPill") :: Frame
@@ -45,15 +45,17 @@ function HUD.wire(
 		shopButton.Activated:Connect(toggles.shop)
 	end
 
-	-- free gems is its own screen, not a shop tab
-	local freeGemsButton = gui:WaitForChild("FreeGemsButton") :: ImageButton
-	if toggles.freeGems then
-		freeGemsButton.Activated:Connect(toggles.freeGems)
-	end
+	-- FreeGemsButton lives in the ignore-inset overlay now, not this
+	-- ScreenGui -- wired directly in init.client.luau instead.
 
 	local syndicateButton = gui:WaitForChild("SyndicateButton") :: ImageButton
 	if toggles.syndicate then
 		syndicateButton.Activated:Connect(toggles.syndicate)
+	end
+
+	local rewardsButton = gui:WaitForChild("RewardsButton") :: ImageButton
+	if toggles.rewardsPanel then
+		rewardsButton.Activated:Connect(toggles.rewardsPanel)
 	end
 
 	-- AFK has no sidebar button: the sign standing in the plaza (AfkPrompt)
@@ -74,13 +76,43 @@ function HUD.wire(
 	local toastArea = gui:WaitForChild("ToastArea") :: Frame
 	local toastTemplate = toastArea:WaitForChild("ToastTemplate") :: Frame
 
+	-- Toasts must sit ABOVE every panel a player might have open (Board, Shop,
+	-- Conversion, etc.), which all live in ScreenGuis with a higher DisplayOrder
+	-- than this HUD gui (10 vs their 20+) -- so a toast fired while any panel was
+	-- open rendered BEHIND it. Lift the toast area into its own top ScreenGui
+	-- instead of touching every panel's order.
+	local toastOverlay = Instance.new("ScreenGui")
+	toastOverlay.Name = "ToastOverlay"
+	toastOverlay.ResetOnSpawn = false
+	toastOverlay.IgnoreGuiInset = true
+	toastOverlay.DisplayOrder = 150 -- above every panel (20s) and the first-join takeover (100)
+	toastOverlay.Parent = gui.Parent
+	toastArea.Parent = toastOverlay
+
 	local function toast(text: string, color: Color3)
 		local t = toastTemplate:Clone()
 		t.Name = "Toast"
 		t.Visible = true
+		-- flat colored text, no card: a background competes with whatever panel
+		-- is behind it, and a toast is meant to be read at a glance, not framed.
+		t.BackgroundTransparency = 1
+		for _, d in t:GetDescendants() do
+			if d:IsA("UIStroke") then
+				d.Transparency = 1
+			elseif d:IsA("ImageLabel") or d:IsA("Frame") then
+				d.BackgroundTransparency = 1
+			end
+		end
 		local textLabel = t:WaitForChild("Text") :: TextLabel
 		textLabel.Text = text
 		textLabel.TextColor3 = color
+		-- a plain color can wash out against a bright background with no card
+		-- behind it -- a dark outline keeps it readable over anything.
+		local outline = textLabel:FindFirstChildOfClass("UIStroke") or Instance.new("UIStroke")
+		outline.Color = Color3.new(0, 0, 0)
+		outline.Thickness = 1.5
+		outline.Transparency = 0
+		outline.Parent = textLabel
 		t.Parent = toastArea
 		task.delay(4, function()
 			t:Destroy()

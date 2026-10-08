@@ -31,6 +31,7 @@ local StoreAdapters = require(script.Parent.Parent.Stores.StoreAdapters)
 local EconomyService = require(script.Parent.EconomyService)
 local NotificationService = require(script.Parent.NotificationService)
 local AnalyticsService = require(script.Parent.AnalyticsService)
+local QuestService = require(script.Parent.QuestService)
 
 local SyndicateService = {}
 
@@ -508,6 +509,9 @@ function SyndicateService.create(player: Player, name: any, tag: any): any
 	if profile == nil then
 		return { ok = false, err = "loading" }
 	end
+	if not QuestService.hasUnlock(player.UserId, "syndicate") then
+		return { ok = false, err = "rank_locked" }
+	end
 	if profile.SyndicateId ~= "" then
 		return { ok = false, err = "already_in_syndicate" }
 	end
@@ -563,6 +567,9 @@ function SyndicateService.join(player: Player, syndicateId: any): any
 	local profile = profileOf(player)
 	if profile == nil then
 		return { ok = false, err = "loading" }
+	end
+	if not QuestService.hasUnlock(player.UserId, "syndicate") then
+		return { ok = false, err = "rank_locked" }
 	end
 	if profile.SyndicateId ~= "" then
 		return { ok = false, err = "already_in_syndicate" }

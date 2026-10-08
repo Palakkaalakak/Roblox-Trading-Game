@@ -186,6 +186,15 @@ function BotService.credit(botId: number, items: { [string]: number }, gems: num
 	return (BotService.applyDelta(botId, { items = items, gems = gems }, "board", claimId))
 end
 
+-- Read-only views for other simulation services that share this ledger.
+function BotService.inventoryOf(botId: number): { [string]: number }
+	return getState(botId).inventory
+end
+
+function BotService.gemsOf(botId: number): number
+	return getState(botId).gems
+end
+
 function BotService.storeCount(botId: number, itemId: string): number
 	local s = getState(botId)
 	return s.storePurchases[itemId] or 0
@@ -403,7 +412,14 @@ local function buildContext(itemIds: { string }, book: any)
 		recipeInput = {} :: { [string]: number }, -- recipe profitability if an input
 	}
 	for _, itemId in itemIds do
-		local snap = EconomyService.snapshot(itemId)
+		-- snapshotCached, NOT snapshot: this runs over EVERY item on EVERY bot
+		-- sweep. snapshot() reads through to a synchronous GetAsync on anything
+		-- not yet warm, which on a fresh server (hotCache empty) means ~290
+		-- items x up to 3 retries, every sweep, until warmCache catches up --
+		-- the real, recurring source of the GetAsync storm (this fires
+		-- regardless of Liquidity/sim state; it's core bot code). Cached-only
+		-- is free; every branch below already has a nil-safe fallback.
+		local snap = EconomyService.snapshotCached(itemId)
 		local value = snap and snap.value and snap.value.value or fair(itemId)
 		local ask = book.bestAsk[itemId]
 		ctx.valueGap[itemId] = (ask and value > 0) and math.max(0, (value - ask) / value) or 0
@@ -1105,33 +1121,94 @@ function BotService.Init()
 	lockMap = StoreAdapters.sortedMap("BotLeader_v1")
 end
 
-function BotService.Start()
-	if not BotConfig.Enabled then
-		task.spawn(function()
-			task.wait(5)
-			cleanupBotListings()
-		end)
-		return
-	end
+-- Runtime on/off. Starts from BotConfig.Enabled but can be flipped while the
+-- server runs (the liquidity debug button does), which is why the sweep loop
+-- below is ALWAYS spawned and checks this inside its body. Checking once in
+-- Start() and returning early meant a disabled server could never be turned
+-- on without a restart.
+local runtimeEnabled = BotConfig.Enabled
 
+function BotService.setEnabled(on: boolean)
+	runtimeEnabled = on
+end
+
+function BotService.isEnabled(): boolean
+	return runtimeEnabled
+end
+
+-- Time-sliced yielding. The sweep used to yield every 60 bots, which is one
+-- long frame per burst (server p99 35ms, client p99 62ms with the population
+-- on, vs 19ms off). Yielding on elapsed TIME caps each slice at a few ms no
+-- matter how heavy an individual bot's pass turns out to be.
+local SLICE_BUDGET = 0.003
+local sliceStart = os.clock()
+local function maybeYield()
+	if os.clock() - sliceStart > SLICE_BUDGET then
+		task.wait()
+		sliceStart = os.clock()
+	end
+end
+
+-- Other services that must run on the LEADER only piggyback on this sweep
+-- rather than electing a second leader (two leaders would double-execute).
+-- Hooks run after the bots' own passes, each guarded so a failing hook can
+-- never take the sweep down.
+local sweepHooks: { (sweep: number) -> () } = {}
+
+function BotService.registerSweepHook(fn: (sweep: number) -> ())
+	table.insert(sweepHooks, fn)
+end
+
+local function runHooks(sweep: number)
+	for _, hook in sweepHooks do
+		local hookOk, hookErr = pcall(hook, sweep)
+		if not hookOk then
+			warn("[Bots] sweep hook failed: " .. tostring(hookErr))
+		end
+	end
+end
+
+function BotService.Start()
 	task.spawn(function()
 		task.wait(3)
 		local sweep = 0
+		local cleaned = false -- listings already pulled for this off period
 		while true do
+			if not runtimeEnabled then
+				-- Off (at boot or just switched): pull every bot listing once
+				-- so the board isn't left showing offers nobody is servicing.
+				if not cleaned then
+					cleanupBotListings()
+					cleaned = true
+				end
+				task.wait(2)
+				continue
+			end
+			cleaned = false
 			if tryAcquireLease() then
 				-- weighted draw table needs the catalog registered first
 				buildDrawTable()
 				-- seeding is in-memory now (no DataStore) — fast; light yields
 				-- only to avoid a single-frame hitch across 500 bots.
-				for idx, bot in bots do
-					seedBot(bot)
-					if idx % 50 == 0 then
-						task.wait()
+				if BotConfig.Enabled then
+					for _, bot in bots do
+						seedBot(bot)
+						maybeYield()
 					end
 				end
-				while tryAcquireLease() do
+				while runtimeEnabled and tryAcquireLease() do
 					sweep += 1
 					local sweepStart = os.clock()
+
+					-- The archetype brains only run when BotConfig.Enabled. With it
+					-- off this loop is just the leader-elected host for the
+					-- simulation + liquidity hooks (so exactly one server runs
+					-- them), which keeps the identical-swap bots off the board.
+					if not BotConfig.Enabled then
+						runHooks(sweep)
+						task.wait(BotConfig.SweepSeconds)
+						continue
+					end
 					table.clear(fairCache)
 
 					local TradeBoardService = require(script.Parent.TradeBoardService) :: any
@@ -1148,17 +1225,17 @@ function BotService.Start()
 					local ctx = buildContext(itemIds, book)
 
 					local sweepActions = 0
-					for idx, bot in bots do
+					for _, bot in bots do
 						local ok, actions = pcall(pass, bot, book, itemIds, ctx, sweep)
 						if ok then
 							sweepActions += #actions
 						else
 							warn("[Bots] pass failed for " .. bot.name .. ": " .. tostring(actions))
 						end
-						if idx % 60 == 0 then
-							task.wait() -- yield sparingly; passes are in-memory + fast
-						end
+						maybeYield()
 					end
+
+					runHooks(sweep)
 
 					if sweep % BotConfig.NetworthLogEvery == 0 then
 						local totalGems, richest, richestId = 0, -1, 0
