@@ -10,7 +10,7 @@ return {
 	-- Upload Obsidian_West_asset_pack/Dragon_Color.png and paste the rbxassetid here (optional if imported textures survive).
 	TEXTURE_ID = "",
 	SWAP_T = 2.5, -- VFX module time (s) of the blast: character <-> dragon swap happens here (mirrored on revert)
-	COLLECT_TEXTURES = true, -- Studio only: Play prints a TEXTURES table built from Workspace.textures (DragonTextureCollector)
+	COLLECT_TEXTURES = false, -- Studio only: Play prints a TEXTURES table built from Workspace.textures (DragonTextureCollector)
 	SCAN = true, -- Studio only: print a workspace/dragon structure scan to Output on start
 	SELF_TEST = true, -- Studio only: print a report to Output after the first transform; set false when done
 	FLY_SPEED = 150,
@@ -24,7 +24,7 @@ return {
 		MAX_CHARGE = 3,
 		MAX_D_HEAD = 1.8, -- fully charged ball diameter = this x the dragon head's largest dimension
 		MIN_SIZE = 0.2, -- tap size as a fraction of the fully charged size
-		VISUAL_SIZE = 0.7, -- drawn ball/orb size multiplier only (hitbox, blast radius, damage unchanged)
+		VISUAL_SIZE = 0.5, -- drawn ball/orb size multiplier only (hitbox, blast radius, damage unchanged)
 		BLAST_PER_D = 3.1, -- explosion damage/visual radius = this x ball diameter
 		SPEED = 180,
 		RANGE = 900,
@@ -34,22 +34,22 @@ return {
 	-- Upload them (Studio: Asset Manager > Bulk Import, or Creator Hub) and paste each image id here
 	-- (plain number or rbxassetid://...). Empty = that textured layer is skipped.
 	TEXTURES = {
-		flame_orange_4x4 = "",
-		flame_violet_4x4 = "",
-		flame_crimson_4x4 = "",
-		explosion_orange_4x4 = "",
-		explosion_violet_4x4 = "",
-		explosion_crimson_4x4 = "",
-		smoke_2x2 = "",
-		spark_star = "",
-		shock_ring = "",
-		slash_arc = "",
-		beam_lightning = "",
-		beam_flame_orange = "",
-		beam_flame_violet = "",
-		crack_burst = "",
-		sigil = "",
-		lava_rock = "",
+		flame_orange_4x4 = "rbxassetid://137821304344895",
+		flame_violet_4x4 = "rbxassetid://89476490955605",
+		flame_crimson_4x4 = "rbxassetid://79830888140983",
+		explosion_orange_4x4 = "rbxassetid://93482650527607",
+		explosion_violet_4x4 = "rbxassetid://73280316368511",
+		explosion_crimson_4x4 = "rbxassetid://77647476062850",
+		smoke_2x2 = "rbxassetid://113072040891182",
+		spark_star = "rbxassetid://96304942123030",
+		shock_ring = "rbxassetid://139364684751345",
+		slash_arc = "rbxassetid://107447310049129",
+		beam_lightning = "rbxassetid://137708063479983",
+		beam_flame_orange = "rbxassetid://106835369305715",
+		beam_flame_violet = "rbxassetid://82976437993616",
+		crack_burst = "rbxassetid://135447163814306",
+		sigil = "rbxassetid://114041859733252",
+		lava_rock = "rbxassetid://70770527420730",
 	},
 	-- Fire moves: each has its own VFX design. Flashier = more damage, slower, longer cooldown.
 	MOVES = {

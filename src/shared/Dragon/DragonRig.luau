@@ -72,8 +72,12 @@ function DragonRig.mouthCFrame(model: Instance): CFrame?
 	local d = head.Position - torso.Position
 	local fwd = Vector3.new(d.X, 0, d.Z)
 	fwd = if fwd.Magnitude > 0.01 then fwd.Unit else -torso.CFrame.LookVector
+	-- Mouth height: between the head and jaw centres (the head part's centre sits above the mouth).
+	local jaw = model:FindFirstChild("Jaw")
+	local base = if jaw and jaw:IsA("BasePart") then head.Position:Lerp(jaw.Position, 0.7) else head.Position - Vector3.new(0, head.Size.Y * 0.25, 0)
 	local len = math.max(head.Size.X, head.Size.Z) * 0.5
-	return CFrame.lookAt(head.Position + fwd * len - Vector3.new(0, head.Size.Y * 0.12, 0), head.Position + fwd * (len + 1))
+	local at = Vector3.new(head.Position.X, base.Y, head.Position.Z) + fwd * len
+	return CFrame.lookAt(at, at + fwd)
 end
 
 -- Fully charged fireball diameter for this dragon (MAX_D_HEAD x the head's largest dimension).

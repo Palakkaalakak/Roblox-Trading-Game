@@ -602,67 +602,9 @@ local PAL: { [string]: Pal } = {
 -- Public effects ----------------------------------------------------------------------------
 
 -- Charge orb in front of the mouth. getMouth returns a CFrame facing forward (-Z), or nil to end.
-function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number, move: string?)
-	local pal = PAL[move or "R"] or PAL.R
-	local g = group(BLK)
-	local core, mid, shell = ball(pal.core, g), ball(pal.mid, g), ball(pal.shell, g)
-	local light = Instance.new("PointLight")
-	light.Color = pal.light
-	light.Parent = core
-	local ringA, ringB = segs(18, pal.ringA, g), segs(18, pal.ringB, g)
-	local ringC = segs(18, pal.ringC, g)
-	local aura = ball(pal.aura, nil, FIELD)
-	aura.Size = Vector3.one * maxD
-	local inward = {
-		Shape = Enum.ParticleEmitterShape.Sphere,
-		ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface,
-		ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward,
-		Lifetime = NumberRange.new(0.2, 0.3),
-		Speed = NumberRange.new(maxD * 1.2, maxD * 2),
-	}
-	local cf = emitter(aura, FLAME_TEX[move or "R"] or FLAME_TEX.R, inward)
-	if cf then
-		cf.Rate = 45
-		cf.Size = NumberSequence.new(maxD * 0.35, maxD * 0.1)
-		cf.Rotation = NumberRange.new(0, 360)
-	end
-	local cs = emitter(aura, "spark_star", inward)
-	if cs then
-		cs.Rate = 30
-		cs.Size = NumberSequence.new(maxD * 0.18, 0)
-		cs.Color = ColorSequence.new(pal.max)
-		cs.RotSpeed = NumberRange.new(-300, 300)
-	end
-	local orbit: { Diamond } = {}
-	for i = 1, 4 do
-		orbit[i] = diamondParts(if i % 2 == 0 then pal.orbitA else pal.orbitB, g)
-	end
-	local center = Vector3.zero
-	local curD = maxD * MIN_SIZE
-	local fwd = Vector3.zAxis
-	local alive, maxed = true, false
-	local streakAcc, zapAcc, pulseAcc = 0, 0, 0
-
-	local function streak()
-		local dir = randUnit()
-		local roll = rng:NextNumber()
-		local p = newPart(pal.streak[math.clamp(math.floor(roll * #pal.streak) + 1, 1, #pal.streak)])
-		local r0 = curD * rng:NextNumber(2.4, 3.8)
-		local L0 = curD * rng:NextNumber(0.8, 1.4)
-		local w = curD * 0.07
-		job(rng:NextNumber(0.18, 0.28), function(k)
-			local e = k * k
-			local r = r0 * (1 - e) + curD * 0.45 * e
-			local L = L0 * (1 - k) + 0.05
-			local a = center + dir * r
-			p.Size = Vector3.new(w, w, L)
-			p.CFrame = CFrame.lookAt(a + dir * L / 2, a)
-			return
-		end, function()
-			p:Destroy()
-		end)
-	end
-
+-- Charge visuals: a different design per move, sitting directly in front of the mouth.
+local function chargeBase(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number, step: (Vector3, Vector3, number, number, number, number) -> (), cleanup: () -> ())
+	local alive = true
 	job(math.huge, function(_, t, dt)
 		if not alive then
 			return true
@@ -673,76 +615,234 @@ function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: numb
 			return true
 		end
 		local c = math.clamp((workspace:GetServerTimeNow() - t0) / maxT, 0, 1)
-		curD = maxD * DragonRig.sizeFactor(c, MIN_SIZE) * 0.85 * outBack(math.min(t / 0.12, 1))
-		fwd = mcf.LookVector
-		local jit = if c >= 1 then randUnit() * curD * 0.05 else Vector3.zero
-		center = mcf.Position + fwd * curD * 0.6 + jit
-		local pul = 1 + (0.04 + 0.08 * c) * math.sin(t * (18 + 30 * c))
-		core.Size = Vector3.one * curD * 0.45 * pul
-		mid.Size = Vector3.one * curD * 0.72 * pul
-		shell.Size = Vector3.one * curD * pul
-		core.Position, mid.Position, shell.Position = center, center, center
-		shell.Color = pal.shell:Lerp(pal.shell2, 0.4 * math.sin(t * 9) ^ 2)
-		light.Range = math.min(60, curD * 4)
-		light.Brightness = 2 + 5 * c
-
-		local rA = CFrame.Angles(t * 3.1, t * 1.7, 0)
-		local rB = CFrame.Angles(-t * 2.3, 0, t * 2.9)
-		placeRing(ringA, center, rA.LookVector, curD * (0.85 + 0.08 * math.sin(t * 7)), curD * (0.07 + 0.1 * c))
-		placeRing(ringB, center, rB.UpVector, curD * 1.02, curD * (0.05 + 0.08 * c))
-		local rC = CFrame.Angles(t * 1.3, -t * 3.7, t * 0.9)
-		placeRing(ringC, center, rC.RightVector, curD * (1.2 + 0.1 * math.sin(t * 5)), curD * (0.04 + 0.07 * c))
-		aura.Size = Vector3.one * curD * (1.5 + 0.35 * c + 0.06 * math.sin(t * 15))
-		aura.Position = center
-		local ou, ov = basis(fwd)
-		for i, d in ipairs(orbit) do
-			local a = t * (4 + 5 * c) + i / #orbit * math.pi * 2
-			local radial = ou * math.cos(a) + ov * math.sin(a)
-			placeDiamond(d, center + radial * curD * (1.35 + 0.15 * math.sin(t * 9 + i)), (radial + fwd * 0.4).Unit, curD * (0.45 + 0.25 * c), curD * 0.14)
-		end
-
-		streakAcc += dt * (22 + 70 * c)
-		while streakAcc >= 1 do
-			streakAcc -= 1
-			streak()
-		end
-		zapAcc += dt * (3 + 24 * c)
-		while zapAcc >= 1 do
-			zapAcc -= 1
-			zap(center, curD * 0.6, if c >= 1 and rng:NextNumber() < 0.5 then pal.max else pal.zap)
-		end
-		if c >= 1 then
-			if not maxed then
-				maxed = true
-				ring(center, fwd, 0.35, function(k)
-					return curD * lerp(0.6, 2.8, outQuart(k))
-				end, function(k)
-					return curD * 0.22 * (1 - k)
-				end, pal.max, 26)
-				puff(center, Vector3.zero, curD * 0.6, curD * 1.9, pal.core, pal.max, 0.2, nil, 0.2)
-			end
-			pulseAcc += dt
-			if pulseAcc > 0.28 then
-				pulseAcc = 0
-				local at = center
-				ring(at, fwd, 0.25, function(k)
-					return curD * lerp(0.7, 1.7, k)
-				end, function(k)
-					return curD * 0.08 * (1 - k)
-				end, pal.max, 20)
-			end
-		end
+		local D = maxD * DragonRig.sizeFactor(c, MIN_SIZE) * outBack(math.min(t / 0.12, 1))
+		local fwd = mcf.LookVector
+		step(mcf.Position + fwd * D * 0.55, fwd, D, c, t, dt)
 		return
-	end, function()
-		g:Destroy()
-		aura:Destroy()
-	end)
-
+	end, cleanup)
 	return {
 		stop = function()
 			alive = false
 		end,
 	}
+end
+
+-- Invisible ball whose surface emits textured flames + stars inward (converging on the charge).
+local function inwardField(flameTex: string, sparkColor: Color3, maxD: number): Part
+	local f = newPart(WHITE)
+	f.Shape = Enum.PartType.Ball
+	f.Transparency = 1
+	local function props()
+		return {
+			Shape = Enum.ParticleEmitterShape.Sphere,
+			ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface,
+			ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward,
+			Lifetime = NumberRange.new(0.2, 0.3),
+			Speed = NumberRange.new(maxD * 1.2, maxD * 2),
+		}
+	end
+	local e1 = emitter(f, flameTex, props())
+	if e1 then
+		e1.Rate = 40
+		e1.Size = NumberSequence.new(maxD * 0.3, maxD * 0.08)
+		e1.Rotation = NumberRange.new(0, 360)
+	end
+	local e2 = emitter(f, "spark_star", props())
+	if e2 then
+		e2.Rate = 25
+		e2.Size = NumberSequence.new(maxD * 0.15, 0)
+		e2.Color = ColorSequence.new(sparkColor)
+		e2.RotSpeed = NumberRange.new(-300, 300)
+	end
+	return f
+end
+
+-- R: SOLAR CORE. Outlined white/yellow/orange sun with rotating cone sun-rays that lengthen with
+-- charge, flame tongues licking off it, inward flames, white zaps. Flash at max.
+local function chargeR(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
+	local g = group(BLK)
+	local shell, mid, core = ball(ORG, g), ball(YEL, g), ball(WHITE, g)
+	local tongues = {}
+	for i = 1, 6 do
+		tongues[i] = blob(if i % 2 == 0 then ORG else RED, g)
+	end
+	local raysG = group(ORG)
+	local rays = {}
+	for i = 1, 8 do
+		rays[i] = spikeParts(if i % 2 == 0 then YEL else WHITE, raysG)
+	end
+	local light = Instance.new("PointLight")
+	light.Color = ORG
+	light.Parent = core
+	local field = inwardField("flame_orange_4x4", YEL, maxD)
+	local maxed, zapAcc = false, 0
+	return chargeBase(getMouth, t0, maxT, maxD, function(center, fwd, D, c, t, dt)
+		local pul = 1 + (0.04 + 0.08 * c) * math.sin(t * (18 + 30 * c))
+		shell.Size, mid.Size, core.Size = Vector3.one * D * pul, Vector3.one * D * 0.72 * pul, Vector3.one * D * 0.42 * pul
+		shell.Position, mid.Position, core.Position = center, center, center
+		shell.Color = ORG:Lerp(RED, 0.4 * math.sin(t * 9) ^ 2)
+		local u, v = basis(fwd)
+		for i, sp in ipairs(rays) do
+			local a = i / #rays * math.pi * 2 + t * 1.5
+			local d = u * math.cos(a) + v * math.sin(a)
+			local L = D * (0.35 + 0.65 * c) * (0.8 + 0.25 * math.sin(t * 14 + i))
+			placeSpike(sp, center + d * (D * 0.45 + L), -d, L, D * 0.13)
+		end
+		for i, b in ipairs(tongues) do
+			local a = i / #tongues * math.pi * 2 + t * 3
+			local radial = u * math.cos(a) + v * math.sin(a)
+			local L = D * (0.45 + 0.25 * math.sin(t * 20 + i))
+			local base = center + radial * D * 0.4
+			b.Size = Vector3.new(D * 0.2, D * 0.2, L)
+			b.CFrame = CFrame.lookAt(base, base + radial + Vector3.yAxis * 0.5) * CFrame.new(0, 0, -L / 2)
+		end
+		field.Size = Vector3.one * D * 3
+		field.Position = center
+		light.Range = math.min(60, D * 4)
+		light.Brightness = 2 + 5 * c
+		zapAcc += dt * (2 + 14 * c)
+		while zapAcc >= 1 do
+			zapAcc -= 1
+			zap(center, D * 0.6, WHITE)
+		end
+		if c >= 1 and not maxed then
+			maxed = true
+			puff(center, Vector3.zero, D * 0.6, D * 1.9, WHITE, YEL, 0.2, nil, 0.2)
+		end
+	end, function()
+		g:Destroy()
+		raysG:Destroy()
+		field:Destroy()
+	end)
+end
+
+-- Q: VOID EYE. No ball: a dark violet eye with a glowing pink slit pupil, a double helix of
+-- spinning violet/pink diamond shards and crackling lightning beams around it.
+local function chargeQ(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
+	local g = group(BLK)
+	local eye = blob(DEEP, g)
+	local pupil = blob(PINK, g)
+	local shards: { Diamond } = {}
+	for i = 1, 10 do
+		shards[i] = diamondParts(if i % 2 == 0 then VIOLET else PINK, g)
+	end
+	local bolts = {}
+	for i = 1, 4 do
+		bolts[i] = tbeam("beam_lightning", if i % 2 == 0 then PINK else VIOLET, maxD * 0.1, 8, true)
+	end
+	local light = Instance.new("PointLight")
+	light.Color = VIOLET
+	light.Parent = eye
+	local field = inwardField("flame_violet_4x4", PINK, maxD)
+	local boltAcc, zapAcc = 1, 0
+	return chargeBase(getMouth, t0, maxT, maxD, function(center, fwd, D, c, t, dt)
+		local ecf = CFrame.lookAt(center, center + fwd)
+		eye.Size = Vector3.new(D * 0.75, D * 0.75, D * 0.45) * (1 + 0.06 * math.sin(t * 20))
+		eye.CFrame = ecf
+		pupil.Size = Vector3.new(D * 0.1, D * 0.6 * (0.5 + 0.5 * c), D * 0.5)
+		pupil.CFrame = ecf * CFrame.new(0, 0, -D * 0.04)
+		local u, v = basis(fwd)
+		for i, d in ipairs(shards) do
+			local strand = if i % 2 == 0 then math.pi else 0
+			local k = math.ceil(i / 2) / 5
+			local a = t * (4 + 6 * c) + k * math.pi * 2 + strand
+			local radial = u * math.cos(a) + v * math.sin(a)
+			local p = center + radial * D * (0.6 + 0.15 * math.sin(t * 3 + i)) + fwd * (k - 0.5) * D * 0.9
+			placeDiamond(d, p, radial:Cross(fwd).Unit, D * (0.25 + 0.2 * c), D * 0.08)
+		end
+		boltAcc += dt
+		if boltAcc > 0.06 then
+			boltAcc = 0
+			for _, b in ipairs(bolts) do
+				if b then
+					b.set(center + randUnit() * D * 0.3, center + randUnit() * D * (0.9 + 0.6 * c))
+				end
+			end
+		end
+		field.Size = Vector3.one * D * 3
+		field.Position = center
+		light.Range = math.min(60, D * 4)
+		light.Brightness = 2 + 5 * c
+		zapAcc += dt * (2 + 12 * c)
+		while zapAcc >= 1 do
+			zapAcc -= 1
+			zap(center, D * 0.55, PINK)
+		end
+	end, function()
+		g:Destroy()
+		field:Destroy()
+		for _, b in ipairs(bolts) do
+			if b then
+				b.destroy()
+			end
+		end
+	end)
+end
+
+-- F: MOLTEN FORGE. Lava-textured rock blocks orbit and close in as it charges, compacting into a
+-- meteor around a small molten core; inward crimson flames, rising smoke.
+local function chargeF(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
+	local g = group(CRIMSON)
+	local core, hot = ball(ORG, g), ball(YEL, g)
+	local rockTex = tex("lava_rock")
+	local rocks = {}
+	for i = 1, 8 do
+		local p = newPart(ROCK, g, FLAT)
+		if rockTex then
+			for _, face in ipairs(Enum.NormalId:GetEnumItems()) do
+				local tx = Instance.new("Texture")
+				tx.Texture = rockTex
+				tx.Face = face
+				tx.StudsPerTileU, tx.StudsPerTileV = maxD * 0.5, maxD * 0.5
+				tx.Parent = p
+			end
+		end
+		local axis = randUnit()
+		local o = axis:Cross(randUnit()).Unit
+		rocks[i] = { p = p, axis = axis, o = o, ph = rng:NextNumber(0, 6.3), spin = rng:NextNumber(1.5, 3), r = CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0) }
+	end
+	local light = Instance.new("PointLight")
+	light.Color = RED
+	light.Parent = core
+	local field = inwardField("flame_crimson_4x4", ORG, maxD)
+	local smoke = emitter(field, "smoke_2x2", {
+		Rate = 8,
+		Lifetime = NumberRange.new(0.8, 1.2),
+		Speed = NumberRange.new(maxD * 0.2, maxD * 0.5),
+		Size = NumberSequence.new(maxD * 0.4, maxD * 1),
+		Transparency = NumberSequence.new(0.1, 1),
+		Acceleration = Vector3.new(0, maxD * 1.5, 0),
+		Rotation = NumberRange.new(0, 360),
+	})
+	local _ = smoke
+	return chargeBase(getMouth, t0, maxT, maxD, function(center, _fwd, D, c, t, _dt)
+		core.Size = Vector3.one * D * 0.55 * (1 + 0.08 * math.sin(t * 25))
+		hot.Size = Vector3.one * D * 0.32
+		core.Position, hot.Position = center, center
+		local rad = D * (1.25 - 0.8 * c)
+		for _, r in ipairs(rocks) do
+			local off = CFrame.fromAxisAngle(r.axis, t * r.spin + r.ph):VectorToWorldSpace(r.o) * rad
+			local sz = D * (0.25 + 0.2 * c)
+			r.p.Size = Vector3.new(sz, sz * 0.8, sz * 0.9)
+			r.p.CFrame = CFrame.new(center + off) * CFrame.Angles(t * 2, t * 1.4, 0) * r.r
+		end
+		field.Size = Vector3.one * D * 3
+		field.Position = center
+		light.Range = math.min(60, D * 4)
+		light.Brightness = 3 + 5 * c
+	end, function()
+		g:Destroy()
+		field:Destroy()
+	end)
+end
+
+function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number, move: string?)
+	if move == "Q" then
+		return chargeQ(getMouth, t0, maxT, maxD)
+	elseif move == "F" then
+		return chargeF(getMouth, t0, maxT, maxD)
+	end
+	return chargeR(getMouth, t0, maxT, maxD)
 end
 
 -- Launch flash at the mouth: star shards, white pop, recoil ring.
@@ -839,16 +939,6 @@ local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: numb
 		trail(spinner, Vector3.new(math.cos(a) * r0, math.sin(a) * r0, 0), Vector3.new(math.cos(a) * r1, math.sin(a) * r1, 0), cs, life * 1.4)
 	end
 
-	local corona = segs(20, PURPLE, g)
-	local corona2 = segs(16, PINK, g)
-	local shards: { Diamond } = {}
-	for i = 1, 5 do
-		shards[i] = diamondParts(if i <= 3 then PURPLE else YEL, g)
-	end
-	local aura = ball(PURPLE, nil, FIELD)
-	local ringAcc = 0
-	local ringFlip = false
-
 	local shot = { pos = origin } :: any
 	local stopped = false
 	local spin, emberAcc, smokeAcc, shardAcc = 0, 0, 0, 0
@@ -878,29 +968,6 @@ local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: numb
 		carrier.CFrame = cf
 		spinner.CFrame = cf * CFrame.Angles(0, 0, spin * 1.6)
 
-		-- Purple corona rings, orbiting diamond shards, shimmering aura, sonic rings left behind.
-		placeRing(corona, pos - dir * D * 0.15, dir, D * (0.78 + 0.06 * math.sin(t * 14)), D * 0.12)
-		placeRing(corona2, pos - dir * D * 0.45, (dir + Vector3.new(math.sin(t * 7), math.cos(t * 7), 0) * 0.35).Unit, D * 0.95, D * 0.06)
-		local bu, bv = basis(dir)
-		for i, sh in ipairs(shards) do
-			local a = -spin * 1.3 + i / #shards * math.pi * 2
-			local radial = bu * math.cos(a) + bv * math.sin(a)
-			local c = pos + radial * D * 1.1 - dir * D * 0.25 * math.sin(t * 6 + i)
-			placeDiamond(sh, c, (dir * 0.7 + radial * 0.7).Unit, D * 0.6, D * 0.16)
-		end
-		aura.Size = Vector3.one * D * 1.6 * (1 + 0.08 * math.sin(t * 12))
-		aura.CFrame = cf
-		ringAcc += dt
-		if ringAcc > 0.085 then
-			ringAcc = 0
-			ringFlip = not ringFlip
-			ring(pos - dir * D * 0.7, dir, 0.3, function(k)
-				return D * lerp(0.7, 1.7, outQuart(k))
-			end, function(k)
-				return D * 0.13 * (1 - k)
-			end, if ringFlip then PURPLE else YEL, 16)
-		end
-
 		emberAcc += dt
 		while emberAcc > 0.018 do
 			emberAcc -= 0.018
@@ -925,7 +992,6 @@ local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: numb
 		return
 	end, function()
 		g:Destroy()
-		aura:Destroy()
 		task.delay(0.6, function()
 			carrier:Destroy()
 			spinner:Destroy()
