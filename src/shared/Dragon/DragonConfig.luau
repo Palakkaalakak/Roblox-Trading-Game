@@ -22,10 +22,10 @@ return {
 		-- size x2, speed x1.5, damage x3 (auto-fires at max).
 		COOLDOWN = 1,
 		MAX_CHARGE = 3,
-		BALL_D = 9, -- projectile diameter (studs) at no charge
+		MAX_D_HEAD = 1.8, -- fully charged ball diameter = this x the dragon head's largest dimension (tap = half)
+		BLAST_PER_D = 3.1, -- explosion damage/visual radius = this x ball diameter
 		SPEED = 180,
 		RANGE = 700,
-		RADIUS = 28, -- explosion damage radius at no charge
 		DAMAGE = 30,
 	},
 }

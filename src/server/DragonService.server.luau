@@ -167,8 +167,8 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any)
 	local size = 1 + c
 	local speed = FB.SPEED * (1 + 0.5 * c)
 	local damage = FB.DAMAGE * (1 + 2 * c)
-	local radius = FB.RADIUS * size
-	local D = FB.BALL_D * size
+	local D = DragonRig.fireballBaseD(dragon :: Model, FB.MAX_D_HEAD) * size
+	local radius = D * FB.BLAST_PER_D
 	local dir = dirArg.Unit
 	local origin = mouth.Position + dir * D * 0.6
 

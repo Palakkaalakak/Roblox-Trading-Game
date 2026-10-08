@@ -10,16 +10,19 @@ local RunService = game:GetService("RunService")
 
 local FX = {}
 
-local YEL = Color3.fromRGB(255, 214, 20)
-local ORG = Color3.fromRGB(255, 118, 0)
-local RED = Color3.fromRGB(225, 35, 15)
-local PINK = Color3.fromRGB(255, 40, 190)
+local YEL = Color3.fromRGB(255, 225, 0)
+local ORG = Color3.fromRGB(255, 100, 0)
+local RED = Color3.fromRGB(255, 20, 0)
+local PINK = Color3.fromRGB(255, 0, 200) -- hot magenta
+local PURPLE = Color3.fromRGB(160, 0, 255) -- vivid violet
+local DEEP = Color3.fromRGB(90, 0, 210) -- deep purple core/edges
 local WHITE = Color3.fromRGB(255, 250, 225)
 local BLK = Color3.fromRGB(18, 16, 20)
 local SMOKE = Color3.fromRGB(45, 40, 48)
 local NAVY = Color3.fromRGB(30, 36, 72)
 local NEON = Enum.Material.Neon
 local FLAT = Enum.Material.SmoothPlastic
+local FIELD = Enum.Material.ForceField -- shimmering translucent shell
 
 local rng = Random.new()
 
@@ -324,6 +327,44 @@ local function zap(center: Vector3, r: number, color: Color3)
 	end
 end
 
+-- Diamond shard: two cone spikes meeting in the middle (8 wedges).
+type Diamond = { a: { WedgePart }, b: { WedgePart } }
+local function diamondParts(color: Color3, parent: Instance): Diamond
+	return { a = spikeParts(color, parent), b = spikeParts(color, parent) }
+end
+local function placeDiamond(d: Diamond, center: Vector3, axis: Vector3, L: number, hw: number)
+	placeSpike(d.a, center + axis * L / 2, -axis, L / 2, hw)
+	placeSpike(d.b, center - axis * L / 2, axis, L / 2, hw)
+end
+
+-- Crescent slash: arc of segments in the plane with normal n, sweeping around while it grows.
+local function crescent(center: Vector3, n: Vector3, a0: number, sweep: number, r0: number, r1: number, w0: number, life: number, color: Color3, spinRate: number)
+	local u, v = basis(n)
+	local N = 9
+	local ps = segs(N, color)
+	job(life, function(k)
+		local r = lerp(r0, r1, outQuart(k))
+		local w = w0 * (1 - k)
+		local off = a0 + spinRate * k
+		for i, p in ipairs(ps) do
+			local f = (i - 1) / (N - 1)
+			local a = off + sweep * f
+			local taper = math.sin(f * math.pi) -- thick in the middle, pointed ends
+			local pos = center + (u * math.cos(a) + v * math.sin(a)) * r
+			local tan = -u * math.sin(a) + v * math.cos(a)
+			local len = r * sweep / (N - 1) * 1.15
+			p.Size = Vector3.new(math.max(w * taper, 0.05), math.max(w * 0.25, 0.05), math.max(len, 0.05))
+			p.CFrame = CFrame.lookAt(pos, pos + tan, n)
+			p.Transparency = if w * taper > 0.04 then 0 else 1
+		end
+		return
+	end, function()
+		for _, p in ipairs(ps) do
+			p:Destroy()
+		end
+	end)
+end
+
 -- Trail on a carrier part. FaceCamera=false so the ribbon spans the two attachments.
 local FIRE_SEQ = ColorSequence.new({
 	ColorSequenceKeypoint.new(0, WHITE),
@@ -349,7 +390,7 @@ local function trail(carrier: BasePart, p0: Vector3, p1: Vector3, colors: ColorS
 	})
 	tr.WidthScale = NumberSequence.new(1, 0.1)
 	tr.LightEmission = 0
-	tr.Brightness = 2.5
+	tr.Brightness = 4
 	tr.FaceCamera = false
 	tr.MinLength = 0
 	tr.Parent = carrier
@@ -365,6 +406,12 @@ function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, baseD: num
 	light.Color = ORG
 	light.Parent = core
 	local ringA, ringB = segs(18, ORG, g), segs(18, YEL, g)
+	local ringC = segs(18, PURPLE, g)
+	local aura = ball(PURPLE, nil, FIELD)
+	local orbit: { Diamond } = {}
+	for i = 1, 4 do
+		orbit[i] = diamondParts(if i % 2 == 0 then PINK else PURPLE, g)
+	end
 	local center = Vector3.zero
 	local curD = baseD * 0.5
 	local fwd = Vector3.zAxis
@@ -374,7 +421,7 @@ function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, baseD: num
 	local function streak()
 		local dir = randUnit()
 		local roll = rng:NextNumber()
-		local p = newPart(if roll < 0.15 then PINK elseif roll < 0.55 then YEL else ORG)
+		local p = newPart(if roll < 0.2 then PURPLE elseif roll < 0.32 then PINK elseif roll < 0.62 then YEL else ORG)
 		local r0 = curD * rng:NextNumber(2.4, 3.8)
 		local L0 = curD * rng:NextNumber(0.8, 1.4)
 		local w = curD * 0.07
@@ -418,6 +465,16 @@ function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, baseD: num
 		local rB = CFrame.Angles(-t * 2.3, 0, t * 2.9)
 		placeRing(ringA, center, rA.LookVector, curD * (0.85 + 0.08 * math.sin(t * 7)), curD * (0.07 + 0.1 * c))
 		placeRing(ringB, center, rB.UpVector, curD * 1.02, curD * (0.05 + 0.08 * c))
+		local rC = CFrame.Angles(t * 1.3, -t * 3.7, t * 0.9)
+		placeRing(ringC, center, rC.RightVector, curD * (1.2 + 0.1 * math.sin(t * 5)), curD * (0.04 + 0.07 * c))
+		aura.Size = Vector3.one * curD * (1.5 + 0.35 * c + 0.06 * math.sin(t * 15))
+		aura.Position = center
+		local ou, ov = basis(fwd)
+		for i, d in ipairs(orbit) do
+			local a = t * (4 + 5 * c) + i / #orbit * math.pi * 2
+			local radial = ou * math.cos(a) + ov * math.sin(a)
+			placeDiamond(d, center + radial * curD * (1.35 + 0.15 * math.sin(t * 9 + i)), (radial + fwd * 0.4).Unit, curD * (0.45 + 0.25 * c), curD * 0.14)
+		end
 
 		streakAcc += dt * (22 + 70 * c)
 		while streakAcc >= 1 do
@@ -453,6 +510,7 @@ function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, baseD: num
 		return
 	end, function()
 		g:Destroy()
+		aura:Destroy()
 	end)
 
 	return {
@@ -488,7 +546,15 @@ function FX.muzzle(pos: Vector3, dir: Vector3, D: number, power: number)
 		return D * lerp(0.4, 2.4, outQuart(k))
 	end, function(k)
 		return D * 0.18 * (1 - k)
-	end, if power > 0.5 then PINK else ORG, 18, 0.05)
+	end, ORG, 18, 0.05)
+	ring(pos, dir, 0.42, function(k)
+		return D * lerp(0.8, 4, outQuart(k))
+	end, function(k)
+		return D * 0.16 * (1 - k)
+	end, PURPLE, 22, 0.09)
+	for _ = 1, 4 + math.floor(power * 4) do
+		chunk(pos, (dir * 0.5 + randUnit()).Unit * D * rng:NextNumber(10, 18), Vector3.new(D * 0.12, D * 0.12, D * 0.6), if rng:NextNumber() < 0.5 then PURPLE else PINK, 0.35, 0)
+	end
 	for _ = 1, 3 do
 		puff(pos - dir * D * 0.5, randUnit() * D + Vector3.new(0, D, 0), D * 0.4, D * 1.1, BLK, SMOKE, 0.7, FLAT, 0.3)
 	end
@@ -520,13 +586,23 @@ function FX.projectile(origin: Vector3, dir: Vector3, speed: number, D: number, 
 	local life = math.clamp(7 * D / speed, 0.12, 0.45)
 	trail(carrier, Vector3.new(0, D * 0.5, 0), Vector3.new(0, -D * 0.5, 0), FIRE_SEQ, life)
 	trail(carrier, Vector3.new(D * 0.5, 0, 0), Vector3.new(-D * 0.5, 0, 0), FIRE_SEQ, life)
-	local helix = 3 + (if power > 0.5 then 1 else 0)
+	local helix = 4 + (if power > 0.5 then 1 else 0)
 	for i = 1, helix do
 		local a = i / helix * math.pi * 2
 		local r0, r1 = D * 0.55, D * 0.78
-		local cs = if i == 4 then ColorSequence.new(PINK, RED) else ColorSequence.new(YEL, ORG)
+		local cs = if i == 4 then ColorSequence.new(PURPLE, DEEP) elseif i == 5 then ColorSequence.new(PINK, PURPLE) else ColorSequence.new(YEL, ORG)
 		trail(spinner, Vector3.new(math.cos(a) * r0, math.sin(a) * r0, 0), Vector3.new(math.cos(a) * r1, math.sin(a) * r1, 0), cs, life * 1.4)
 	end
+
+	local corona = segs(20, PURPLE, g)
+	local corona2 = segs(16, PINK, g)
+	local shards: { Diamond } = {}
+	for i = 1, 5 do
+		shards[i] = diamondParts(if i <= 3 then PURPLE else YEL, g)
+	end
+	local aura = ball(PURPLE, nil, FIELD)
+	local ringAcc = 0
+	local ringFlip = false
 
 	local shot = { pos = origin } :: any
 	local stopped = false
@@ -557,6 +633,29 @@ function FX.projectile(origin: Vector3, dir: Vector3, speed: number, D: number, 
 		carrier.CFrame = cf
 		spinner.CFrame = cf * CFrame.Angles(0, 0, spin * 1.6)
 
+		-- Purple corona rings, orbiting diamond shards, shimmering aura, sonic rings left behind.
+		placeRing(corona, pos - dir * D * 0.15, dir, D * (0.78 + 0.06 * math.sin(t * 14)), D * 0.12)
+		placeRing(corona2, pos - dir * D * 0.45, (dir + Vector3.new(math.sin(t * 7), math.cos(t * 7), 0) * 0.35).Unit, D * 0.95, D * 0.06)
+		local bu, bv = basis(dir)
+		for i, sh in ipairs(shards) do
+			local a = -spin * 1.3 + i / #shards * math.pi * 2
+			local radial = bu * math.cos(a) + bv * math.sin(a)
+			local c = pos + radial * D * 1.1 - dir * D * 0.25 * math.sin(t * 6 + i)
+			placeDiamond(sh, c, (dir * 0.7 + radial * 0.7).Unit, D * 0.6, D * 0.16)
+		end
+		aura.Size = Vector3.one * D * 1.6 * (1 + 0.08 * math.sin(t * 12))
+		aura.CFrame = cf
+		ringAcc += dt
+		if ringAcc > 0.085 then
+			ringAcc = 0
+			ringFlip = not ringFlip
+			ring(pos - dir * D * 0.7, dir, 0.3, function(k)
+				return D * lerp(0.7, 1.7, outQuart(k))
+			end, function(k)
+				return D * 0.13 * (1 - k)
+			end, if ringFlip then PURPLE else YEL, 16)
+		end
+
 		emberAcc += dt
 		while emberAcc > 0.018 do
 			emberAcc -= 0.018
@@ -571,7 +670,7 @@ function FX.projectile(origin: Vector3, dir: Vector3, speed: number, D: number, 
 			shardAcc += dt
 			if shardAcc > 0.06 then
 				shardAcc = 0
-				chunk(pos + randUnit() * D * 0.6, randUnit() * D * 3, Vector3.new(D * 0.06, D * 0.06, D * 0.4), PINK, 0.3, 0)
+				chunk(pos + randUnit() * D * 0.6, randUnit() * D * 3, Vector3.new(D * 0.06, D * 0.06, D * 0.4), if rng:NextNumber() < 0.5 then PINK else PURPLE, 0.3, 0)
 			end
 		end
 		if dist >= range + D * 4 then
@@ -581,6 +680,7 @@ function FX.projectile(origin: Vector3, dir: Vector3, speed: number, D: number, 
 		return
 	end, function()
 		g:Destroy()
+		aura:Destroy()
 		task.delay(0.6, function()
 			carrier:Destroy()
 			spinner:Destroy()
@@ -627,9 +727,65 @@ function FX.explode(pos: Vector3, normal: Vector3, R: number, grounded: boolean,
 			return
 		end)
 	end
+	-- Deep-purple edge flames around the cluster (unique accent, outlined with the cluster).
+	for i = 1, 5 + math.floor(power * 3) do
+		local d = hemi(n, 0.3)
+		local b = ball(if i % 2 == 0 then PURPLE else DEEP, fire)
+		b.Size = Vector3.one * 0.05
+		local size = R * rng:NextNumber(0.2, 0.32)
+		job(0.9, function(k)
+			local env = outBack(math.min(k / 0.25, 1)) * (if k > 0.5 then 1 - (k - 0.5) / 0.5 else 1)
+			b.Size = Vector3.one * math.max(size * env, 0.05)
+			b.Position = pos + d * R * lerp(0.35, 0.95, outQuart(k)) + n * R * 0.25 * k
+			b.Color = (if i % 2 == 0 then PURPLE else DEEP):Lerp(PINK, k)
+			return
+		end)
+	end
 	task.delay(1.25, function()
 		fire:Destroy()
 	end)
+
+	-- Shimmering purple shock dome.
+	local dome = ball(PURPLE, nil, FIELD)
+	job(0.65, function(k)
+		dome.Size = Vector3.one * R * lerp(0.4, 2.4, outQuart(k))
+		dome.Position = pos
+		dome.Transparency = if k > 0.5 then (k - 0.5) / 0.5 else 0
+		return
+	end, function()
+		dome:Destroy()
+	end)
+
+	-- Crescent slashes spinning out in random planes.
+	for i = 1, 6 + math.floor(power * 4) do
+		local cn = randUnit()
+		crescent(pos, cn, rng:NextNumber(0, 6.3), rng:NextNumber(1.2, 2.2), R * 0.3, R * rng:NextNumber(1.1, 1.6), R * 0.12, rng:NextNumber(0.35, 0.5), if i % 3 == 0 then YEL elseif i % 3 == 1 then PURPLE else PINK, rng:NextNumber(2, 4) * (if rng:NextNumber() < 0.5 then -1 else 1))
+	end
+
+	-- Charged shots: fire pillar erupting along the normal, outlined in deep purple.
+	if power > 0.5 then
+		local pillar = group(DEEP)
+		local outer, inner = blob(ORG, pillar), blob(YEL, pillar)
+		local core = blob(WHITE, pillar)
+		local h = R * (2.2 + 1.6 * power)
+		job(0.8, function(k, t)
+			local grow = outBack(math.min(k / 0.25, 1))
+			local fade = if k > 0.55 then 1 - (k - 0.55) / 0.45 else 1
+			local w = R * 0.55 * fade * (1 + 0.06 * math.sin(t * 30))
+			local H = h * grow
+			local c = pos + n * H / 2
+			outer.Size = Vector3.new(w, H, w)
+			outer.CFrame = CFrame.lookAt(c, c + basis(n), n)
+			inner.Size = Vector3.new(w * 0.62, H * 0.9, w * 0.62)
+			inner.CFrame = outer.CFrame
+			core.Size = Vector3.new(w * 0.28, H * 0.8, w * 0.28)
+			core.CFrame = outer.CFrame
+			return
+		end)
+		task.delay(0.85, function()
+			pillar:Destroy()
+		end)
+	end
 
 	-- 3. Thick yellow cone rays with orange outlines.
 	local rays = group(ORG)
@@ -671,6 +827,11 @@ function FX.explode(pos: Vector3, normal: Vector3, R: number, grounded: boolean,
 	end, function(k)
 		return R * 0.05 * (1 - k)
 	end, PINK, 32, 0.1)
+	ring(pos + n * R * 0.08, n, 0.6, function(k)
+		return R * lerp(0.4, 2.7, outQuart(k))
+	end, function(k)
+		return R * 0.09 * (1 - k)
+	end, PURPLE, 36, 0.16)
 
 	-- 5. Black smoke billowing up after the fire.
 	task.delay(0.12, function()
@@ -684,8 +845,9 @@ function FX.explode(pos: Vector3, normal: Vector3, R: number, grounded: boolean,
 	for _ = 1, 14 do
 		chunk(pos + randUnit() * R * 0.2, hemi(n, 0.5) * R * rng:NextNumber(1.6, 2.8), Vector3.one * R * rng:NextNumber(0.05, 0.11), NAVY, rng:NextNumber(0.9, 1.3), R * 4, FLAT)
 	end
-	for _ = 1, 26 do
-		chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.6), Vector3.one * R * rng:NextNumber(0.02, 0.045), if rng:NextNumber() < 0.5 then YEL else ORG, rng:NextNumber(0.5, 0.9), R * 3)
+	for i = 1, 34 do
+		local col = if i % 4 == 0 then PURPLE elseif i % 4 == 1 then PINK elseif i % 2 == 0 then YEL else ORG
+		chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.6), Vector3.one * R * rng:NextNumber(0.02, 0.045), col, rng:NextNumber(0.5, 0.9), R * 3)
 	end
 	for _ = 1, 7 do
 		chunk(pos, hemi(n, 0.3) * R * rng:NextNumber(2.5, 3.5), Vector3.new(R * 0.035, R * 0.035, R * 0.24), BLK, 0.5, R * 2, FLAT)

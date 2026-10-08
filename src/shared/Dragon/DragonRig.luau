@@ -76,6 +76,13 @@ function DragonRig.mouthCFrame(model: Instance): CFrame?
 	return CFrame.lookAt(head.Position + fwd * len - Vector3.new(0, head.Size.Y * 0.12, 0), head.Position + fwd * (len + 1))
 end
 
+-- Fireball diameter at no charge for this dragon (max charge doubles it to MAX_D_HEAD x head).
+function DragonRig.fireballBaseD(model: Instance, maxDHead: number): number
+	local head = model:FindFirstChild("Head")
+	local s = if head and head:IsA("BasePart") then math.max(head.Size.X, head.Size.Y, head.Size.Z) else 6
+	return s * maxDHead / 2
+end
+
 -- sourceRoot: where the imported MeshParts live (nil -> placeholder blocks).
 -- groundDist: HRP center to feet distance (studs). scale: studs per design unit.
 function DragonRig.build(sourceRoot: Instance?, hrp: BasePart, groundDist: number, scale: number, textureId: string?): Rig
