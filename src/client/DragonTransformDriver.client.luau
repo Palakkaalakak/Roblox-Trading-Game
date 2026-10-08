@@ -7,11 +7,25 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
-local DragonRig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Dragon"):WaitForChild("DragonRig"))
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Dragon"):WaitForChild("DragonConfig"))
-local Core = require(ReplicatedStorage:WaitForChild("DragonWestVFXCore")) :: any
-local transformR = ReplicatedStorage:WaitForChild("DragonRemotes"):WaitForChild("Transform") :: RemoteEvent
-local transformFx = ReplicatedStorage:WaitForChild("DragonRemotes"):WaitForChild("TransformFX") :: RemoteEvent
+print("[DragonDbg][client] transform driver loading...")
+
+-- WaitForChild with a visible warning instead of hanging silently forever.
+local function need(parent: Instance, name: string): Instance
+	local inst = parent:WaitForChild(name, 10)
+	if not inst then
+		warn("[DragonDbg][client] STILL WAITING for " .. parent:GetFullName() .. "." .. name .. " (is the server script running / synced?)")
+		inst = parent:WaitForChild(name)
+	end
+	return inst
+end
+
+local Dragon = need(need(ReplicatedStorage, "Shared"), "Dragon")
+local DragonRig = require(need(Dragon, "DragonRig")) :: any
+local Config = require(need(Dragon, "DragonConfig")) :: any
+local Core = require(need(ReplicatedStorage, "DragonWestVFXCore")) :: any
+local remotesF = need(ReplicatedStorage, "DragonRemotes")
+local transformR = need(remotesF, "Transform") :: RemoteEvent
+local transformFx = need(remotesF, "TransformFX") :: RemoteEvent
 
 local player = Players.LocalPlayer
 local DURATION: number = Core.DURATION
@@ -404,6 +418,32 @@ button.Activated:Connect(function()
 	play(not isDragon())
 end)
 
+-- The old Studio-only driver (StarterPlayerScripts.DragonWestTransformVFX) plays the UNSCALED original
+-- effect from its own "West Transform" button and does nothing else: no dragon, and its button
+-- never turns into "Revert". Switch it off and remove its button so only this driver exists.
+task.spawn(function()
+	local ps = player:WaitForChild("PlayerScripts")
+	for _ = 1, 20 do
+		local old = ps:FindFirstChild("DragonWestTransformVFX")
+		if old and old:IsA("LocalScript") and not old.Disabled then
+			old.Disabled = true
+			warn("[DragonDbg][client] disabled the old DragonWestTransformVFX script (delete it in Studio: StarterPlayer > StarterPlayerScripts)")
+		end
+		for _, g in ipairs(player:WaitForChild("PlayerGui"):GetDescendants()) do
+			if g:IsA("TextButton") and g ~= button and g.Text == "West Transform" and not g:IsDescendantOf(gui) then
+				warn("[DragonDbg][client] removed old West Transform button in " .. g:GetFullName())
+				local sg = g:FindFirstAncestorOfClass("ScreenGui")
+				if sg and sg ~= gui then
+					sg:Destroy()
+				else
+					g:Destroy()
+				end
+			end
+		end
+		task.wait(0.5)
+	end
+end)
+
 player.CharacterAdded:Connect(function(c)
 	busy = false
 	setZoom(nil)
@@ -411,3 +451,4 @@ player.CharacterAdded:Connect(function(c)
 	refreshText()
 end)
 refreshText()
+print("[DragonDbg][client] transform driver READY (new button: bottom centre)")

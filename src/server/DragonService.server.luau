@@ -193,6 +193,22 @@ setFormB.Name = "SetForm"
 setFormB.Parent = remotes
 setFormB.Event:Connect(setForm)
 
+-- Safety net: if the OLD Studio driver's button is clicked it fires DragonWestTransformEvent (it
+-- plays the unscaled original effect). Honour it so the click still transforms/reverts.
+task.spawn(function()
+	local ev = ReplicatedStorage:WaitForChild("DragonWestTransformEvent", 30)
+	if ev and ev:IsA("RemoteEvent") then
+		ev.OnServerEvent:Connect(function(player: Player)
+			warn("[DragonDbg][server] OLD DragonWestTransformEvent fired by " .. player.Name .. " - delete StarterPlayerScripts.DragonWestTransformVFX")
+			local char = player.Character
+			local becoming = not (char and DragonRig.dragonOf(char))
+			task.delay(if becoming then Config.SWAP_T else 0, function()
+				pcall(setForm, player, becoming)
+			end)
+		end)
+	end
+end)
+
 -- Relay a player's transformation VFX to everyone else, so bystanders see it too.
 transformFxR.OnServerEvent:Connect(function(player: Player, groundPos: any, forward: any)
 	if typeof(groundPos) ~= "Vector3" or typeof(forward) ~= "boolean" then
