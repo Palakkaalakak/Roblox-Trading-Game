@@ -44,6 +44,22 @@ local cameraOnHead = false
 local chargeStart = 0
 local charges: { [Model]: { stop: () -> () } } = {}
 
+-- Self-hit speed boost (server sets DragonBoost / DragonBoostUntil); fades out after it expires.
+local function currentBoost(char: Instance?): number
+	if not char then
+		return 0
+	end
+	local b, u = char:GetAttribute("DragonBoost"), char:GetAttribute("DragonBoostUntil")
+	if typeof(b) ~= "number" or typeof(u) ~= "number" then
+		return 0
+	end
+	local over = workspace:GetServerTimeNow() - u
+	if over <= 0 then
+		return b
+	end
+	return b * math.max(0, 1 - over / Config.SELF_BOOST.FADE)
+end
+
 local function dragonChar(): (Model?, BasePart?, Humanoid?)
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -214,7 +230,7 @@ RunService.RenderStepped:Connect(function(dt)
 			if U:IsKeyDown(Enum.KeyCode.S) then move -= cam.LookVector end
 			if U:IsKeyDown(Enum.KeyCode.D) then move += cam.RightVector end
 			if U:IsKeyDown(Enum.KeyCode.A) then move -= cam.RightVector end
-			local vel = if move.Magnitude > 0.01 then move.Unit * Config.FLY_SPEED else Vector3.zero
+			local vel = if move.Magnitude > 0.01 then move.Unit * Config.FLY_SPEED * (1 + currentBoost(char)) else Vector3.zero
 			if U:IsKeyDown(Enum.KeyCode.Space) then vel += Vector3.new(0, Config.FLY_VERTICAL, 0) end
 			if U:IsKeyDown(Enum.KeyCode.LeftShift) then vel -= Vector3.new(0, Config.FLY_VERTICAL, 0) end
 			lv.VectorVelocity = lv.VectorVelocity:Lerp(vel, math.clamp(dt * 6, 0, 1))
@@ -258,6 +274,17 @@ RunService.RenderStepped:Connect(function(dt)
 		local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 		if h then
 			cam.CameraSubject = h
+		end
+	end
+
+	-- Ground speed follows the self-hit boost (skipped while frozen for the transform).
+	do
+		local bc, bhrp, bhum = dragonChar()
+		if bc and bhrp and bhum and not bhrp.Anchored and not flying then
+			local want = Config.DRAGON_WALKSPEED * (1 + currentBoost(bc))
+			if math.abs(bhum.WalkSpeed - want) > 0.05 then
+				bhum.WalkSpeed = want
+			end
 		end
 	end
 

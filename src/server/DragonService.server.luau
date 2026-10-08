@@ -303,6 +303,21 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 			local at = hitPos or pos
 			fxR:FireAllClients("explode", id, move, at, normal, radius, grounded, c)
 			damageAround(player, at, radius, damage)
+			-- Self-hit: caught in your own blast -> stack a speed boost (no damage to self).
+			local myRoot = char:FindFirstChild("HumanoidRootPart")
+			if myRoot and myRoot:IsA("BasePart") and (myRoot.Position - at).Magnitude <= radius + Config.DRAGON_HIT_BODY then
+				local SB = Config.SELF_BOOST
+				local nowT = workspace:GetServerTimeNow()
+				local untilT = char:GetAttribute("DragonBoostUntil")
+				local cur = char:GetAttribute("DragonBoost")
+				local active = if typeof(untilT) == "number" and typeof(cur) == "number" and nowT < untilT + SB.FADE then cur else 0
+				local boost = math.min(active + SB.PER_HIT * (1 + c), SB.MAX)
+				char:SetAttribute("DragonBoost", boost)
+				char:SetAttribute("DragonBoostUntil", nowT + SB.DURATION)
+				if Config.DEBUG then
+					print("[DragonDbg][server]", player.Name, "self-hit boost ->", string.format("+%d%%", boost * 100))
+				end
+			end
 		end
 	end)
 end)

@@ -17,7 +17,14 @@ return {
 	FLY_SPEED = 150,
 	FLY_VERTICAL = 80,
 	DOUBLE_TAP = 0.3,
-	DRAGON_HIT_BODY = 12, -- extra hit reach (studs) on players in dragon form (their dragon is non-collidable)
+	DRAGON_HIT_BODY = 12,
+	-- Self-hit boost: getting caught in your own explosion stacks a speed boost (walk + fly).
+	SELF_BOOST = {
+		PER_HIT = 0.25, -- +25% per hit, plus up to +25% more for a fully charged shot
+		MAX = 1.5, -- cap: +150%
+		DURATION = 6, -- seconds the boost holds after the last self-hit
+		FADE = 2, -- then fades out over this many seconds
+	}, -- extra hit reach (studs) on players in dragon form (their dragon is non-collidable)
 	FIREBALL = {
 		-- Tap = small shot. Hold to charge up to MAX_CHARGE s (holds at max until released):
 		-- size grows fast (ease-out) from MIN_SIZE to 1, speed x1..x1.5, damage x1..x3 (linear).
@@ -28,7 +35,7 @@ return {
 		VISUAL_SIZE = 0.5, -- drawn ball/orb size multiplier only (hitbox, blast radius, damage unchanged)
 		BLAST_PER_D = 3.1, -- explosion damage/visual radius = this x ball diameter
 		SPEED = 180,
-		RANGE = 900,
+		RANGE = 200, -- max travel of every fire move (studs)
 		DAMAGE = 30,
 	},
 	-- Custom fireball textures (assets/dragon_fx/*.png, made by tools/dragon_fx/make_textures.py).
