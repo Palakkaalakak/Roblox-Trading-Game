@@ -20,7 +20,7 @@ local function mk(name: string): RemoteEvent
 	r.Parent = remotes
 	return r
 end
-local transformR, flightR = mk("Transform"), mk("Flight")
+local transformR, flightR, transformFxR = mk("Transform"), mk("Flight"), mk("TransformFX")
 local chargeR, fireballR, fxR = mk("Charge"), mk("Fireball"), mk("FireballFX")
 remotes.Parent = ReplicatedStorage
 
@@ -192,6 +192,23 @@ local setFormB = Instance.new("BindableEvent")
 setFormB.Name = "SetForm"
 setFormB.Parent = remotes
 setFormB.Event:Connect(setForm)
+
+-- Relay a player's transformation VFX to everyone else, so bystanders see it too.
+transformFxR.OnServerEvent:Connect(function(player: Player, groundPos: any, forward: any)
+	if typeof(groundPos) ~= "Vector3" or typeof(forward) ~= "boolean" then
+		return
+	end
+	local c = player.Character
+	local r = c and c:FindFirstChild("HumanoidRootPart")
+	if not (r and r:IsA("BasePart")) or (r.Position - groundPos).Magnitude > 20 then
+		return -- the effect must be at the sender's character
+	end
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player then
+			transformFxR:FireClient(other, groundPos, forward, workspace:GetServerTimeNow())
+		end
+	end
+end)
 
 transformR.OnServerEvent:Connect(function(player: Player, on: any)
 	dbg(player.Name, "Transform request on=" .. tostring(on))

@@ -17,8 +17,8 @@ local DragonFX = require(Dragon:WaitForChild("DragonFX"))
 local FB = Config.FIREBALL
 
 local player = Players.LocalPlayer
-local rigs: { [Model]: DragonRig.Rig } = {}
-local pitches: { [Model]: number } = {}
+local rigs: { [Model]: DragonRig.Rig } = setmetatable({}, { __mode = "k" }) :: any
+local pitches: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
 
 local function getRig(model: Model): DragonRig.Rig?
 	local r = rigs[model]

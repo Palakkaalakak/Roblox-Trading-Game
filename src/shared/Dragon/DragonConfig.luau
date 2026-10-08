@@ -18,7 +18,7 @@ return {
 	FLY_VERTICAL = 80,
 	DOUBLE_TAP = 0.3,
 	DRAGON_HIT_BODY = 12,
-	DRAGON_RESIST = 0.7, -- players in dragon form take 70% less damage (and cannot be one-shot)
+	DRAGON_RESIST = 0.85, -- players in dragon form take 85% less damage (and cannot be one-shot)
 	TRANSFORM_DAMAGE_PCT = 0.15, -- anyone inside the transformation blast loses this fraction of max health (ignores DRAGON_RESIST)
 	TRANSFORM_BLAST_RADIUS = 51, -- studs (the black sphere's radius at VFX_SCALE 2)
 	-- Self-hit boost: getting caught in your own explosion stacks a speed boost (walk + fly).

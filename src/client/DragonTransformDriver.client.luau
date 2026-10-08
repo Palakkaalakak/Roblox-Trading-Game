@@ -11,6 +11,7 @@ local DragonRig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Dragon"):WaitForChild("DragonConfig"))
 local Core = require(ReplicatedStorage:WaitForChild("DragonWestVFXCore")) :: any
 local transformR = ReplicatedStorage:WaitForChild("DragonRemotes"):WaitForChild("Transform") :: RemoteEvent
+local transformFx = ReplicatedStorage:WaitForChild("DragonRemotes"):WaitForChild("TransformFX") :: RemoteEvent
 
 local player = Players.LocalPlayer
 local DURATION: number = Core.DURATION
@@ -125,10 +126,10 @@ local PROPS: { { cls: string, props: { Prop } } } = {
 	} },
 }
 
-local raw: { [Instance]: { [string]: any } } = setmetatable({}, { __mode = "k" }) :: any
+local raw: { [Instance]: { [Instance]: { [string]: any } } } = setmetatable({}, { __mode = "k" }) :: any
 
-local function restore()
-	for d, props in pairs(raw) do
+local function restore(root: Instance)
+	for d, props in pairs(raw[root] or {}) do
 		if d.Parent then
 			for name, v in pairs(props) do
 				(d :: any)[name] = v
@@ -141,13 +142,18 @@ local function rescale(root: Instance, g: Vector3)
 	if K == 1 then
 		return
 	end
+	local rr = raw[root]
+	if not rr then
+		rr = {}
+		raw[root] = rr
+	end
 	for _, d in ipairs(root:GetDescendants()) do
 		for _, entry in ipairs(PROPS) do
 			if d:IsA(entry.cls) then
-				local r = raw[d]
+				local r = rr[d]
 				if not r then
 					r = {}
-					raw[d] = r
+					rr[d] = r
 				end
 				for _, pr in ipairs(entry.props) do
 					local v = (d :: any)[pr.name]
@@ -255,6 +261,7 @@ local function play(forward: boolean)
 	if RunService:IsStudio() then
 		print(string.format("[DragonTransformDriver] sphere raw r=%.1f K=%.2f -> sphere r=%.1f, dragon reach=%.1f", sphereRadius(groundPos), K, sphereRadius(groundPos) * K, Config.DRAGON_EXTENT * Config.SCALE))
 	end
+	transformFx:FireServer(groundPos, forward)
 	local state = Core.build(folder, groundPos)
 	rescale(folder, groundPos)
 	local cam = workspace.CurrentCamera
@@ -283,7 +290,7 @@ local function play(forward: boolean)
 		local u = math.clamp(uAt(e), 0, DURATION)
 		-- A VFX/rescale error must never stop the swap or the cleanup below, so isolate it.
 		local ok, err = pcall(function()
-			restore()
+			restore(folder)
 			Core.step(state, u, cam.CFrame.Position)
 			rescale(folder, groundPos)
 		end)
@@ -345,6 +352,48 @@ local function play(forward: boolean)
 		end
 	end)
 end
+
+-- Bystander playback: same effect, same scale and reverse timing, no camera/freeze/swap logic.
+transformFx.OnClientEvent:Connect(function(groundPos: Vector3, forward: boolean, serverStart: number)
+	local KK = Config.VFX_SCALE
+	local folder = Instance.new("Folder")
+	folder.Name = "DragonVFXRemote"
+	folder.Parent = workspace
+	local okb, state = pcall(Core.build, folder, groundPos)
+	if not okb then
+		warn("[DragonDbg][client] remote transform VFX build failed: " .. tostring(state))
+		folder:Destroy()
+		return
+	end
+	local savedK = K
+	K = KK
+	rescale(folder, groundPos)
+	K = savedK
+	local fast: number = Config.REVERSE_SPHERE_SPEED
+	local tail = DURATION - SWAP_T
+	local total = if forward then DURATION else tail + SWAP_T / fast
+	local t0 = os.clock() - math.max(workspace:GetServerTimeNow() - serverStart, 0)
+	local cam = workspace.CurrentCamera
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		local e = os.clock() - t0
+		if e >= total then
+			conn:Disconnect()
+			pcall(Core.destroy, state)
+			folder:Destroy()
+			return
+		end
+		local u = if forward then e elseif e <= tail then DURATION - e else SWAP_T - (e - tail) * fast
+		local prevK = K
+		K = KK
+		pcall(function()
+			restore(folder)
+			Core.step(state, math.clamp(u, 0, DURATION), cam.CFrame.Position)
+			rescale(folder, groundPos)
+		end)
+		K = prevK
+	end)
+end)
 
 button.Activated:Connect(function()
 	if busy then
