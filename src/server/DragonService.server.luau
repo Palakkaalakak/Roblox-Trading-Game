@@ -78,22 +78,51 @@ local function setCharacterHidden(char: Model, hidden: boolean)
 	end
 end
 
+local function dbg(...)
+	if Config.DEBUG then
+		print("[DragonDbg][server]", ...)
+	end
+end
+
+local function clearForm(char: Model)
+	setCharacterHidden(char, false)
+	char:SetAttribute("DragonForm", nil)
+	char:SetAttribute("DragonFlying", nil)
+	char:SetAttribute("DragonChargeStart", nil)
+	char:SetAttribute("DragonChargeMove", nil)
+	local ref = char:FindFirstChild("WestDragonRef")
+	if ref then
+		ref:Destroy()
+	end
+end
+
 local function setForm(player: Player, on: boolean)
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not (char and hum and hrp and hrp:IsA("BasePart")) then
-		warn("[DragonService] setForm: character not ready for " .. player.Name)
+		warn("[DragonDbg][server] setForm REJECTED for " .. player.Name .. ": character/humanoid/root missing")
 		return
 	end
 	if hum.Health <= 0 then
+		warn("[DragonDbg][server] setForm REJECTED for " .. player.Name .. ": dead")
 		return
 	end
 	local existing = DragonRig.dragonOf(char)
-	if on and not existing then
-		local ok, rig = pcall(DragonRig.build, DragonRig.findSource(), hrp, hum.HipHeight + hrp.Size.Y / 2, Config.SCALE, Config.TEXTURE_ID)
+	dbg(player.Name, "setForm on=" .. tostring(on), "existing=" .. tostring(existing ~= nil), "attr=" .. tostring(char:GetAttribute("DragonForm")))
+	if on then
+		if existing then
+			-- Already a dragon: make sure the flag agrees (a stale/missing flag used to strand players).
+			char:SetAttribute("DragonForm", true)
+			dbg(player.Name, "already a dragon; flag re-synced")
+			return
+		end
+		local src = DragonRig.findSource()
+		dbg(player.Name, "building from", if src then src:GetFullName() else "NO SOURCE (placeholders)")
+		local ok, rig = pcall(DragonRig.build, src, hrp, hum.HipHeight + hrp.Size.Y / 2, Config.SCALE, Config.TEXTURE_ID)
 		if not ok then
-			warn("[DragonService] dragon build failed: " .. tostring(rig))
+			warn("[DragonDbg][server] BUILD FAILED for " .. player.Name .. ": " .. tostring(rig))
+			char:SetAttribute("DragonForm", nil)
 			return
 		end
 		rig.model.Name = "WestDragon_" .. player.Name
@@ -107,25 +136,30 @@ local function setForm(player: Player, on: boolean)
 		conn = char.AncestryChanged:Connect(function(_, parent)
 			if not parent then
 				conn:Disconnect()
+				dbg(player.Name, "character removed -> dragon destroyed")
 				rig.model:Destroy()
 			end
 		end)
 		hum.Died:Once(function()
+			dbg(player.Name, "died -> dragon destroyed")
 			rig.model:Destroy()
 		end)
 		setCharacterHidden(char, true)
 		char:SetAttribute("DragonForm", true)
-	elseif not on and existing then
-		existing:Destroy()
-		local ref = char:FindFirstChild("WestDragonRef")
-		if ref then
-			ref:Destroy()
+		local n = 0
+		for _, d in ipairs(rig.model:GetDescendants()) do
+			if d:IsA("BasePart") then
+				n += 1
+			end
 		end
-		setCharacterHidden(char, false)
-		char:SetAttribute("DragonForm", nil)
-		char:SetAttribute("DragonFlying", nil)
-		char:SetAttribute("DragonChargeStart", nil)
-		char:SetAttribute("DragonChargeMove", nil)
+		dbg(player.Name, "TRANSFORMED: parts=" .. n .. " model=" .. rig.model:GetFullName())
+	else
+		if existing then
+			existing:Destroy()
+		end
+		-- Always clear the flag/visibility, even if the model was already gone.
+		clearForm(char)
+		dbg(player.Name, "REVERTED (model existed=" .. tostring(existing ~= nil) .. ")")
 	end
 end
 
@@ -136,7 +170,11 @@ setFormB.Parent = remotes
 setFormB.Event:Connect(setForm)
 
 transformR.OnServerEvent:Connect(function(player: Player, on: any)
-	setForm(player, on == true)
+	dbg(player.Name, "Transform request on=" .. tostring(on))
+	local ok, err = pcall(setForm, player, on == true)
+	if not ok then
+		warn("[DragonDbg][server] setForm ERROR: " .. tostring(err))
+	end
 end)
 
 flightR.OnServerEvent:Connect(function(player: Player, on: any)

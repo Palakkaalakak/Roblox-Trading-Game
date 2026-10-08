@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 
+local DragonRig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Dragon"):WaitForChild("DragonRig"))
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Dragon"):WaitForChild("DragonConfig"))
 local Core = require(ReplicatedStorage:WaitForChild("DragonWestVFXCore")) :: any
 local transformR = ReplicatedStorage:WaitForChild("DragonRemotes"):WaitForChild("Transform") :: RemoteEvent
@@ -46,9 +47,16 @@ flash.BorderSizePixel = 0
 flash.ZIndex = 100
 flash.Parent = gui
 
+local function dbg(...)
+	if Config.DEBUG then
+		print("[DragonDbg][client]", ...)
+	end
+end
+
+-- Dragon = flag set AND the model actually exists (a stale flag alone used to block transforming).
 local function isDragon(): boolean
 	local c = player.Character
-	return c ~= nil and c:GetAttribute("DragonForm") == true
+	return c ~= nil and c:GetAttribute("DragonForm") == true and DragonRig.dragonOf(c) ~= nil
 end
 
 local function refreshText()
@@ -219,8 +227,10 @@ local function play(forward: boolean)
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not (char and hum and hrp and hrp:IsA("BasePart")) or hum.Health <= 0 then
+		warn("[DragonDbg][client] play aborted: character/humanoid/root missing or dead")
 		return
 	end
+	dbg("play forward=" .. tostring(forward), "attr=" .. tostring(char:GetAttribute("DragonForm")), "model=" .. tostring(DragonRig.dragonOf(char) ~= nil))
 	busy = true
 	if forward and not walkSpeed then
 		walkSpeed = hum.WalkSpeed
@@ -294,6 +304,7 @@ local function play(forward: boolean)
 
 		if not swapped and (if forward then u >= SWAP_T else u <= SWAP_T) then
 			swapped = true
+			dbg("swap -> FireServer(" .. tostring(forward) .. ") at u=" .. string.format("%.2f", u))
 			transformR:FireServer(forward)
 		end
 		if e >= total then
@@ -303,6 +314,7 @@ local function play(forward: boolean)
 			cam.FieldOfView = baseFov
 			flash.BackgroundTransparency = 1
 			if not swapped then
+				dbg("swap never hit during play; firing at end")
 				transformR:FireServer(forward)
 			end
 			if hrp.Parent then
@@ -313,9 +325,15 @@ local function play(forward: boolean)
 			settleZoom(forward)
 			-- Verify the server actually swapped; retry once if the form flag did not flip.
 			task.delay(0.6, function()
+				dbg("verify: wanted dragon=" .. tostring(forward), "now=" .. tostring(isDragon()), "attr=" .. tostring(char:GetAttribute("DragonForm")), "model=" .. tostring(DragonRig.dragonOf(char) ~= nil))
 				if isDragon() ~= forward and player.Character == char then
-					warn("[DragonTransformDriver] server did not change form, retrying")
+					warn("[DragonDbg][client] server did not change form, retrying")
 					transformR:FireServer(forward)
+					task.delay(1, function()
+						if isDragon() ~= forward then
+							warn("[DragonDbg][client] RETRY FAILED: still dragon=" .. tostring(isDragon()) .. " (check [DragonDbg][server] lines)")
+						end
+					end)
 				end
 			end)
 			task.delay(0.3, function()
@@ -330,8 +348,10 @@ end
 
 button.Activated:Connect(function()
 	if busy then
+		dbg("click ignored: animation still running")
 		return
 	end
+	dbg("click: currently dragon=" .. tostring(isDragon()))
 	play(not isDragon())
 end)
 

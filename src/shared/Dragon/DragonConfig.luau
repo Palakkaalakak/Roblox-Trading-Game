@@ -10,6 +10,7 @@ return {
 	-- Upload Obsidian_West_asset_pack/Dragon_Color.png and paste the rbxassetid here (optional if imported textures survive).
 	TEXTURE_ID = "",
 	SWAP_T = 2.5, -- VFX module time (s) of the blast: character <-> dragon swap happens here (mirrored on revert)
+	DEBUG = true, -- prints [DragonDbg] lines for every transform step (client + server)
 	COLLECT_TEXTURES = false, -- Studio only: Play prints a TEXTURES table built from Workspace.textures (DragonTextureCollector)
 	SCAN = true, -- Studio only: print a workspace/dragon structure scan to Output on start
 	SELF_TEST = true, -- Studio only: print a report to Output after the first transform; set false when done
