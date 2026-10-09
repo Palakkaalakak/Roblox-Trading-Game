@@ -1,8 +1,8 @@
 --!strict
--- Client-only VFX for the West dragon fireball: charge orb, launch flash, projectile, explosion.
--- Blox Fruits cel look (same language as the West transform): flat saturated Neon geometry,
--- black/orange Highlight outlines, solid untextured trails, yellow cone rays, black smoke,
--- navy debris cubes, lava cracks and a fire ring. No stock sprites/textures.
+-- Client-only VFX for the West dragon fireballs (R / Q / F): charge, muzzle, projectile, explosion.
+-- Built from the West transform's language: flat solid band/streak rings (untextured beams), thick
+-- yellow cone rays with orange cel outline, shard starbursts, black ink spikes + white-out, glowing
+-- jagged cracks, fire rings with flame tongues, navy debris cubes, curling pink/purple flares.
 -- Everything is driven from one RenderStepped job list; nothing here touches gameplay.
 
 local Players = game:GetService("Players")
@@ -25,18 +25,15 @@ local ORG = Color3.fromRGB(255, 118, 0)
 local RED = Color3.fromRGB(225, 35, 15)
 local CRIMSON = Color3.fromRGB(200, 0, 45)
 local VIOLET = Color3.fromRGB(150, 50, 230)
-local VSMOKE = Color3.fromRGB(40, 0, 60)
 local ROCK = Color3.fromRGB(32, 22, 24)
 local PINK = Color3.fromRGB(255, 40, 190) -- transform pink
 local PURPLE = Color3.fromRGB(150, 50, 230) -- transform purple
 local DEEP = Color3.fromRGB(90, 0, 210) -- deep purple core/edges
 local WHITE = Color3.fromRGB(255, 250, 225)
 local BLK = Color3.fromRGB(18, 16, 20)
-local SMOKE = Color3.fromRGB(45, 40, 48)
 local NAVY = Color3.fromRGB(30, 36, 72)
 local NEON = Enum.Material.Neon
 local FLAT = Enum.Material.SmoothPlastic
-local FIELD = Enum.Material.ForceField -- shimmering translucent shell
 
 local rng = Random.new()
 
@@ -145,15 +142,6 @@ end
 local function ball(color: Color3, parent: Instance?, material: Enum.Material?): Part
 	local p = newPart(color, parent, material)
 	p.Shape = Enum.PartType.Ball
-	return p
-end
-
--- Ellipsoid (block + sphere mesh follows Size on all three axes).
-local function blob(color: Color3, parent: Instance?, material: Enum.Material?): Part
-	local p = newPart(color, parent, material)
-	local m = Instance.new("SpecialMesh")
-	m.MeshType = Enum.MeshType.Sphere
-	m.Parent = p
 	return p
 end
 
@@ -354,34 +342,6 @@ local function placeDiamond(d: Diamond, center: Vector3, axis: Vector3, L: numbe
 	placeSpike(d.b, center - axis * L / 2, axis, L / 2, hw)
 end
 
--- Crescent slash: arc of segments in the plane with normal n, sweeping around while it grows.
-local function crescent(center: Vector3, n: Vector3, a0: number, sweep: number, r0: number, r1: number, w0: number, life: number, color: Color3, spinRate: number)
-	local u, v = basis(n)
-	local N = 9
-	local ps = segs(N, color)
-	job(life, function(k)
-		local r = lerp(r0, r1, outQuart(k))
-		local w = w0 * (1 - k)
-		local off = a0 + spinRate * k
-		for i, p in ipairs(ps) do
-			local f = (i - 1) / (N - 1)
-			local a = off + sweep * f
-			local taper = math.sin(f * math.pi) -- thick in the middle, pointed ends
-			local pos = center + (u * math.cos(a) + v * math.sin(a)) * r
-			local tan = -u * math.sin(a) + v * math.cos(a)
-			local len = r * sweep / (N - 1) * 1.15
-			p.Size = Vector3.new(math.max(w * taper, 0.05), math.max(w * 0.25, 0.05), math.max(len, 0.05))
-			p.CFrame = CFrame.lookAt(pos, pos + tan, n)
-			p.Transparency = if w * taper > 0.04 then 0 else 1
-		end
-		return
-	end, function()
-		for _, p in ipairs(ps) do
-			p:Destroy()
-		end
-	end)
-end
-
 -- Trail on a carrier part. FaceCamera=false so the ribbon spans the two attachments.
 local FIRE_SEQ = ColorSequence.new({
 	ColorSequenceKeypoint.new(0, WHITE),
@@ -419,16 +379,6 @@ local function trail(carrier: BasePart, p0: Vector3, p1: Vector3, colors: ColorS
 		tr.WidthScale = NumberSequence.new(1, 0.35)
 	end
 	tr.Parent = carrier
-end
-
--- Projectile streaks: thin trails around the shot (the transform's thin glowing streak rings).
-local function streakTrails(part: BasePart, D: number, cols: { Color3 })
-	for i = 1, 4 do
-		local a = i / 4 * math.pi * 2
-		local r = D * 0.7
-		local c = cols[(i - 1) % #cols + 1]
-		trail(part, Vector3.new(math.cos(a) * r, math.sin(a) * r, 0), Vector3.new(math.cos(a) * (r + D * 0.08), math.sin(a) * (r + D * 0.08), 0), ColorSequence.new(c), 0.5)
-	end
 end
 
 -- Custom textures ----------------------------------------------------------------------------
@@ -609,16 +559,6 @@ local function tbeam(texName: string, color: Color3, width: number, speed: numbe
 	}
 end
 
-local FLAME_TEX = { R = "flame_orange_4x4", Q = "flame_violet_4x4", F = "flame_crimson_4x4" }
-
--- Per-move charge/muzzle palettes.
-type Pal = { core: Color3, mid: Color3, shell: Color3, shell2: Color3, light: Color3, ringA: Color3, ringB: Color3, ringC: Color3, aura: Color3, orbitA: Color3, orbitB: Color3, streak: { Color3 }, zap: Color3, max: Color3 }
-local PAL: { [string]: Pal } = {
-	R = { core = WHITE, mid = YEL, shell = ORG, shell2 = RED, light = ORG, ringA = ORG, ringB = YEL, ringC = PURPLE, aura = PURPLE, orbitA = PINK, orbitB = PURPLE, streak = { PURPLE, PINK, YEL, ORG, ORG }, zap = WHITE, max = PINK },
-	Q = { core = PINK, mid = VIOLET, shell = DEEP, shell2 = CRIMSON, light = VIOLET, ringA = VIOLET, ringB = CRIMSON, ringC = PINK, aura = VIOLET, orbitA = CRIMSON, orbitB = VIOLET, streak = { VIOLET, PINK, CRIMSON, DEEP }, zap = PINK, max = VIOLET },
-	F = { core = ORG, mid = RED, shell = CRIMSON, shell2 = ROCK, light = RED, ringA = ORG, ringB = RED, ringC = CRIMSON, aura = RED, orbitA = ROCK, orbitB = ORG, streak = { ORG, RED, CRIMSON, YEL }, zap = ORG, max = RED },
-}
-
 -- Public effects ----------------------------------------------------------------------------
 
 -- Charge orb in front of the mouth. getMouth returns a CFrame facing forward (-Z), or nil to end.
@@ -647,1486 +587,9 @@ local function chargeBase(getMouth: () -> CFrame?, t0: number, maxT: number, max
 	}
 end
 
--- Invisible ball whose surface emits textured flames + stars inward (converging on the charge).
-local function inwardField(flameTex: string, sparkColor: Color3, maxD: number): Part
-	local f = newPart(WHITE)
-	f.Shape = Enum.PartType.Ball
-	f.Transparency = 1
-	local function props()
-		return {
-			Shape = Enum.ParticleEmitterShape.Sphere,
-			ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface,
-			ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward,
-			Lifetime = NumberRange.new(0.2, 0.3),
-			Speed = NumberRange.new(maxD * 1.2, maxD * 2),
-		}
-	end
-	local e1 = emitter(f, flameTex, props())
-	if e1 then
-		e1.Rate = 40
-		e1.Size = NumberSequence.new(maxD * 0.3, maxD * 0.08)
-		e1.Rotation = NumberRange.new(0, 360)
-	end
-	local e2 = emitter(f, "spark_star", props())
-	if e2 then
-		e2.Rate = 25
-		e2.Size = NumberSequence.new(maxD * 0.15, 0)
-		e2.Color = ColorSequence.new(sparkColor)
-		e2.RotSpeed = NumberRange.new(-300, 300)
-	end
-	return f
-end
-
--- R: SOLAR CORE. Outlined white/yellow/orange sun with rotating cone sun-rays that lengthen with
--- charge, flame tongues licking off it, inward flames, white zaps. Flash at max.
-local function chargeR(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
-	local g = group(BLK)
-	local shell, mid, core = ball(ORG, g), ball(YEL, g), ball(WHITE, g)
-	local tongues = {}
-	for i = 1, 6 do
-		tongues[i] = blob(if i % 2 == 0 then ORG else RED, g)
-	end
-	local raysG = group(ORG)
-	local rays = {}
-	for i = 1, 8 do
-		rays[i] = spikeParts(if i % 2 == 0 then YEL else WHITE, raysG)
-	end
-	local light = Instance.new("PointLight")
-	light.Color = ORG
-	light.Parent = core
-	local field = inwardField("flame_orange_4x4", YEL, maxD)
-	local maxed, zapAcc = false, 0
-	return chargeBase(getMouth, t0, maxT, maxD, function(center, fwd, D, c, t, dt)
-		local pul = 1 + (0.04 + 0.08 * c) * math.sin(t * (18 + 30 * c))
-		shell.Size, mid.Size, core.Size = Vector3.one * D * pul, Vector3.one * D * 0.72 * pul, Vector3.one * D * 0.42 * pul
-		shell.Position, mid.Position, core.Position = center, center, center
-		shell.Color = ORG:Lerp(RED, 0.4 * math.sin(t * 9) ^ 2)
-		local u, v = basis(fwd)
-		for i, sp in ipairs(rays) do
-			local a = i / #rays * math.pi * 2 + t * 1.5
-			local d = u * math.cos(a) + v * math.sin(a)
-			local L = D * (0.35 + 0.65 * c) * (0.8 + 0.25 * math.sin(t * 14 + i))
-			placeSpike(sp, center + d * (D * 0.45 + L), -d, L, D * 0.13)
-		end
-		for i, b in ipairs(tongues) do
-			local a = i / #tongues * math.pi * 2 + t * 3
-			local radial = u * math.cos(a) + v * math.sin(a)
-			local L = D * (0.45 + 0.25 * math.sin(t * 20 + i))
-			local base = center + radial * D * 0.4
-			b.Size = Vector3.new(D * 0.2, D * 0.2, L)
-			b.CFrame = CFrame.lookAt(base, base + radial + Vector3.yAxis * 0.5) * CFrame.new(0, 0, -L / 2)
-		end
-		field.Size = Vector3.one * D * 3
-		field.Position = center
-		light.Range = math.min(60, D * 4)
-		light.Brightness = 2 + 5 * c
-		zapAcc += dt * (2 + 14 * c)
-		while zapAcc >= 1 do
-			zapAcc -= 1
-			zap(center, D * 0.6, WHITE)
-		end
-		if c >= 1 and not maxed then
-			maxed = true
-			puff(center, Vector3.zero, D * 0.6, D * 1.9, WHITE, YEL, 0.2, nil, 0.2)
-		end
-	end, function()
-		g:Destroy()
-		raysG:Destroy()
-		field:Destroy()
-	end)
-end
-
--- Q: VOID EYE. No ball: a dark violet eye with a glowing pink slit pupil, a double helix of
--- spinning violet/pink diamond shards and crackling lightning beams around it.
-local function chargeQ(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
-	local g = group(BLK)
-	local eye = blob(DEEP, g)
-	local pupil = blob(PINK, g)
-	local shards: { Diamond } = {}
-	for i = 1, 10 do
-		shards[i] = diamondParts(if i % 2 == 0 then VIOLET else PINK, g)
-	end
-	local bolts = {}
-	for i = 1, 4 do
-		bolts[i] = tbeam("beam_lightning", if i % 2 == 0 then PINK else VIOLET, maxD * 0.1, 8, true)
-	end
-	local light = Instance.new("PointLight")
-	light.Color = VIOLET
-	light.Parent = eye
-	local field = inwardField("flame_violet_4x4", PINK, maxD)
-	local boltAcc, zapAcc = 1, 0
-	return chargeBase(getMouth, t0, maxT, maxD, function(center, fwd, D, c, t, dt)
-		local ecf = CFrame.lookAt(center, center + fwd)
-		eye.Size = Vector3.new(D * 0.75, D * 0.75, D * 0.45) * (1 + 0.06 * math.sin(t * 20))
-		eye.CFrame = ecf
-		pupil.Size = Vector3.new(D * 0.1, D * 0.6 * (0.5 + 0.5 * c), D * 0.5)
-		pupil.CFrame = ecf * CFrame.new(0, 0, -D * 0.04)
-		local u, v = basis(fwd)
-		for i, d in ipairs(shards) do
-			local strand = if i % 2 == 0 then math.pi else 0
-			local k = math.ceil(i / 2) / 5
-			local a = t * (4 + 6 * c) + k * math.pi * 2 + strand
-			local radial = u * math.cos(a) + v * math.sin(a)
-			local p = center + radial * D * (0.6 + 0.15 * math.sin(t * 3 + i)) + fwd * (k - 0.5) * D * 0.9
-			placeDiamond(d, p, radial:Cross(fwd).Unit, D * (0.25 + 0.2 * c), D * 0.08)
-		end
-		boltAcc += dt
-		if boltAcc > 0.06 then
-			boltAcc = 0
-			for _, b in ipairs(bolts) do
-				if b then
-					b.set(center + randUnit() * D * 0.3, center + randUnit() * D * (0.9 + 0.6 * c))
-				end
-			end
-		end
-		field.Size = Vector3.one * D * 3
-		field.Position = center
-		light.Range = math.min(60, D * 4)
-		light.Brightness = 2 + 5 * c
-		zapAcc += dt * (2 + 12 * c)
-		while zapAcc >= 1 do
-			zapAcc -= 1
-			zap(center, D * 0.55, PINK)
-		end
-	end, function()
-		g:Destroy()
-		field:Destroy()
-		for _, b in ipairs(bolts) do
-			if b then
-				b.destroy()
-			end
-		end
-	end)
-end
-
--- F: MOLTEN FORGE. Lava-textured rock blocks orbit and close in as it charges, compacting into a
--- meteor around a small molten core; inward crimson flames, rising smoke.
-local function chargeF(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
-	local g = group(CRIMSON)
-	local core, hot = ball(ORG, g), ball(YEL, g)
-	local rockTex = tex("lava_rock")
-	local rocks = {}
-	for i = 1, 8 do
-		local p = newPart(ROCK, g, FLAT)
-		if rockTex then
-			for _, face in ipairs(Enum.NormalId:GetEnumItems()) do
-				local tx = Instance.new("Texture")
-				tx.Texture = rockTex
-				tx.Face = face
-				tx.StudsPerTileU, tx.StudsPerTileV = maxD * 0.5, maxD * 0.5
-				tx.Parent = p
-			end
-		end
-		local axis = randUnit()
-		local o = axis:Cross(randUnit()).Unit
-		rocks[i] = { p = p, axis = axis, o = o, ph = rng:NextNumber(0, 6.3), spin = rng:NextNumber(1.5, 3), r = CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0) }
-	end
-	local light = Instance.new("PointLight")
-	light.Color = RED
-	light.Parent = core
-	local field = inwardField("flame_crimson_4x4", ORG, maxD)
-	local smoke = emitter(field, "smoke_2x2", {
-		Rate = 8,
-		Lifetime = NumberRange.new(0.8, 1.2),
-		Speed = NumberRange.new(maxD * 0.2, maxD * 0.5),
-		Size = NumberSequence.new(maxD * 0.4, maxD * 1),
-		Transparency = NumberSequence.new(0.1, 1),
-		Acceleration = Vector3.new(0, maxD * 1.5, 0),
-		Rotation = NumberRange.new(0, 360),
-	})
-	local _ = smoke
-	return chargeBase(getMouth, t0, maxT, maxD, function(center, _fwd, D, c, t, _dt)
-		core.Size = Vector3.one * D * 0.55 * (1 + 0.08 * math.sin(t * 25))
-		hot.Size = Vector3.one * D * 0.32
-		core.Position, hot.Position = center, center
-		local rad = D * (1.25 - 0.8 * c)
-		for _, r in ipairs(rocks) do
-			local off = CFrame.fromAxisAngle(r.axis, t * r.spin + r.ph):VectorToWorldSpace(r.o) * rad
-			local sz = D * (0.25 + 0.2 * c)
-			r.p.Size = Vector3.new(sz, sz * 0.8, sz * 0.9)
-			r.p.CFrame = CFrame.new(center + off) * CFrame.Angles(t * 2, t * 1.4, 0) * r.r
-		end
-		field.Size = Vector3.one * D * 3
-		field.Position = center
-		light.Range = math.min(60, D * 4)
-		light.Brightness = 3 + 5 * c
-	end, function()
-		g:Destroy()
-		field:Destroy()
-	end)
-end
-
-function FX.charge(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number, move: string?)
-	if move == "Q" then
-		return chargeQ(getMouth, t0, maxT, maxD)
-	elseif move == "F" then
-		return chargeF(getMouth, t0, maxT, maxD)
-	end
-	return chargeR(getMouth, t0, maxT, maxD)
-end
-
--- Launch flash at the mouth: star shards, white pop, recoil ring.
-function FX.muzzle(pos: Vector3, dir: Vector3, D: number, power: number, move: string?)
-	local pal = PAL[move or "R"] or PAL.R
-	local g = group(ORG)
-	for i = 1, 8 + math.floor(power * 4) do
-		local ws = spikeParts(if i % 3 == 0 then pal.core else pal.mid, g)
-		local d = (dir * 0.8 + randUnit()).Unit
-		local len = D * rng:NextNumber(2.2, 3.6)
-		job(0.3, function(k)
-			local L = len * outQuart(math.min(k / 0.3, 1))
-			placeSpike(ws, pos, d, L, D * 0.5 * (1 - k))
-			return
-		end)
-	end
-	task.delay(0.35, function()
-		g:Destroy()
-	end)
-	puff(pos, Vector3.zero, D * 0.5, D * 2.4, pal.core, pal.mid, 0.16, nil, 0.2)
-	ring(pos, dir, 0.3, function(k)
-		return D * lerp(0.6, 3.2, outQuart(k))
-	end, function(k)
-		return D * 0.35 * (1 - k)
-	end, pal.ringB, 20)
-	ring(pos, dir, 0.36, function(k)
-		return D * lerp(0.4, 2.4, outQuart(k))
-	end, function(k)
-		return D * 0.18 * (1 - k)
-	end, pal.ringA, 18, 0.05)
-	ring(pos, dir, 0.42, function(k)
-		return D * lerp(0.8, 4, outQuart(k))
-	end, function(k)
-		return D * 0.16 * (1 - k)
-	end, pal.ringC, 22, 0.09)
-	for _ = 1, 4 + math.floor(power * 4) do
-		chunk(pos, (dir * 0.5 + randUnit()).Unit * D * rng:NextNumber(10, 18), Vector3.new(D * 0.12, D * 0.12, D * 0.6), if rng:NextNumber() < 0.5 then pal.orbitA else pal.orbitB, 0.35, 0)
-	end
-	for _ = 1, 3 do
-		puff(pos - dir * D * 0.5, randUnit() * D + Vector3.new(0, D, 0), D * 0.4, D * 1.1, BLK, SMOKE, 0.7, FLAT, 0.3)
-	end
-end
-
 export type Shot = { stop: () -> (), pos: Vector3 }
 
--- Projectile visuals. Position is derived from server time so all clients agree.
-local function projectileR(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
-	local g = group(BLK)
-	local shell = ball(ORG, g)
-	local mid = ball(YEL, g)
-	local core = ball(WHITE, g)
-	local tail = blob(RED, g)
-	local tongues: { Part } = {}
-	for i = 1, 7 do
-		tongues[i] = blob(if i % 2 == 0 then YEL else ORG, g)
-	end
-	if textured() then
-		tail.Transparency = 1
-		for _, b in ipairs(tongues) do
-			b.Transparency = 1
-		end
-	end
-	local light = Instance.new("PointLight")
-	light.Color = ORG
-	light.Range = math.min(60, D * 5)
-	light.Brightness = 4 + 4 * power
-	light.Parent = core
-
-	local carrier = newPart(ORG)
-	carrier.Transparency = 1
-	local spinner = newPart(ORG)
-	spinner.Transparency = 1
-	streakTrails(spinner, D, { YEL, WHITE, ORG })
-	if textured() then
-		shell.Transparency = 1
-	end
-	local life = math.clamp(7 * D / speed, 0.12, 0.45)
-	trail(carrier, Vector3.new(0, D * 0.5, 0), Vector3.new(0, -D * 0.5, 0), FIRE_SEQ, life, "beam_flame_orange")
-	trail(carrier, Vector3.new(D * 0.5, 0, 0), Vector3.new(-D * 0.5, 0, 0), FIRE_SEQ, life, "beam_flame_orange")
-	carrier.Size = Vector3.one * D * 0.6
-	emitter(carrier, "flame_orange_4x4", {
-		Rate = 80,
-		Lifetime = NumberRange.new(0.25, 0.45),
-		Speed = NumberRange.new(D * 0.5, D * 2.5),
-		EmissionDirection = Enum.NormalId.Back,
-		SpreadAngle = Vector2.new(25, 25),
-		Size = NumberSequence.new(D * 0.95, D * 0.35),
-		Rotation = NumberRange.new(-25, 25),
-	})
-	emitter(carrier, "spark_star", {
-		Rate = 30,
-		Lifetime = NumberRange.new(0.2, 0.4),
-		Speed = NumberRange.new(D * 2, D * 5),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(D * 0.3, 0),
-		Color = ColorSequence.new(YEL, ORG),
-		RotSpeed = NumberRange.new(-300, 300),
-	})
-	local helix = 4 + (if power > 0.5 then 1 else 0)
-	for i = 1, helix do
-		local a = i / helix * math.pi * 2
-		local r0, r1 = D * 0.55, D * 0.78
-		local cs = if i == 4 then ColorSequence.new(PURPLE, DEEP) elseif i == 5 then ColorSequence.new(PINK, PURPLE) else ColorSequence.new(YEL, ORG)
-		trail(spinner, Vector3.new(math.cos(a) * r0, math.sin(a) * r0, 0), Vector3.new(math.cos(a) * r1, math.sin(a) * r1, 0), cs, life * 1.4)
-	end
-
-	local shot = { pos = origin } :: any
-	local stopped = false
-	local spin, emberAcc, smokeAcc, shardAcc = 0, 0, 0, 0
-	job(math.huge, function(_, t, dt)
-		if stopped then
-			return true
-		end
-		local dist = math.min(speed * math.max(workspace:GetServerTimeNow() - t0, 0), range)
-		local pos = origin + dir * dist
-		shot.pos = pos
-		local cf = CFrame.lookAt(pos, pos + dir)
-		local wob = 1 + 0.07 * math.sin(t * 32)
-		shell.Size = Vector3.one * D * (1 + 0.05 * math.sin(t * 21))
-		mid.Size = Vector3.one * D * 0.72 * wob
-		core.Size = Vector3.one * D * 0.42 * wob
-		shell.CFrame, mid.CFrame, core.CFrame = cf, cf, cf
-		tail.Size = Vector3.new(D * 0.85, D * 0.85, D * 2.2)
-		tail.CFrame = cf * CFrame.new(0, 0, D * 0.8)
-		spin += dt * 9
-		for i, b in ipairs(tongues) do
-			local a = spin + i / #tongues * math.pi * 2
-			local L = D * (1.1 + 0.6 * math.sin(t * 26 + i * 1.7))
-			local r = D * 0.32
-			b.Size = Vector3.new(D * 0.32, D * 0.32, L)
-			b.CFrame = cf * CFrame.new(math.cos(a) * r, math.sin(a) * r, D * 0.3 + L / 2) * CFrame.Angles(math.sin(a) * 0.3, -math.cos(a) * 0.3, 0)
-		end
-		carrier.CFrame = cf
-		spinner.CFrame = cf * CFrame.Angles(0, 0, spin * 1.6)
-
-		emberAcc += dt
-		local emberStep = if textured() then 0.08 else 0.018
-		while emberAcc > emberStep do
-			emberAcc -= emberStep
-			chunk(pos + randUnit() * D * 0.4, -dir * speed * 0.08 + randUnit() * D * 4, Vector3.one * D * rng:NextNumber(0.07, 0.15), if rng:NextNumber() < 0.5 then YEL else ORG, rng:NextNumber(0.25, 0.45), 0)
-		end
-		smokeAcc += dt
-		if smokeAcc > 0.045 then
-			smokeAcc = 0
-			puff(pos - dir * D * 1.3, Vector3.new(0, D * 0.8, 0) + randUnit() * D * 0.3, D * 0.45, D * 1.1, BLK, SMOKE, 0.55, FLAT, 0.3)
-		end
-		if power > 0.5 then
-			shardAcc += dt
-			if shardAcc > 0.06 then
-				shardAcc = 0
-				chunk(pos + randUnit() * D * 0.6, randUnit() * D * 3, Vector3.new(D * 0.06, D * 0.06, D * 0.4), if rng:NextNumber() < 0.5 then PINK else PURPLE, 0.3, 0)
-			end
-		end
-		if dist >= range + D * 4 then
-			stopped = true
-			return true
-		end
-		return
-	end, function()
-		g:Destroy()
-		task.delay(0.6, function()
-			carrier:Destroy()
-			spinner:Destroy()
-		end)
-	end)
-
-	shot.stop = function()
-		stopped = true
-	end
-	return shot :: Shot
-end
-
--- Impact. R = damage radius (studs), grounded = hit a floor-like surface, power = charge 0..1.
-local function explodeR(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, stage: number)
-	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
-	local u, v = basis(n)
-
-	-- 1. White-out core pop.
-	puff(pos, Vector3.zero, R * 0.3, R * 1.15, ORG, ORG, 0.22, nil, 0.35)
-
-	-- 2. Cel fireball: cluster of balls that pop (outBack), drift out/up, shift yellow->orange->red, shrink out.
-	local fire = group(BLK)
-	for _ = 1, (if textured() then 0 else 11 + math.floor(power * 7)) do
-		local off = hemi(n, 0.6) * R * rng:NextNumber(0, 0.45)
-		local size = R * rng:NextNumber(0.38, 0.62)
-		local inner = off.Magnitude < R * 0.2
-		local c0 = if inner then ORG else ORG
-		local c1 = if inner then ORG elseif rng:NextNumber() < 0.5 then RED else CRIMSON
-		local b = ball(c0, fire)
-		b.Size = Vector3.one * 0.05
-		b.Position = pos
-		local delay = rng:NextNumber(0, 0.08)
-		local life = rng:NextNumber(0.75, 1.05)
-		job(life + delay, function(_, t)
-			if t < delay then
-				return
-			end
-			local k = math.clamp((t - delay) / life, 0, 1)
-			local grow = outBack(math.min(k / 0.22, 1))
-			local shrink = if k > 0.5 then 1 - ((k - 0.5) / 0.5) ^ 1.5 else 1
-			b.Size = Vector3.one * math.max(size * grow * shrink, 0.05)
-			b.Position = pos + off * (0.6 + 0.9 * outQuart(k)) + n * R * 0.35 * k
-			b.Color = c0:Lerp(c1, math.min(k * 2.2, 1)):Lerp(CRIMSON, math.max(0, (k - 0.6) / 0.4))
-			return
-		end)
-	end
-	-- Deep-purple edge flames around the cluster (unique accent, outlined with the cluster).
-	for i = 1, (if textured() or stage < 3 then 0 else 5 + math.floor(power * 3)) do
-		local d = hemi(n, 0.3)
-		local b = ball(if i % 2 == 0 then PURPLE else DEEP, fire)
-		b.Size = Vector3.one * 0.05
-		local size = R * rng:NextNumber(0.2, 0.32)
-		job(0.9, function(k)
-			local env = outBack(math.min(k / 0.25, 1)) * (if k > 0.5 then 1 - (k - 0.5) / 0.5 else 1)
-			b.Size = Vector3.one * math.max(size * env, 0.05)
-			b.Position = pos + d * R * lerp(0.35, 0.95, outQuart(k)) + n * R * 0.25 * k
-			b.Color = (if i % 2 == 0 then PURPLE else DEEP):Lerp(VIOLET, k)
-			return
-		end)
-	end
-	task.delay(1.25, function()
-		fire:Destroy()
-	end)
-
-	-- Shimmering purple shock dome (stage 3).
-	local dome = ball(PURPLE, nil, FIELD)
-	dome.Transparency = 1
-	if stage >= 3 then
-	job(0.65, function(k)
-		dome.Size = Vector3.one * R * lerp(0.4, 2.4, outQuart(k))
-		dome.Position = pos
-		dome.Transparency = if k > 0.5 then (k - 0.5) / 0.5 else 0
-		return
-	end, function()
-		dome:Destroy()
-	end)
-	else
-		dome:Destroy()
-	end
-
-	-- Crescent slashes spinning out in random planes.
-	for i = 1, (if stage >= 2 then 6 + math.floor(power * 4) else 0) do
-		local cn = randUnit()
-		crescent(pos, cn, rng:NextNumber(0, 6.3), rng:NextNumber(1.2, 2.2), R * 0.3, R * rng:NextNumber(1.1, 1.6), R * 0.12, rng:NextNumber(0.35, 0.5), if i % 3 == 0 then ORG elseif i % 3 == 1 then PURPLE else VIOLET, rng:NextNumber(2, 4) * (if rng:NextNumber() < 0.5 then -1 else 1))
-	end
-
-	-- Charged shots: fire pillar erupting along the normal, outlined in deep purple.
-	if stage >= 3 then
-		local pillar = group(DEEP)
-		local outer, inner = blob(RED, pillar), blob(ORG, pillar)
-		local core = blob(ORG, pillar)
-		local h = R * (2.2 + 1.6 * power)
-		job(0.8, function(k, t)
-			local grow = outBack(math.min(k / 0.25, 1))
-			local fade = if k > 0.55 then 1 - (k - 0.55) / 0.45 else 1
-			local w = R * 0.55 * fade * (1 + 0.06 * math.sin(t * 30))
-			local H = h * grow
-			local c = pos + n * H / 2
-			outer.Size = Vector3.new(w, H, w)
-			outer.CFrame = CFrame.lookAt(c, c + basis(n), n)
-			inner.Size = Vector3.new(w * 0.62, H * 0.9, w * 0.62)
-			inner.CFrame = outer.CFrame
-			core.Size = Vector3.new(w * 0.28, H * 0.8, w * 0.28)
-			core.CFrame = outer.CFrame
-			return
-		end)
-		task.delay(0.85, function()
-			pillar:Destroy()
-		end)
-	end
-
-	-- 3. Thick yellow cone rays with orange outlines.
-	local rays = group(RED)
-	for _ = 1, (if stage >= 2 then 9 + math.floor(power * 6) else 4) do
-		local d = hemi(n, 0.35)
-		local ws = spikeParts(ORG, rays)
-		local len = R * rng:NextNumber(1.3, 2.2)
-		local hw = R * rng:NextNumber(0.16, 0.28)
-		local delay = rng:NextNumber(0, 0.07)
-		placeSpike(ws, pos, d, 0.05, 0.05)
-		job(0.5 + delay, function(_, t)
-			if t < delay then
-				return
-			end
-			local k = math.clamp((t - delay) / 0.5, 0, 1)
-			local L = len * outQuart(math.min(k / 0.25, 1))
-			local w = hw * (if k < 0.25 then 1 else 1 - (k - 0.25) / 0.75)
-			placeSpike(ws, pos + d * R * 0.15, d, L, w)
-			return
-		end)
-	end
-	task.delay(0.65, function()
-		rays:Destroy()
-	end)
-
-	-- 4. Shock rings (yellow, orange, thin pink accent).
-	ring(pos, n, 0.45, function(k)
-		return R * lerp(0.25, 1.9, outQuart(k))
-	end, function(k)
-		return R * 0.2 * (1 - k)
-	end, ORG, 32)
-	ring(pos, n, 0.5, function(k)
-		return R * lerp(0.2, 1.45, outQuart(k))
-	end, function(k)
-		return R * 0.13 * (1 - k)
-	end, RED, 28, 0.06)
-	ring(pos + n * R * 0.05, n, 0.55, function(k)
-		return R * lerp(0.3, 2.3, outQuart(k))
-	end, function(k)
-		return R * 0.05 * (1 - k)
-	end, VIOLET, 32, 0.1)
-	ring(pos + n * R * 0.08, n, 0.6, function(k)
-		return R * lerp(0.4, 2.7, outQuart(k))
-	end, function(k)
-		return R * 0.09 * (1 - k)
-	end, PURPLE, 36, 0.16)
-
-	-- 5. Black smoke billowing up after the fire.
-	task.delay(0.12, function()
-		for _ = 1, 8 + math.floor(power * 5) do
-			local o = hemi(n, 0.4) * R * rng:NextNumber(0.2, 0.6)
-			puff(pos + o, n * R * 0.7 + o * 0.6 + Vector3.new(0, R * 0.4, 0), R * 0.35, R * rng:NextNumber(0.7, 0.95), BLK, SMOKE, rng:NextNumber(1.1, 1.6), FLAT, 0.45)
-		end
-	end)
-
-	-- 6. Navy debris cubes, embers, black shards.
-	for _ = 1, (if stage >= 2 then 14 else 0) do
-		chunk(pos + randUnit() * R * 0.2, hemi(n, 0.5) * R * rng:NextNumber(1.6, 2.8), Vector3.one * R * rng:NextNumber(0.05, 0.11), NAVY, rng:NextNumber(0.9, 1.3), R * 4, FLAT)
-	end
-	for i = 1, (if stage >= 2 then 34 else 12) do
-		local col = if i % 4 == 0 then PURPLE elseif i % 4 == 1 then VIOLET elseif i % 2 == 0 then ORG else RED
-		chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.6), Vector3.one * R * rng:NextNumber(0.02, 0.045), col, rng:NextNumber(0.5, 0.9), R * 3)
-	end
-	for _ = 1, (if stage >= 3 then 7 else 0) do
-		chunk(pos, hemi(n, 0.3) * R * rng:NextNumber(2.5, 3.5), Vector3.new(R * 0.035, R * 0.035, R * 0.24), BLK, 0.5, R * 2, FLAT)
-	end
-
-	-- 7. Ground: scorch disc, glowing lava cracks, ring of flame tongues.
-	if grounded and stage >= 2 then
-		local sc = newPart(BLK, nil, FLAT)
-		sc.Shape = Enum.PartType.Cylinder
-		sc.Size = Vector3.new(0.2, R * 1.7, R * 1.7)
-		sc.CFrame = CFrame.lookAt(pos, pos + n) * CFrame.Angles(0, math.pi / 2, 0)
-		sc.Transparency = 0.25
-		job(2.6, function(k)
-			sc.Transparency = 0.25 + 0.75 * math.max(0, (k - 0.4) / 0.6)
-			return
-		end, function()
-			sc:Destroy()
-		end)
-
-		local cracks: { { p: Part, i: number } } = {}
-		for c = 1, 8 do
-			local a = c / 8 * math.pi * 2 + rng:NextNumber(-0.3, 0.3)
-			local d = u * math.cos(a) + v * math.sin(a)
-			local x = pos + n * 0.15
-			for i = 1, 5 do
-				local ang = rng:NextNumber(-0.6, 0.6)
-				local d2 = (d * math.cos(ang) + n:Cross(d) * math.sin(ang)).Unit
-				local L = R * rng:NextNumber(0.16, 0.28)
-				local y = x + d2 * L
-				local p = newPart(RED)
-				p.Size = Vector3.new(R * 0.04 * (1 - i * 0.12), 0.15, L)
-				p.CFrame = CFrame.lookAt((x + y) / 2, y, n)
-				p.Transparency = 1
-				table.insert(cracks, { p = p, i = i })
-				x, d = y, d2
-			end
-		end
-		job(1.9, function(k)
-			for _, cr in ipairs(cracks) do
-				local reveal = k * 6 >= cr.i * 0.18
-				cr.p.Transparency = if not reveal then 1 elseif k > 0.5 then (k - 0.5) / 0.5 else 0
-				cr.p.Color = ORG:Lerp(CRIMSON, k)
-			end
-			return
-		end, function()
-			for _, cr in ipairs(cracks) do
-				cr.p:Destroy()
-			end
-		end)
-
-		local flames = group(CRIMSON)
-		for i = 1, 16 do
-			local a = i / 16 * math.pi * 2
-			local base = pos + (u * math.cos(a) + v * math.sin(a)) * R * 0.95
-			local tan = -u * math.sin(a) + v * math.cos(a)
-			local outer, inner = blob(RED, flames), blob(ORG, flames)
-			job(1.6, function(k, t)
-				local env = outBack(math.min(k / 0.15, 1)) * (if k > 0.6 then 1 - (k - 0.6) / 0.4 else 1)
-				local h = R * (0.32 + 0.14 * math.sin(t * 18 + i * 1.3)) * math.max(env, 0.01)
-				local w = R * 0.17 * math.max(env, 0.01)
-				local c = base + n * h / 2
-				outer.Size = Vector3.new(w, h, w)
-				outer.CFrame = CFrame.lookAt(c, c + tan, n)
-				inner.Size = Vector3.new(w * 0.55, h * 0.7, w * 0.55)
-				inner.CFrame = CFrame.lookAt(c - n * h * 0.12, c - n * h * 0.12 + tan, n)
-				return
-			end)
-		end
-		task.delay(1.7, function()
-			flames:Destroy()
-		end)
-	end
-
-	-- 8. Light burst.
-	local lp = newPart(RED)
-	lp.Transparency = 1
-	lp.Position = pos
-	local L = Instance.new("PointLight")
-	L.Color = RED
-	L.Range = math.min(60, R * 2)
-	L.Brightness = 10
-	L.Parent = lp
-	job(0.8, function(k)
-		L.Brightness = 10 * (1 - k)
-		return
-	end, function()
-		lp:Destroy()
-	end)
-
-	-- 9. Local camera feedback, by distance.
-	local cam = workspace.CurrentCamera
-	local i = math.clamp(1 - (cam.CFrame.Position - pos).Magnitude / (R * 8), 0, 1)
-	if i > 0 then
-		FX.shake(i * (0.8 + 1.2 * power))
-		FX.flash(0.45 * i, 0.25, ORG)
-	end
-end
-
 -- Shared impact helpers (Q / F) ----------------------------------------------------------------
-
--- Outlined cel fire cluster: balls pop (outBack), drift out/up, shift c0 -> c1, shrink out.
-local function fireCluster(pos: Vector3, n: Vector3, R: number, count: number, c0s: { Color3 }, c1s: { Color3 }, outline: Color3, sizeMul: number, life: number)
-	local fire = group(outline)
-	if textured() then
-		count = 0
-	end
-	for _ = 1, count do
-		local off = hemi(n, 0.6) * R * rng:NextNumber(0, 0.5)
-		local size = R * rng:NextNumber(0.36, 0.62) * sizeMul
-		local c0 = c0s[rng:NextInteger(1, #c0s)]
-		local c1 = c1s[rng:NextInteger(1, #c1s)]
-		local b = ball(c0, fire)
-		b.Size = Vector3.one * 0.05
-		b.Position = pos
-		local delay = rng:NextNumber(0, 0.08)
-		local l = life * rng:NextNumber(0.8, 1.1)
-		job(l + delay, function(_, t)
-			if t < delay then
-				return
-			end
-			local k = math.clamp((t - delay) / l, 0, 1)
-			local grow = outBack(math.min(k / 0.22, 1))
-			local shrink = if k > 0.5 then 1 - ((k - 0.5) / 0.5) ^ 1.5 else 1
-			b.Size = Vector3.one * math.max(size * grow * shrink, 0.05)
-			b.Position = pos + off * (0.6 + 0.9 * outQuart(k)) + n * R * 0.35 * k
-			b.Color = c0:Lerp(c1, math.min(k * 1.8, 1))
-			return
-		end)
-	end
-	task.delay(life * 1.2 + 0.1, function()
-		fire:Destroy()
-	end)
-end
-
-local function impulse(pos: Vector3, R: number, shake: number, flashA: number, color: Color3)
-	local cam = workspace.CurrentCamera
-	local i = math.clamp(1 - (cam.CFrame.Position - pos).Magnitude / (R * 8), 0, 1)
-	if i > 0 then
-		FX.shake(i * shake)
-		FX.flash(flashA * i, 0.3, color)
-	end
-	local lp = newPart(color)
-	lp.Transparency = 1
-	lp.Position = pos
-	local L = Instance.new("PointLight")
-	L.Color = color
-	L.Range = math.min(60, R * 2)
-	L.Brightness = 10
-	L.Parent = lp
-	job(0.9, function(k)
-		L.Brightness = 10 * (1 - k)
-		return
-	end, function()
-		lp:Destroy()
-	end)
-end
-
--- Q: VIOLET SERPENT ------------------------------------------------------------------------------
--- A big wedge-built serpent with a readable silhouette: skull (snout, crest, horns, jaw spikes, eyes)
--- leading a long S-curved body of textured flame ribbons that slithers slowly. Violet core with red
--- and orange flames licking around it. The body is laid out by DISTANCE along the flight path (not
--- frame history), so it is smooth and identical on every client; only the slither phase uses time.
--- Position/arrival still come from server time, so damage timing is untouched.
-local function projectileQ(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
-	local g = group(BLK)
-	D *= 1.25 -- bigger so the shape reads
-	local snout, crest = spikeParts(VIOLET, g), spikeParts(CRIMSON, g)
-	local horns = { spikeParts(ORG, g), spikeParts(ORG, g) }
-	local jaw = { spikeParts(DEEP, g), spikeParts(DEEP, g) }
-	local eyes = { ball(YEL, g), ball(YEL, g) }
-	local skull = blob(DEEP, g)
-	local N = 12
-	local SP = D * 0.85 -- spacing between body points along the path
-	local body, orange, bolts, fallback = {}, {}, {}, {}
-	for i = 1, N - 1 do
-		local w = D * (1.0 - i * 0.07)
-		local f = tbeam("beam_flame_violet", WHITE, w, 0.6, true)
-		if f then
-			body[i] = f
-			orange[i] = tbeam(if i % 2 == 0 then "beam_flame_orange" else "beam_flame_orange", WHITE, w * 1.5, 1.0, true)
-		else
-			fallback[i] = newPart(if i % 3 == 0 then ORG elseif i % 3 == 1 then VIOLET else RED, g)
-		end
-		if i % 3 == 1 then
-			bolts[i] = tbeam("beam_lightning", PINK, D * 0.3, 4, true)
-		end
-	end
-	local carrier = newPart(VIOLET)
-	carrier.Transparency = 1
-	carrier.Size = Vector3.one * D * 0.7
-	streakTrails(carrier, D, { ORG, RED, PINK })
-	emitter(carrier, "flame_violet_4x4", {
-		Rate = 40,
-		Lifetime = NumberRange.new(0.5, 0.8),
-		Speed = NumberRange.new(D * 0.5, D * 1.5),
-		EmissionDirection = Enum.NormalId.Back,
-		SpreadAngle = Vector2.new(30, 30),
-		Size = NumberSequence.new(D * 1.0, D * 0.3),
-		Rotation = NumberRange.new(-20, 20),
-	})
-	emitter(carrier, "flame_orange_4x4", {
-		Rate = 40,
-		Lifetime = NumberRange.new(0.4, 0.7),
-		Speed = NumberRange.new(D * 0.5, D * 2),
-		EmissionDirection = Enum.NormalId.Back,
-		SpreadAngle = Vector2.new(45, 45),
-		Size = NumberSequence.new(D * 0.9, D * 0.25),
-		Rotation = NumberRange.new(-25, 25),
-	})
-	emitter(carrier, "flame_crimson_4x4", {
-		Rate = 25,
-		Lifetime = NumberRange.new(0.4, 0.7),
-		Speed = NumberRange.new(D, D * 2.5),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(D * 0.7, D * 0.2),
-	})
-	emitter(carrier, "spark_star", {
-		Rate = 25,
-		Lifetime = NumberRange.new(0.3, 0.6),
-		Speed = NumberRange.new(D * 2, D * 4),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(D * 0.3, 0),
-		Color = ColorSequence.new(ORG, RED),
-		RotSpeed = NumberRange.new(-250, 250),
-	})
-	local light = Instance.new("PointLight")
-	light.Color = VIOLET
-	light.Range = math.min(60, D * 5)
-	light.Brightness = 5 + 4 * power
-	light.Parent = carrier
-
-	local u = basis(dir)
-	local side = u
-	local shot = { pos = origin } :: any
-	local stopped = false
-	local shedAcc = 0
-	local AMP, WAVE, SLITHER = D * 0.9, D * 7, 1.6 -- S-curve amplitude, wavelength, slow slither speed (rad/s)
-	-- point on the serpent's path at distance s along the flight line
-	local function pathAt(s: number, t: number): Vector3
-		local ramp = math.clamp(s / (D * 3), 0, 1)
-		return origin + dir * s + side * math.sin(s / WAVE * math.pi * 2 - t * SLITHER) * AMP * ramp
-	end
-	job(math.huge, function(_, t, dt)
-		if stopped then
-			return true
-		end
-		local dist = math.min(speed * math.max(workspace:GetServerTimeNow() - t0, 0), range)
-		local hp = pathAt(dist, t)
-		shot.pos = hp
-		local ahead = pathAt(dist + D * 0.6, t)
-		local fwd = (ahead - hp)
-		fwd = if fwd.Magnitude > 0.01 then fwd.Unit else dir
-		local hcf = CFrame.lookAt(hp, hp + fwd)
-		local up, right = hcf.UpVector, hcf.RightVector
-		-- body
-		local prev = hp
-		for i = 1, N - 1 do
-			local p = pathAt(math.max(dist - i * SP, 0), t)
-			if body[i] then
-				body[i].set(prev, p)
-				if orange[i] then
-					orange[i].set(prev, p)
-				end
-			elseif fallback[i] then
-				local L = math.max((p - prev).Magnitude, 0.05)
-				local wd = D * (0.9 - i * 0.06)
-				fallback[i].Size = Vector3.new(wd, wd, L + wd * 0.5)
-				fallback[i].CFrame = if L > 0.06 then CFrame.lookAt((prev + p) / 2, p) else CFrame.new(prev)
-			end
-			if bolts[i] then
-				bolts[i].set(prev, pathAt(math.max(dist - (i + 2) * SP, 0), t))
-			end
-			prev = p
-		end
-		-- skull
-		skull.Size = Vector3.new(D * 0.9, D * 0.75, D * 1.2)
-		skull.CFrame = hcf
-		placeSpike(snout, hp + fwd * D * 1.1, -fwd, D * 1.6, D * 0.55)
-		local ct = hp + up * D * 0.7 - fwd * D * 1.2
-		local cd = (hp + up * D * 0.2 - ct)
-		placeSpike(crest, ct, cd.Unit, cd.Magnitude, D * 0.3)
-		for i, hn in ipairs(horns) do
-			local sd = if i == 1 then 1 else -1
-			local o = hp + right * sd * D * 0.35 + up * D * 0.35
-			local d2 = (right * sd * 0.5 + up * 0.5 - fwd * 0.9).Unit
-			placeSpike(hn, o + d2 * D * 1.2, -d2, D * 1.2, D * 0.22)
-		end
-		for i, jw in ipairs(jaw) do
-			local sd = if i == 1 then 1 else -1
-			local jt = hp + right * sd * D * 0.5 - up * D * 0.4 - fwd * D * 0.9
-			local jd = (hp - jt)
-			placeSpike(jw, jt, jd.Unit, jd.Magnitude, D * 0.2)
-		end
-		for i, e in ipairs(eyes) do
-			local sd = if i == 1 then 1 else -1
-			e.Size = Vector3.one * D * 0.24 * (1 + 0.1 * math.sin(t * 6))
-			e.Position = hp + fwd * D * 0.3 + right * sd * D * 0.3 + up * D * 0.2
-		end
-		carrier.CFrame = hcf
-
-		shedAcc += dt
-		while shedAcc > 0.05 do
-			shedAcc -= 0.05
-			local at = pathAt(math.max(dist - rng:NextInteger(1, N - 2) * SP, 0), t)
-			chunk(at, randUnit() * D * 2.5 + Vector3.new(0, D * 1.5, 0), Vector3.new(D * 0.08, D * 0.08, D * 0.35), if rng:NextNumber() < 0.4 then VIOLET elseif rng:NextNumber() < 0.5 then ORG else RED, 0.5, -D * 3)
-		end
-		if dist >= range + D * 4 then
-			stopped = true
-			return true
-		end
-		return
-	end, function()
-		g:Destroy()
-		for _, f in pairs(body) do
-			f.destroy()
-		end
-		for _, f in pairs(orange) do
-			f.destroy()
-		end
-		for _, b in pairs(bolts) do
-			b.destroy()
-		end
-		for _, e in ipairs(carrier:GetChildren()) do
-			if e:IsA("ParticleEmitter") then
-				e.Enabled = false
-			end
-		end
-		task.delay(0.8, function()
-			carrier:Destroy()
-		end)
-	end)
-	shot.stop = function()
-		stopped = true
-	end
-	return shot :: Shot
-end
-
--- Implosion of violet streaks, then a violet/crimson burst, a 3-armed flame vortex twisting up,
--- crimson/violet crescent slashes and a burning pentagram on the ground.
-local function explodeQ(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, stage: number)
-	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
-	local u, v = basis(n)
-	for i = 1, (if stage >= 2 then 26 else 0) do
-		local d = randUnit()
-		local p = newPart(if i % 3 == 0 then PINK else VIOLET)
-		local r0 = R * rng:NextNumber(1.4, 2.2)
-		job(0.16, function(k)
-			local r = r0 * (1 - k * k)
-			local L = R * 0.5 * (1 - k) + 0.05
-			local a = pos + d * r
-			p.Size = Vector3.new(R * 0.03, R * 0.03, L)
-			p.CFrame = CFrame.lookAt(a + d * L / 2, a)
-			return
-		end, function()
-			p:Destroy()
-		end)
-	end
-	task.delay(0.14, function()
-		puff(pos, Vector3.zero, R * 0.25, R * 1.05, PINK, VIOLET, 0.22, nil, 0.3)
-		fireCluster(pos, n, R, 14 + math.floor(power * 6), { VIOLET, PINK, CRIMSON }, { CRIMSON, DEEP, DEEP }, BLK, 1, 0.95)
-
-		local col = group(BLK)
-		local arms = {}
-		for a = 1, (if stage >= 3 then 3 else 0) do
-			for j = 1, 9 do
-				table.insert(arms, { a = a, j = j, p = blob(if j % 2 == 0 then VIOLET else CRIMSON, col) })
-			end
-		end
-		local H = R * (2.2 + power)
-		job(1.1, function(k, t)
-			local rise = outQuart(math.min(k / 0.5, 1))
-			local fade = if k > 0.6 then 1 - (k - 0.6) / 0.4 else 1
-			for _, e in ipairs(arms) do
-				local f = e.j / 9
-				local ang = e.a / 3 * math.pi * 2 + f * 4 + t * 7
-				local rad = R * (0.55 - 0.35 * f) * (0.6 + 0.4 * rise)
-				local c = pos + n * H * f * rise + (u * math.cos(ang) + v * math.sin(ang)) * rad
-				local sz = math.max(R * (0.34 - 0.18 * f) * fade, 0.05)
-				e.p.Size = Vector3.new(sz, sz * 1.5, sz)
-				e.p.CFrame = CFrame.lookAt(c, c + (-u * math.sin(ang) + v * math.cos(ang)), n)
-				e.p.Color = (if e.j % 2 == 0 then VIOLET else CRIMSON):Lerp(PINK, k * 0.6)
-			end
-			return
-		end)
-		task.delay(1.15, function()
-			col:Destroy()
-		end)
-
-		for i = 1, (if stage >= 2 then 8 + math.floor(power * 4) else 0) do
-			crescent(pos, randUnit(), rng:NextNumber(0, 6.3), rng:NextNumber(1.3, 2.3), R * 0.25, R * rng:NextNumber(1.0, 1.5), R * 0.13, 0.45, if i % 2 == 0 then CRIMSON else VIOLET, rng:NextNumber(2, 4) * (if rng:NextNumber() < 0.5 then -1 else 1))
-		end
-		for i = 1, 10 * stage do
-			chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.4), Vector3.one * R * rng:NextNumber(0.02, 0.045), if i % 2 == 0 then VIOLET else CRIMSON, rng:NextNumber(0.5, 0.9), R * 3)
-		end
-		for _ = 1, 10 do
-			local o = hemi(n, 0.4) * R * rng:NextNumber(0.2, 0.6)
-			puff(pos + o, n * R * 0.7 + o * 0.5, R * 0.3, R * rng:NextNumber(0.6, 0.9), VSMOKE, BLK, rng:NextNumber(1.1, 1.5), FLAT, 0.45)
-		end
-
-		if grounded and stage >= 3 then
-			local pts = {}
-			for i = 0, 4 do
-				local a = i / 5 * math.pi * 2 + math.pi / 2
-				pts[i + 1] = pos + n * 0.2 + (u * math.cos(a) + v * math.sin(a)) * R * 1.15
-			end
-			local lines = {}
-			for i = 1, 5 do
-				local p = newPart(PINK)
-				p.Transparency = 1
-				table.insert(lines, { p = p, a = pts[i], b = pts[((i + 1) % 5) + 1] })
-			end
-			job(1.8, function(k)
-				local grow = outQuart(math.min(k / 0.25, 1))
-				for _, l in ipairs(lines) do
-					local e = l.a:Lerp(l.b, grow)
-					local L = (e - l.a).Magnitude
-					l.p.Size = Vector3.new(R * 0.06, 0.2, math.max(L, 0.05))
-					l.p.CFrame = CFrame.lookAt((l.a + e) / 2, e, n)
-					l.p.Transparency = if k > 0.6 then (k - 0.6) / 0.4 else 0
-					l.p.Color = PINK:Lerp(DEEP, k)
-				end
-				return
-			end, function()
-				for _, l in ipairs(lines) do
-					l.p:Destroy()
-				end
-			end)
-		end
-		impulse(pos, R, 1 + 1.2 * power, 0.45, VIOLET)
-	end)
-end
-
--- F: INFERNO METEOR --------------------------------------------------------------------------------
--- A tumbling cluster of lava-cracked rock blocks (lava_rock texture) inside a roaring cel flame
--- flipbook stream, a crown of backward flame spikes, black smoke and falling rock debris.
--- No balls; without uploaded textures it falls back to neon cracks + flame shell blobs.
-local function projectileF(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
-	local g = group(CRIMSON)
-	local rockTex = tex("lava_rock")
-	local rocks = {}
-	for i = 1, 8 do
-		local p = newPart(ROCK, g, FLAT)
-		if rockTex then
-			for _, face in ipairs(Enum.NormalId:GetEnumItems()) do
-				local tx = Instance.new("Texture")
-				tx.Texture = rockTex
-				tx.Face = face
-				tx.StudsPerTileU, tx.StudsPerTileV = D * 0.7, D * 0.7
-				tx.Parent = p
-			end
-		end
-		rocks[i] = {
-			p = p,
-			o = if i == 1 then Vector3.zero else randUnit(),
-			s = if i == 1 then D * 0.62 else D * rng:NextNumber(0.3, 0.42),
-			r = CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0),
-		}
-	end
-	local cracks = {}
-	if not rockTex then
-		for i = 1, 10 do
-			cracks[i] = { p = newPart(ORG, g), o = randUnit(), d = randUnit() }
-		end
-	end
-	local spikes = {}
-	for i = 1, 6 do
-		spikes[i] = spikeParts(if i % 2 == 0 then ORG else RED, g)
-	end
-	local carrier = newPart(RED)
-	carrier.Transparency = 1
-	streakTrails(carrier, D, { ORG, YEL, RED })
-	carrier.Size = Vector3.one * D * 0.8
-	local fire = emitter(carrier, "flame_crimson_4x4", {
-		Rate = 110,
-		Lifetime = NumberRange.new(0.35, 0.6),
-		Speed = NumberRange.new(D * 0.5, D * 2),
-		EmissionDirection = Enum.NormalId.Back,
-		SpreadAngle = Vector2.new(30, 30),
-		Size = NumberSequence.new(D * 1.4, D * 0.5),
-		Rotation = NumberRange.new(-25, 25),
-	})
-	emitter(carrier, "smoke_2x2", {
-		Rate = 30,
-		Lifetime = NumberRange.new(0.8, 1.2),
-		Speed = NumberRange.new(D * 0.5, D),
-		EmissionDirection = Enum.NormalId.Back,
-		SpreadAngle = Vector2.new(20, 20),
-		Size = NumberSequence.new(D * 0.8, D * 2.2),
-		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.7, 0.2), NumberSequenceKeypoint.new(1, 1) }),
-		Acceleration = Vector3.new(0, D * 2, 0),
-		Rotation = NumberRange.new(0, 360),
-		RotSpeed = NumberRange.new(-40, 40),
-	})
-	emitter(carrier, "spark_star", {
-		Rate = 30,
-		Lifetime = NumberRange.new(0.3, 0.5),
-		Speed = NumberRange.new(D * 3, D * 6),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(D * 0.4, 0),
-		Color = ColorSequence.new(ORG, RED),
-		RotSpeed = NumberRange.new(-300, 300),
-	})
-	local flame, flame2
-	if not fire then
-		flame, flame2 = blob(ORG, g), blob(RED, g)
-	end
-	local light = Instance.new("PointLight")
-	light.Color = RED
-	light.Range = math.min(60, D * 6)
-	light.Brightness = 8
-	light.Parent = carrier
-	local tl = math.clamp(10 * D / speed, 0.2, 0.7)
-	local seq = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, ORG),
-		ColorSequenceKeypoint.new(0.4, RED),
-		ColorSequenceKeypoint.new(1, CRIMSON),
-	})
-	trail(carrier, Vector3.new(0, D * 0.6, 0), Vector3.new(0, -D * 0.6, 0), seq, tl, "beam_flame_orange")
-	trail(carrier, Vector3.new(D * 0.6, 0, 0), Vector3.new(-D * 0.6, 0, 0), seq, tl, "beam_flame_orange")
-
-	local u, v = basis(dir)
-	local shot = { pos = origin } :: any
-	local stopped = false
-	local puffAcc, rockAcc = 0, 0
-	job(math.huge, function(_, t, dt)
-		if stopped then
-			return true
-		end
-		local dist = math.min(speed * math.max(workspace:GetServerTimeNow() - t0, 0), range)
-		local pos = origin + dir * dist
-		shot.pos = pos
-		local cf = CFrame.lookAt(pos, pos + dir)
-		local tumble = CFrame.Angles(t * 3, t * 2, 0)
-		for _, r in ipairs(rocks) do
-			local off = tumble:VectorToWorldSpace(r.o) * D * 0.36
-			r.p.Size = Vector3.new(r.s, r.s * 0.75, r.s * 0.9)
-			r.p.CFrame = CFrame.new(pos + off) * tumble * r.r
-		end
-		for _, c in ipairs(cracks) do
-			local ow = tumble:VectorToWorldSpace(c.o)
-			local dw = tumble:VectorToWorldSpace(c.d)
-			local tan = dw - ow * dw:Dot(ow)
-			tan = if tan.Magnitude > 0.01 then tan.Unit else u
-			local at = pos + ow * D * 0.4
-			c.p.Size = Vector3.new(D * 0.05, D * 0.05, D * 0.32)
-			c.p.CFrame = CFrame.lookAt(at, at + tan)
-		end
-		for i, sp in ipairs(spikes) do
-			local a = i / #spikes * math.pi * 2 + t * 2
-			local radial = u * math.cos(a) + v * math.sin(a)
-			local d2 = (-dir + radial * 0.5).Unit
-			local L = D * (1.3 + 0.5 * math.sin(t * 22 + i))
-			placeSpike(sp, pos + radial * D * 0.45 + d2 * L, -d2, L, D * 0.22)
-		end
-		carrier.CFrame = cf
-		if flame and flame2 then
-			local flick = 1 + 0.07 * math.sin(t * 28)
-			flame.Size = Vector3.new(D * 1.15, D * 1.15, D * 2.4) * flick
-			flame.CFrame = cf * CFrame.new(0, 0, D * 0.75)
-			flame2.Size = Vector3.new(D * 1.5, D * 1.5, D * 3.4) * flick
-			flame2.CFrame = cf * CFrame.new(0, 0, D * 1.2)
-			puffAcc += dt
-			while puffAcc > 0.03 do
-				puffAcc -= 0.03
-				puff(pos - dir * D * 1.5 + randUnit() * D * 0.3, -dir * D * 1.5 + Vector3.new(0, D * 0.6, 0), D * 0.9, D * 0.2, ORG, CRIMSON, 0.35, nil, 0.6)
-			end
-		end
-		rockAcc += dt
-		if rockAcc > 0.07 then
-			rockAcc = 0
-			chunk(pos + randUnit() * D * 0.4, -dir * D * 2 + randUnit() * D * 2, Vector3.one * D * rng:NextNumber(0.1, 0.2), if rng:NextNumber() < 0.5 then ROCK else ORG, 0.7, D * 8, FLAT)
-		end
-		if dist >= range + D * 4 then
-			stopped = true
-			return true
-		end
-		return
-	end, function()
-		g:Destroy()
-		for _, e in ipairs(carrier:GetChildren()) do
-			if e:IsA("ParticleEmitter") then
-				e.Enabled = false
-			end
-		end
-		task.delay(1.2, function()
-			carrier:Destroy()
-		end)
-	end)
-	shot.stop = function()
-		stopped = true
-	end
-	return shot :: Shot
-end
-
--- Double detonation, a mushroom column with a fire cap, flaming rocks arcing out, a burning field
--- of flame tongues and long lava cracks; heavy shake and a red flash.
-local function explodeF(pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, stage: number)
-	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
-	local u, v = basis(n)
-	local function burst(scale: number, delay: number)
-		task.delay(delay, function()
-			puff(pos, Vector3.zero, R * 0.3 * scale, R * 1.2 * scale, ORG, RED, 0.25, nil, 0.3)
-			fireCluster(pos, n, R * scale, 16 + math.floor(power * 6), { ORG, RED, ORG }, { CRIMSON, CRIMSON, Color3.fromRGB(90, 0, 15) }, BLK, 1, 1)
-			local rays = group(CRIMSON)
-			for _ = 1, 12 do
-				local d = hemi(n, 0.35)
-				local ws = spikeParts(ORG, rays)
-				local len = R * scale * rng:NextNumber(1.6, 2.6)
-				local hw = R * scale * rng:NextNumber(0.16, 0.28)
-				placeSpike(ws, pos, d, 0.05, 0.05)
-				job(0.55, function(k)
-					placeSpike(ws, pos + d * R * 0.15, d, len * outQuart(math.min(k / 0.25, 1)), hw * (if k < 0.25 then 1 else 1 - (k - 0.25) / 0.75))
-					return
-				end)
-			end
-			task.delay(0.6, function()
-				rays:Destroy()
-			end)
-		end)
-	end
-	burst(1, 0)
-	if stage >= 2 then
-		burst(1.35, 0.25)
-	end
-
-	-- Mushroom: stem of stacked blobs + a cap of balls spreading at the top.
-	local col = group(BLK)
-	local stem, cap = {}, {}
-	for i = 1, (if stage >= 3 and not textured() then 7 else 0) do
-		stem[i] = blob(if i % 2 == 0 then RED else ORG, col)
-	end
-	for i = 1, (if stage >= 3 and not textured() then 11 else 0) do
-		cap[i] = ball(if i % 3 == 0 then CRIMSON else RED, col)
-	end
-	local H = R * (2.4 + power)
-	job(1.6, function(k, t)
-		local rise = outQuart(math.min(k / 0.45, 1))
-		local fade = if k > 0.6 then 1 - (k - 0.6) / 0.4 else 1
-		local dark = math.max(0, (k - 0.45) / 0.55)
-		for i, b in ipairs(stem) do
-			local f = i / #stem
-			local sz = math.max(R * 0.42 * fade * (1 - 0.3 * f), 0.05)
-			b.Size = Vector3.new(sz, sz * 1.4, sz)
-			b.CFrame = CFrame.lookAt(pos + n * H * f * rise, pos + n * H * f * rise + u, n)
-			b.Color = (if i % 2 == 0 then RED else ORG):Lerp(SMOKE, dark)
-		end
-		local top = pos + n * H * rise
-		for i, b in ipairs(cap) do
-			local sz = math.max(R * 0.5 * fade, 0.05)
-			b.Size = Vector3.one * sz
-			if i == #cap then
-				b.Position = top + n * R * 0.2
-			else
-				local a = i / (#cap - 1) * math.pi * 2 + t
-				b.Position = top + (u * math.cos(a) + v * math.sin(a)) * R * 0.85 * rise
-			end
-			b.Color = (if i % 3 == 0 then CRIMSON else RED):Lerp(SMOKE, dark)
-		end
-		return
-	end)
-	task.delay(1.65, function()
-		col:Destroy()
-	end)
-
-	ring(pos, n, 0.5, function(k)
-		return R * lerp(0.3, 2.6, outQuart(k))
-	end, function(k)
-		return R * 0.22 * (1 - k)
-	end, ORG, 36)
-	ring(pos, n, 0.6, function(k)
-		return R * lerp(0.3, 3.2, outQuart(k))
-	end, function(k)
-		return R * 0.12 * (1 - k)
-	end, CRIMSON, 36, 0.25)
-	local dome = ball(RED, nil, FIELD)
-	dome.Transparency = if stage >= 3 then 0 else 1
-	job(0.7, function(k)
-		if stage < 3 then
-			dome.Transparency = 1
-			return
-		end
-		dome.Size = Vector3.one * R * lerp(0.5, 2.8, outQuart(k))
-		dome.Position = pos
-		dome.Transparency = if k > 0.5 then (k - 0.5) / 0.5 else 0
-		return
-	end, function()
-		dome:Destroy()
-	end)
-
-	-- Flaming rocks: dark chunks arcing out, each trailing fire puffs.
-	for _ = 1, (if stage >= 2 then 12 else 0) do
-		local p = newPart(ROCK, nil, FLAT)
-		local s = R * rng:NextNumber(0.08, 0.15)
-		local vel = hemi(n, 0.6) * R * rng:NextNumber(2, 3.2)
-		local x = pos
-		local acc = 0
-		job(1.3, function(k, _, dt)
-			vel -= Vector3.new(0, R * 4 * dt, 0)
-			x += vel * dt
-			p.Size = Vector3.one * s * (if k > 0.7 then 1 - (k - 0.7) / 0.3 else 1)
-			p.CFrame = CFrame.new(x) * CFrame.Angles(k * 9, k * 7, 0)
-			acc += dt
-			if acc > 0.03 then
-				acc = 0
-				puff(x, Vector3.zero, s * 1.6, s * 0.3, ORG, CRIMSON, 0.3, nil, 0.6)
-			end
-			return
-		end, function()
-			p:Destroy()
-		end)
-	end
-	for i = 1, 40 do
-		chunk(pos, hemi(n, 0.2) * R * rng:NextNumber(2, 3.8), Vector3.one * R * rng:NextNumber(0.02, 0.05), if i % 3 == 0 then CRIMSON else ORG, rng:NextNumber(0.5, 1), R * 3)
-	end
-	task.delay(0.2, function()
-		for _ = 1, 14 do
-			local o = hemi(n, 0.4) * R * rng:NextNumber(0.3, 0.8)
-			puff(pos + o, n * R * 1.1 + o * 0.6, R * 0.4, R * rng:NextNumber(0.8, 1.1), BLK, SMOKE, rng:NextNumber(1.4, 2), FLAT, 0.45)
-		end
-	end)
-
-	if grounded and stage >= 2 then
-		-- Burning field: two rings of flame tongues.
-		local flames = group(CRIMSON)
-		for ringI, radius in ipairs(if stage >= 3 then { 0.65, 1.25 } else {}) do
-			local N = if ringI == 1 then 12 else 20
-			for i = 1, N do
-				local a = i / N * math.pi * 2 + ringI
-				local base = pos + (u * math.cos(a) + v * math.sin(a)) * R * radius
-				local tan = -u * math.sin(a) + v * math.cos(a)
-				local outer, inner = blob(RED, flames), blob(ORG, flames)
-				job(2.2, function(k, t)
-					local env = outBack(math.min(k / 0.15, 1)) * (if k > 0.65 then 1 - (k - 0.65) / 0.35 else 1)
-					local h = R * (0.38 + 0.16 * math.sin(t * 16 + i * 1.3)) * math.max(env, 0.01)
-					local w = R * 0.18 * math.max(env, 0.01)
-					local c = base + n * h / 2
-					outer.Size = Vector3.new(w, h, w)
-					outer.CFrame = CFrame.lookAt(c, c + tan, n)
-					inner.Size = Vector3.new(w * 0.55, h * 0.7, w * 0.55)
-					inner.CFrame = CFrame.lookAt(c - n * h * 0.12, c - n * h * 0.12 + tan, n)
-					return
-				end)
-			end
-		end
-		task.delay(2.3, function()
-			flames:Destroy()
-		end)
-		-- Long lava cracks.
-		local cracks = {}
-		for c = 1, 12 do
-			local a = c / 12 * math.pi * 2 + rng:NextNumber(-0.25, 0.25)
-			local d = u * math.cos(a) + v * math.sin(a)
-			local x = pos + n * 0.15
-			for i = 1, 8 do
-				local ang = rng:NextNumber(-0.5, 0.5)
-				local d2 = (d * math.cos(ang) + n:Cross(d) * math.sin(ang)).Unit
-				local L = R * rng:NextNumber(0.18, 0.3)
-				local y = x + d2 * L
-				local p = newPart(ORG)
-				p.Size = Vector3.new(R * 0.05 * (1 - i * 0.08), 0.15, L)
-				p.CFrame = CFrame.lookAt((x + y) / 2, y, n)
-				p.Transparency = 1
-				table.insert(cracks, { p = p, i = i })
-				x, d = y, d2
-			end
-		end
-		job(2.6, function(k)
-			for _, cr in ipairs(cracks) do
-				cr.p.Transparency = if k < cr.i * 0.025 then 1 elseif k > 0.55 then (k - 0.55) / 0.45 else 0
-				cr.p.Color = ORG:Lerp(CRIMSON, k)
-			end
-			return
-		end, function()
-			for _, cr in ipairs(cracks) do
-				cr.p:Destroy()
-			end
-		end)
-	end
-	impulse(pos, R, 2.2 + 1.5 * power, 0.6, RED)
-end
-
--- Textured explosion layers (on top of the geometry layers above) ---------------------------------
-local function texExplodeR(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
-	billboard(pos, R * 2.6, "explosion_orange_4x4", 0.75)
-	for i = 1, (if stage >= 3 then 7 elseif stage == 2 then 4 else 1) do
-		billboard(pos + hemi(n, 0.5) * R * 0.6, R * rng:NextNumber(1, 1.5), "explosion_orange_4x4", rng:NextNumber(0.6, 0.85), nil, rng:NextNumber(0, 360), i * 0.04)
-	end
-	plate(pos + n * 0.3, n, "shock_ring", ORG, 0.5, R * 0.4, R * 4.2, 2, 0.4)
-	if stage >= 2 then plate(pos + n * 0.35, n, "shock_ring", CRIMSON, 0.6, R * 0.3, R * 3.2, -2, 0.4, 0.08) end
-	if grounded and stage >= 2 then
-		plate(pos + n * 0.15, n, "crack_burst", WHITE, 2.6, R * 1.4, R * 2.6, 0, 0.6)
-	end
-	burstAt(pos, "spark_star", 15 * stage + math.floor(power * 15), {
-		Lifetime = NumberRange.new(0.5, 0.9),
-		Speed = NumberRange.new(R * 2, R * 4),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(R * 0.22, 0),
-		Color = ColorSequence.new(ORG, RED),
-		Drag = 3,
-		RotSpeed = NumberRange.new(-300, 300),
-	})
-	burstAt(pos, "smoke_2x2", 10, {
-		Lifetime = NumberRange.new(1.2, 1.8),
-		Speed = NumberRange.new(R * 0.4, R),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(R * 0.5, R * 1.2),
-		Transparency = NumberSequence.new(0, 1),
-		Acceleration = n * R * 0.5,
-		Drag = 2,
-		Rotation = NumberRange.new(0, 360),
-	})
-end
-
-local function texExplodeQ(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
-	task.delay(0.14, function()
-		billboard(pos, R * 2.8, "explosion_violet_4x4", 0.8)
-		for i = 1, (if stage >= 3 then 5 elseif stage == 2 then 3 else 0) do
-			billboard(pos + hemi(n, 0.4) * R * 0.7, R * rng:NextNumber(1, 1.6), "explosion_violet_4x4", rng:NextNumber(0.6, 0.9), nil, rng:NextNumber(0, 360), i * 0.05)
-		end
-		for i = 1, (if stage >= 2 then 6 + math.floor(power * 4) else 2) do
-			billboard(pos + randUnit() * R * 0.3, R * rng:NextNumber(1.6, 2.6), "slash_arc", 0.45, if i % 2 == 0 then PINK else VIOLET, rng:NextNumber(0, 360), rng:NextNumber(0, 0.12), rng:NextNumber(-260, 260), 1.6)
-		end
-		plate(pos + n * 0.3, n, "shock_ring", VIOLET, 0.55, R * 0.4, R * 4, 2.5, 0.4)
-		if grounded and stage >= 3 then
-			plate(pos + n * 0.2, n, "sigil", PINK, 1.9, R * 2.2, R * 2.6, 1.2, 0.6)
-		end
-		for i = 1, (if stage >= 3 then 8 elseif stage == 2 then 4 else 0) do
-			local b = tbeam("beam_lightning", if i % 2 == 0 then PINK else VIOLET, R * 0.12, 8, true)
-			if b then
-				local d0 = randUnit()
-				local acc = 1
-				job(0.35, function(_, _, dt)
-					acc += dt
-					if acc > 0.05 then
-						acc = 0
-						d0 = (d0 + randUnit() * 0.6).Unit
-						b.set(pos, pos + d0 * R * rng:NextNumber(1.2, 2))
-					end
-					return
-				end, b.destroy)
-			end
-		end
-		burstAt(pos, "spark_star", 40, {
-			Lifetime = NumberRange.new(0.5, 0.9),
-			Speed = NumberRange.new(R * 2, R * 4),
-			SpreadAngle = Vector2.new(180, 180),
-			Size = NumberSequence.new(R * 0.22, 0),
-			Color = ColorSequence.new(PINK, VIOLET),
-			Drag = 3,
-			RotSpeed = NumberRange.new(-300, 300),
-		})
-		burstAt(pos, "smoke_2x2", 10, {
-			Lifetime = NumberRange.new(1.1, 1.6),
-			Speed = NumberRange.new(R * 0.4, R),
-			SpreadAngle = Vector2.new(180, 180),
-			Size = NumberSequence.new(R * 0.5, R * 1.2),
-			Color = ColorSequence.new(Color3.fromRGB(200, 150, 255)),
-			Transparency = NumberSequence.new(0, 1),
-			Acceleration = n * R * 0.6,
-			Drag = 2,
-			Rotation = NumberRange.new(0, 360),
-		})
-	end)
-end
-
-local function texExplodeF(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
-	for i = 1, (if stage >= 3 then 7 elseif stage == 2 then 4 else 2) do
-		billboard(pos + hemi(n, 0.6) * R * rng:NextNumber(0, 0.8), R * rng:NextNumber(1.6, 2.8), "explosion_crimson_4x4", rng:NextNumber(0.7, 1), nil, rng:NextNumber(0, 360), (i - 1) * 0.06)
-	end
-	if stage >= 3 then
-		billboard(pos + n * R * 2.2, R * 3, "explosion_crimson_4x4", 1.1, nil, 0, 0.35)
-	end
-	plate(pos + n * 0.3, n, "shock_ring", ORG, 0.55, R * 0.5, R * 5, 2, 0.4)
-	if stage >= 2 then plate(pos + n * 0.35, n, "shock_ring", CRIMSON, 0.65, R * 0.5, R * 6, -1.5, 0.4, 0.25) end
-	if grounded and stage >= 2 then
-		plate(pos + n * 0.15, n, "crack_burst", WHITE, 3, R * 2, R * 3.6, 0, 0.65)
-		local u, v = basis(n)
-		for _ = 1, (if stage >= 3 then 10 else 0) do
-			local a = rng:NextNumber(0, math.pi * 2)
-			local at = pos + (u * math.cos(a) + v * math.sin(a)) * R * rng:NextNumber(0.4, 1.3)
-			local p = newPart(WHITE)
-			p.Transparency = 1
-			p.Size = Vector3.one * R * 0.3
-			p.CFrame = CFrame.lookAt(at, at + u, n)
-			local e = emitter(p, "flame_crimson_4x4", {
-				Rate = 18,
-				Lifetime = NumberRange.new(0.4, 0.7),
-				Speed = NumberRange.new(R * 0.1, R * 0.3),
-				EmissionDirection = Enum.NormalId.Top,
-				SpreadAngle = Vector2.new(10, 10),
-				Size = NumberSequence.new(R * 0.55, R * 0.2),
-			})
-			if not e then
-				p:Destroy()
-				break
-			end
-			task.delay(1.8, function()
-				e.Enabled = false
-			end)
-			task.delay(2.6, function()
-				p:Destroy()
-			end)
-		end
-	end
-	burstAt(pos, "spark_star", 50, {
-		Lifetime = NumberRange.new(0.6, 1.1),
-		Speed = NumberRange.new(R * 2, R * 4.5),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(R * 0.25, 0),
-		Color = ColorSequence.new(ORG, RED),
-		Drag = 3,
-		RotSpeed = NumberRange.new(-300, 300),
-	})
-	burstAt(pos, "smoke_2x2", 16, {
-		Lifetime = NumberRange.new(1.6, 2.4),
-		Speed = NumberRange.new(R * 0.5, R * 1.3),
-		SpreadAngle = Vector2.new(180, 180),
-		Size = NumberSequence.new(R * 0.7, R * 1.8),
-		Transparency = NumberSequence.new(0, 1),
-		Acceleration = n * R * 0.6,
-		Drag = 2,
-		Rotation = NumberRange.new(0, 360),
-	})
-end
-
--- Transform-style layers (same language as the West transform: streaks, swept ribbons, shard
--- starbursts, camera punch) --------------------------------------------------------------------
-local STYLE = {
-	R = { lines = { YEL, ORG, WHITE }, shards = { YEL, WHITE, ORG }, ribbon = "beam_flame_orange", outline = RED },
-	Q = { lines = { PINK, VIOLET, WHITE }, shards = { PINK, VIOLET, WHITE }, ribbon = "beam_flame_violet", outline = DEEP },
-	F = { lines = { ORG, RED, YEL }, shards = { ORG, YEL, RED }, ribbon = "beam_flame_orange", outline = CRIMSON },
-}
 
 -- Speed-line streaks: thin neon slivers shooting radially outward, long then gone.
 local function speedLines(pos: Vector3, n: Vector3, R: number, count: number, cols: { Color3 })
@@ -2265,114 +728,6 @@ local function bullseye(pos: Vector3, n: Vector3, R: number)
 	end)
 end
 
-local function styleLayers(move: string, pos: Vector3, n: Vector3, R: number, stage: number, grounded: boolean)
-	local st = STYLE[move] or STYLE.R
-	starburst(pos, R, st.shards, st.outline, 6 + 4 * stage)
-	bigRays(pos, n, R, 3 + 3 * stage, YEL, ORG)
-	if grounded then
-		bullseye(pos, n, R)
-	end
-	-- orange embers drifting up from the blast
-	for i = 1, 8 * stage do
-		chunk(pos + randUnit() * R * 0.3, hemi(n, 0.3) * R * rng:NextNumber(0.6, 1.6), Vector3.one * R * rng:NextNumber(0.025, 0.05), if i % 3 == 0 then YEL else ORG, rng:NextNumber(1, 1.8), -R * 0.8)
-	end
-	speedLines(pos, n, R, 10 + 10 * stage, st.lines)
-	if stage >= 2 then
-		ribbons(pos, n, R, if stage >= 3 then 8 else 4, st.ribbon)
-	end
-	if move == "F" and stage >= 3 and textured() then
-		-- mushroom column from explosion sprites instead of balls
-		for i = 1, 5 do
-			billboard(pos + n * R * 0.5 * i, R * (1.4 + 0.25 * i), "explosion_crimson_4x4", 0.9, nil, rng:NextNumber(0, 360), 0.1 + i * 0.07)
-		end
-	end
-end
-
-
--- Dispatch by move key ("R", "Q", "F").
--- Comet layer, shared by every projectile: thick yellow cone rays raking backward (orange outline),
--- thin red/orange speed streaks, and cream-yellow swept tendril ribbons spiralling behind.
-local function cometLayer(shot: Shot, dir: Vector3, D: number, move: string)
-	local g = group(ORG)
-	local rays = {}
-	for i = 1, 5 do
-		rays[i] = spikeParts(if i % 2 == 0 then YEL else ORG, g)
-	end
-	local streaks = {}
-	for i = 1, 6 do
-		local p = newPart(if i % 3 == 0 then RED elseif i % 3 == 1 then ORG else YEL)
-		streaks[i] = { p = p, a = rng:NextNumber(0, 6.3), r = rng:NextNumber(0.5, 1.1), ph = rng:NextNumber(0, 6) }
-	end
-	local tendrils = {}
-	local tex = (STYLE[move] or STYLE.R).ribbon
-	for _ = 1, 3 do
-		local b = tbeam(tex, WHITE, D * 0.6, -2, false)
-		if b then
-			table.insert(tendrils, b)
-		end
-	end
-	local u, v = basis(dir)
-	local stopped = false
-	local prev = shot.stop
-	shot.stop = function()
-		stopped = true
-		prev()
-	end
-	job(math.huge, function(_, t)
-		if stopped then
-			return true
-		end
-		local pos = shot.pos
-		for i, sp in ipairs(rays) do
-			local a = i / #rays * math.pi * 2 + t * 2
-			local radial = u * math.cos(a) + v * math.sin(a)
-			local d2 = (-dir * 1.4 + radial * 0.45).Unit
-			local L = D * (2.2 + 0.7 * math.sin(t * 17 + i * 2))
-			placeSpike(sp, pos + radial * D * 0.3 + d2 * L, -d2, L, D * 0.28)
-		end
-		for _, st in ipairs(streaks) do
-			local a = st.a + t * 1.2
-			local radial = u * math.cos(a) + v * math.sin(a)
-			local L = D * (1.6 + 1.2 * math.sin(t * 9 + st.ph))
-			local at = pos + radial * D * st.r - dir * D * 0.4
-			st.p.Size = Vector3.new(D * 0.03, D * 0.03, math.max(L, 0.05))
-			st.p.CFrame = CFrame.lookAt(at - dir * L / 2, at)
-		end
-		for i, b in ipairs(tendrils) do
-			local a = t * 3 + i / #tendrils * math.pi * 2
-			local radial = u * math.cos(a) + v * math.sin(a)
-			local far = pos - dir * D * 5 + radial * D * 1.4
-			b.set(pos + radial * D * 0.5, far)
-			b.beam.CurveSize0 = D * 1.2 * math.sin(t * 4 + i)
-			b.beam.CurveSize1 = -D * 0.8
-			b.beam.Width0, b.beam.Width1 = D * 0.5, D * 0.05
-			b.beam.Transparency = NumberSequence.new(0.35)
-		end
-		return
-	end, function()
-		g:Destroy()
-		for _, st in ipairs(streaks) do
-			st.p:Destroy()
-		end
-		for _, b in ipairs(tendrils) do
-			b.destroy()
-		end
-	end)
-end
-
-function FX.projectile(move: string, origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
-	local shot: Shot
-	if move == "Q" then
-		shot = projectileQ(origin, dir, speed, D, t0, range, power)
-	elseif move == "F" then
-		shot = projectileF(origin, dir, speed, D, t0, range, power)
-	else
-		shot = projectileR(origin, dir, speed, D, t0, range, power)
-	end
-	cometLayer(shot, dir, D, move)
-	return shot
-end
-
 -- FAILED shot (backfire): a weak, sooty, sputtering blast. Dark/black palette, no rays or bright
 -- rings: a dull pop, billowing black smoke, ash flakes, dim sparks dropping, inward black streaks,
 -- a few cracked-ash plates and a dark screen flash.
@@ -2466,25 +821,821 @@ local function explodeFail(pos: Vector3, normal: Vector3, R: number, power: numb
 	end
 end
 
-function FX.explode(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, failed: boolean?)
+-- =================================================================================================
+-- WEST MOVES: R / Q / F (charge, muzzle, projectile, explosion).
+-- Built only from the West transform's language: flat solid band/streak rings (untextured beams that
+-- wrap or lie flat), thick yellow cone rays with orange cel outline, shard starbursts, black ink
+-- spikes + white-out, a black dome with glowing jagged cracks, a fire ring with flame tongues, navy
+-- debris cubes and curling pink/purple flares. Almost no coloured balls.
+-- Public API: FX.charge / FX.muzzle / FX.projectile / FX.explode (failed shots use explodeFail).
+-- =================================================================================================
+
+type FB = { a0: Attachment, a1: Attachment, b: Beam }
+local function fbeams(n: number, color: Color3, bright: number?): { FB }
+	local t: { FB } = {}
+	for i = 1, n do
+		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+		a0.Parent, a1.Parent = workspace.Terrain, workspace.Terrain
+		local b = Instance.new("Beam")
+		b.Attachment0, b.Attachment1 = a0, a1
+		b.Color = ColorSequence.new(color)
+		b.LightEmission, b.LightInfluence, b.Brightness = 0, 0, bright or 2.2
+		b.FaceCamera, b.Segments = false, 10
+		b.Width0, b.Width1 = 0, 0
+		b.Enabled = false
+		b.Parent = workspace.Terrain
+		t[i] = { a0 = a0, a1 = a1, b = b }
+	end
+	return t
+end
+local function killBeams(bs: { FB })
+	for _, x in ipairs(bs) do
+		x.b:Destroy()
+		x.a0:Destroy()
+		x.a1:Destroy()
+	end
+end
+
+-- Arc of `span` rad around `center` in the plane with normal n. flat=false: the band stands along n
+-- (wraps a sphere, like the transform bands); flat=true: lies in the plane (disc ring).
+-- mode "tail": thick head, fading thinning tail (motion smear); "claw": pointed both ends (talon).
+local function arc(bs: { FB }, center: Vector3, n: Vector3, rad: number, w: number, a0: number, span: number, flat: boolean, alpha: number, mode: string?)
+	local u, v = basis(n)
+	local N = #bs
+	local th = span / N
+	local k = 4 / 3 * math.tan(th / 4) * rad
+	local base = 1 - alpha
+	for i, x in ipairs(bs) do
+		local s0, s1 = a0 - (i - 1) * th, a0 - i * th
+		local r0 = u * math.cos(s0) + v * math.sin(s0)
+		local r1 = u * math.cos(s1) + v * math.sin(s1)
+		local d0 = u * math.sin(s0) - v * math.cos(s0)
+		local d1 = u * math.sin(s1) - v * math.cos(s1)
+		x.a0.WorldCFrame = CFrame.fromMatrix(center + r0 * rad, d0, if flat then r0 else n)
+		x.a1.WorldCFrame = CFrame.fromMatrix(center + r1 * rad, d1, if flat then r1 else n)
+		x.b.CurveSize0, x.b.CurveSize1 = k, k
+		local f0, f1 = (i - 1) / N, i / N
+		if mode == "claw" then
+			x.b.Width0, x.b.Width1 = w * math.sin(f0 * math.pi) + 0.02, w * math.sin(f1 * math.pi) + 0.02
+			x.b.Transparency = NumberSequence.new(base)
+		else
+			x.b.Width0, x.b.Width1 = w * (1 - 0.35 * f0), w * (1 - 0.35 * f1)
+			x.b.Transparency = NumberSequence.new(math.min(base + f0 * f0 * (1 - base), 1), math.min(base + f1 * f1 * (1 - base), 1))
+		end
+		x.b.Enabled = w > 0.03 and rad > 0.03 and alpha > 0.01
+	end
+end
+
+local function nearCam(pos: Vector3, R: number): number
+	return math.clamp(1 - (workspace.CurrentCamera.CFrame.Position - pos).Magnitude / (R * 9), 0, 1)
+end
+
+-- Black ink splat: flat black spikes, wide at the centre, pointed outward (the transform's ink).
+local function inkBurst(pos: Vector3, R: number, count: number, life: number)
+	local g = group(nil)
+	for _ = 1, count do
+		local ws = spikeParts(BLK, g)
+		for _, w in ipairs(ws) do
+			w.Material = FLAT
+		end
+		local d = randUnit()
+		local len = R * rng:NextNumber(0.6, 1.3)
+		job(life, function(k)
+			local L = len * outQuart(math.min(k / 0.25, 1))
+			placeSpike(ws, pos + d * L, -d, L, R * 0.24 * (1 - k))
+			return
+		end)
+	end
+	task.delay(life + 0.05, function()
+		g:Destroy()
+	end)
+end
+
+-- Standing band rings snapping outward around n (the transform's three yellow bands, exploding).
+local function bandSnap(pos: Vector3, n: Vector3, R: number, cols: { Color3 }, life: number)
+	for i, c in ipairs(cols) do
+		local bs = fbeams(6, c, 2.5)
+		local h = (i - 0.6) * R * 0.3
+		local s0, sp = rng:NextNumber(0, 6.3), rng:NextNumber(6, 10) * (if i % 2 == 0 then -1 else 1)
+		job(life, function(k, t)
+			local rad = R * lerp(0.2, 1.3, outQuart(k))
+			arc(bs, pos + n * h * (1 - 0.4 * k), n, rad, R * 0.24 * (1 - k) ^ 0.7, s0 + t * sp, math.pi * 1.9, false, 1 - k * k)
+			return
+		end, function()
+			killBeams(bs)
+		end)
+	end
+end
+
+-- Flat shock band: a solid disc ring racing outward along the ground/plane.
+local function shockBand(pos: Vector3, n: Vector3, r0: number, r1: number, w: number, col: Color3, life: number, delay: number?)
+	local bs = fbeams(8, col, 2.5)
+	local d = delay or 0
+	job(life + d, function(_, t)
+		if t < d then
+			return
+		end
+		local k = math.clamp((t - d) / life, 0, 1)
+		arc(bs, pos + n * 0.2, n, lerp(r0, r1, outQuart(k)), w * (1 - k), t * 3, math.pi * 2, true, 1 - k)
+		return
+	end, function()
+		killBeams(bs)
+	end)
+end
+
+-- Curling flare ribbons (the transform's purple/pink flares).
+local function flares(pos: Vector3, n: Vector3, R: number, count: number, cols: { Color3 }, life: number)
+	for i = 1, count do
+		local x = fbeams(1, cols[(i - 1) % #cols + 1], 2.4)[1]
+		x.b.FaceCamera = true
+		local d = hemi(n, 0.7)
+		local curl = rng:NextNumber(0.5, 1) * (if i % 2 == 0 then 1 else -1)
+		local L = R * rng:NextNumber(0.9, 1.6)
+		local w = R * rng:NextNumber(0.1, 0.17)
+		local dl = rng:NextNumber(0, 0.12)
+		local roll = rng:NextNumber(0, 6.3)
+		job(life + dl, function(_, t)
+			if t < dl then
+				return
+			end
+			local k = math.clamp((t - dl) / life, 0, 1)
+			local len = L * outQuart(math.min(k / 0.35, 1))
+			local p0 = pos + d * R * 0.15
+			local tip = p0 + d * len + n * len * 0.3
+			x.a0.WorldCFrame = CFrame.lookAt(p0, tip) * CFrame.Angles(0, 0, roll)
+			x.a1.WorldCFrame = CFrame.lookAt(tip, tip + (tip - p0)) * CFrame.Angles(0, 0, roll)
+			x.b.CurveSize0, x.b.CurveSize1 = len * 0.45 * curl, -len * 0.3 * curl
+			x.b.Width0, x.b.Width1 = w * (1 - 0.5 * k), w * 0.08
+			x.b.Transparency = NumberSequence.new(if k > 0.55 then (k - 0.55) / 0.45 else 0)
+			x.b.Enabled = len > 0.05
+			return
+		end, function()
+			killBeams({ x })
+		end)
+	end
+end
+
+-- Fire ring: red/orange lava band on the ground + flame-tongue flipbooks standing around it.
+local function fireRing(pos: Vector3, n: Vector3, rad: number, flameTex: string, life: number, count: number)
+	shockBand(pos, n, rad * 0.4, rad, rad * 0.16, RED, life)
+	shockBand(pos, n, rad * 0.35, rad * 0.94, rad * 0.08, ORG, life)
+	local u, v = basis(n)
+	for i = 1, count do
+		local a = i / count * math.pi * 2 + rng:NextNumber(-0.1, 0.1)
+		local p = pos + (u * math.cos(a) + v * math.sin(a)) * rad
+		local s = rad * rng:NextNumber(0.3, 0.5)
+		billboard(p + n * s * 0.4, s, flameTex, life * rng:NextNumber(0.55, 0.9), nil, rng:NextNumber(-12, 12), rng:NextNumber(0.05, 0.3))
+	end
+end
+
+-- Navy debris cubes (transform aftermath).
+local function cubes(pos: Vector3, n: Vector3, R: number, count: number)
+	for _ = 1, count do
+		chunk(pos + n * R * 0.2, hemi(n, 0.6) * R * rng:NextNumber(1.6, 3.2), Vector3.one * R * rng:NextNumber(0.06, 0.13), NAVY, rng:NextNumber(1.1, 1.7), R * 3, FLAT)
+	end
+end
+
+-- Jagged crack network on a sphere (unit-space segments; placed per frame with any rotation).
+type Crack = { a: Vector3, b: Vector3, o: Part, y: Part, t: number }
+local function crackNet(clusters: number, steps: number, parent: Instance): { Crack }
+	local out: { Crack } = {}
+	for c = 1, clusters do
+		local p = randUnit()
+		local h = randUnit()
+		h = (h - p * h:Dot(p)).Unit
+		local function walk(up: Vector3, head: Vector3, n: number, depth: number)
+			for s = 1, n do
+				local tan = (head - up * head:Dot(up)).Unit
+				head = (tan + up:Cross(tan) * rng:NextNumber(-0.9, 0.9)).Unit
+				local st = rng:NextNumber(0.12, 0.24)
+				local np = (up * math.cos(st) + head * math.sin(st)).Unit
+				table.insert(out, { a = up, b = np, o = newPart(ORG, parent), y = newPart(YEL, parent), t = (c - 1) / clusters * 0.5 + s * 0.04 })
+				up = np
+				if depth == 0 and rng:NextNumber() < 0.3 then
+					walk(up, (head + up:Cross(head) * rng:NextNumber(-1.5, 1.5)).Unit, 2, 1)
+				end
+			end
+		end
+		walk(p, h, steps, 0)
+	end
+	return out
+end
+local function placeCracks(cr: { Crack }, center: Vector3, r: number, rot: CFrame, reveal: number, alpha: number)
+	for _, c in ipairs(cr) do
+		local vis = reveal >= c.t and alpha > 0.02
+		c.o.Transparency = if vis then 1 - alpha else 1
+		c.y.Transparency = c.o.Transparency
+		if vis then
+			local wa, wb = rot:VectorToWorldSpace(c.a), rot:VectorToWorldSpace(c.b)
+			local pa, pb = center + wa * r * 1.01, center + wb * r * 1.01
+			local mid = (pa + pb) / 2
+			local len = (pb - pa).Magnitude
+			local cf = CFrame.lookAt(mid, pb, (mid - center).Unit)
+			c.o.Size = Vector3.new(r * 0.075, r * 0.02, len + r * 0.03)
+			c.o.CFrame = cf
+			c.y.Size = Vector3.new(r * 0.035, r * 0.025, len + r * 0.015)
+			c.y.CFrame = cf * CFrame.new(0, r * 0.004, 0)
+		end
+	end
+end
+
+-- Inward speed lines converging on a point (charge).
+type InLine = { p: Part, d: Vector3, ph: number }
+local function inLines(count: number, cols: { Color3 }, parent: Instance): { InLine }
+	local t: { InLine } = {}
+	for i = 1, count do
+		t[i] = { p = newPart(cols[(i - 1) % #cols + 1], parent), d = randUnit(), ph = rng:NextNumber() }
+	end
+	return t
+end
+local function placeInLines(ls: { InLine }, pos: Vector3, D: number, t: number, rate: number)
+	for _, l in ipairs(ls) do
+		local f = (t * rate + l.ph) % 1
+		local head = D * (0.35 + 2.6 * (1 - f))
+		local len = D * 0.9 * (1 - f) + 0.05
+		local a = pos + l.d * head
+		l.p.Size = Vector3.new(D * 0.035, D * 0.035, len)
+		l.p.CFrame = CFrame.lookAt(a + l.d * len / 2, a)
+		l.p.Transparency = if f > 0.85 then (f - 0.85) / 0.15 else 0
+	end
+end
+
+-- Raking comet rays behind a projectile.
+local function placeRake(rays: { { WedgePart } }, pos: Vector3, dir: Vector3, D: number, t: number, spread: number)
+	local u, v = basis(dir)
+	for i, sp in ipairs(rays) do
+		local a = i / #rays * math.pi * 2 + t * 2.2
+		local radial = u * math.cos(a) + v * math.sin(a)
+		local d2 = (-dir * 1.4 + radial * spread).Unit
+		local L = D * (2 + 0.7 * math.sin(t * 17 + i * 2))
+		placeSpike(sp, pos + radial * D * 0.25 + d2 * L, -d2, L, D * 0.26)
+	end
+end
+
+-- Shared projectile skeleton: position from server time so every client agrees.
+local function flight(origin: Vector3, dir: Vector3, speed: number, t0: number, range: number, D: number, frame: (Vector3, number, number) -> (), cleanup: () -> ()): Shot
+	local shot = { pos = origin } :: any
+	local stopped = false
+	job(math.huge, function(_, t, dt)
+		if stopped then
+			return true
+		end
+		local dist = math.min(speed * math.max(workspace:GetServerTimeNow() - t0, 0), range)
+		local pos = origin + dir * dist
+		shot.pos = pos
+		frame(pos, t, dt)
+		return
+	end, cleanup)
+	shot.stop = function()
+		stopped = true
+	end
+	return shot :: Shot
+end
+
+local function carrierPart(): Part
+	local c = newPart(ORG)
+	c.Transparency = 1
+	return c
+end
+
+-- ---------------------------------------------------------------------------------- R: HEATWAVE LANCE
+-- Charge: three yellow bands wrapping a white-hot diamond core, sun rays lengthening, streaks rushing in.
+-- Shot: an outlined yellow lance (diamond) wrapped by spinning smear bands, raking rays, flame trail.
+-- Blast: ink + white-out, bands snapping out, starburst, thick rays, shock band, fire ring, flares.
+local function chargeR3(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
+	local g = group(ORG)
+	local core = diamondParts(YEL, g)
+	local hot = diamondParts(WHITE, g)
+	local rays = {}
+	for i = 1, 6 do
+		rays[i] = spikeParts(if i % 2 == 0 then YEL else ORG, g)
+	end
+	local bands = { fbeams(5, YEL, 2.5), fbeams(5, ORG, 2.5), fbeams(5, YEL, 2.5) }
+	local lines = inLines(10, { YEL, ORG, WHITE }, root())
+	local fl = fbeams(2, PINK, 2.4)
+	for _, x in ipairs(fl) do
+		x.b.FaceCamera = true
+	end
+	local tilt = { CFrame.Angles(0.35, 0, 0), CFrame.Angles(-0.2, 0, 0.5), CFrame.Angles(0, 0, -0.45) }
+	return chargeBase(getMouth, t0, maxT, maxD, function(pos, fwd, D, c, t)
+		local cf = CFrame.lookAt(pos, pos + fwd)
+		placeDiamond(core, pos, fwd, D * (0.7 + 0.5 * c), D * 0.3)
+		placeDiamond(hot, pos, fwd, D * (0.4 + 0.3 * c), D * 0.14)
+		for i, bs in ipairs(bands) do
+			local n = (cf * tilt[i]).LookVector
+			arc(bs, pos, n, D * (0.75 - 0.15 * c), D * 0.16, t * (5 + i * 2) * (if i == 2 then -1 else 1), math.pi * (1.1 + 0.85 * c), false, 1)
+		end
+		local u, v = basis(fwd)
+		for i, sp in ipairs(rays) do
+			local a = i / #rays * math.pi * 2 + t * 1.5
+			local d = (u * math.cos(a) + v * math.sin(a) + fwd * 0.15).Unit
+			local L = D * (0.4 + 1.6 * c) * (1 + 0.15 * math.sin(t * 22 + i))
+			placeSpike(sp, pos + d * (D * 0.4 + L), -d, L, D * 0.2)
+		end
+		placeInLines(lines, pos, D, t, 1.6)
+		for i, x in ipairs(fl) do
+			local on = c >= 0.99 and math.sin(t * 30 + i * 2) > -0.2
+			x.b.Enabled = on
+			if on then
+				local d = (u * math.cos(t * 4 + i * 3) + v * math.sin(t * 4 + i * 3) + fwd * 0.3).Unit
+				local tip = pos + d * D * 1.6
+				x.a0.WorldCFrame = CFrame.lookAt(pos + d * D * 0.4, tip)
+				x.a1.WorldCFrame = CFrame.lookAt(tip, tip + d)
+				x.b.CurveSize0, x.b.CurveSize1 = D * 0.6, -D * 0.4
+				x.b.Width0, x.b.Width1 = D * 0.22, D * 0.02
+			end
+		end
+		if c >= 0.99 and rng:NextNumber() < 0.25 then
+			zap(pos, D * 0.9, WHITE)
+		end
+	end, function()
+		g:Destroy()
+		for _, bs in ipairs(bands) do
+			killBeams(bs)
+		end
+		killBeams(fl)
+		for _, l in ipairs(lines) do
+			l.p:Destroy()
+		end
+	end)
+end
+
+local function projectileR3(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
+	local g = group(ORG)
+	local lance = diamondParts(YEL, g)
+	local hot = diamondParts(WHITE, g)
+	local rays = {}
+	for i = 1, 4 do
+		rays[i] = spikeParts(if i % 2 == 0 then YEL else ORG, g)
+	end
+	local bands = { fbeams(5, YEL, 2.5), fbeams(5, ORG, 2.5), fbeams(4, YEL, 2.5) }
+	local streak = fbeams(4, PINK, 2.4)
+	local carrier = carrierPart()
+	local life = math.clamp(7 * D / speed, 0.12, 0.45)
+	trail(carrier, Vector3.new(0, D * 0.45, 0), Vector3.new(0, -D * 0.45, 0), FIRE_SEQ, life, "beam_flame_orange")
+	trail(carrier, Vector3.new(D * 0.45, 0, 0), Vector3.new(-D * 0.45, 0, 0), FIRE_SEQ, life, "beam_flame_orange")
+	emitter(carrier, "flame_orange_4x4", {
+		Rate = 60,
+		Lifetime = NumberRange.new(0.2, 0.35),
+		Speed = NumberRange.new(D, D * 3),
+		EmissionDirection = Enum.NormalId.Back,
+		SpreadAngle = Vector2.new(20, 20),
+		Size = NumberSequence.new(D * 0.9, D * 0.2),
+		Rotation = NumberRange.new(-30, 30),
+	})
+	local emberAcc = 0
+	return flight(origin, dir, speed, t0, range, D, function(pos, t, dt)
+		local cf = CFrame.lookAt(pos, pos + dir)
+		carrier.CFrame = cf
+		placeDiamond(lance, pos - dir * D * 0.2, dir, D * 1.9, D * 0.42)
+		placeDiamond(hot, pos - dir * D * 0.1, dir, D * 1.1, D * 0.2)
+		for i, bs in ipairs(bands) do
+			arc(bs, pos - dir * D * (i - 1) * 0.35, dir, D * (0.62 - 0.08 * i), D * 0.2, t * 14 * (if i == 2 then -1 else 1) + i, math.pi * 1.5, false, 1)
+		end
+		local tiltN = (cf * CFrame.Angles(0.5, 0, 0)).LookVector
+		arc(streak, pos - dir * D * 0.3, tiltN, D * 0.85, D * 0.08, -t * 16, math.pi * 1.2, true, 0.9)
+		placeRake(rays, pos, dir, D, t, 0.45)
+		emberAcc += dt
+		while emberAcc > 0.03 do
+			emberAcc -= 0.03
+			chunk(pos + randUnit() * D * 0.4, -dir * speed * 0.06 + randUnit() * D * 3, Vector3.new(D * 0.06, D * 0.06, D * 0.3), if rng:NextNumber() < 0.5 then YEL else ORG, 0.3, 0)
+		end
+	end, function()
+		g:Destroy()
+		for _, bs in ipairs(bands) do
+			killBeams(bs)
+		end
+		killBeams(streak)
+		task.delay(0.6, function()
+			carrier:Destroy()
+		end)
+	end)
+end
+
+local function explodeR3(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
+	local near = nearCam(pos, R)
+	if near > 0 then
+		FX.flash(0.55 * near, 0.25, WHITE)
+		FX.shake(near * (0.5 + 0.6 * power))
+	end
+	fovKick(pos, R, 5 + 4 * stage)
+	inkBurst(pos, R * 0.9, 10 + 4 * stage, 0.22)
+	starburst(pos, R, { YEL, WHITE, ORG }, RED, 8 + 4 * stage)
+	bandSnap(pos, n, R, if stage >= 2 then { YEL, ORG, YEL } else { YEL, ORG }, 0.42)
+	bigRays(pos, n, R, 4 + 3 * stage, YEL, ORG)
+	shockBand(pos, n, R * 0.3, R * 2.3, R * 0.2, YEL, 0.4)
+	shockBand(pos, n, R * 0.2, R * 1.7, R * 0.12, ORG, 0.5, 0.05)
+	speedLines(pos, n, R, 12 + 8 * stage, { YEL, ORG, WHITE })
+	for i = 1, 2 + 2 * stage do
+		billboard(pos + hemi(n, 0.6) * R * rng:NextNumber(0, 0.5), R * rng:NextNumber(1.1, 1.7), "explosion_orange_4x4", rng:NextNumber(0.5, 0.75), nil, rng:NextNumber(0, 360), (i - 1) * 0.04)
+	end
+	if grounded then
+		bullseye(pos, n, R)
+		fireRing(pos, n, R * 1.05, "flame_orange_4x4", 1.1 + 0.3 * stage, 10 + 4 * stage)
+		plate(pos + n * 0.15, n, "crack_burst", ORG, 1.6, R * 1.2, R * 1.8, 0, 0.55)
+	end
+	if stage >= 2 then
+		cubes(pos, n, R, 4 * stage)
+		flares(pos, n, R, 2 * stage, { PINK, PURPLE }, 0.6)
+	end
+	if stage >= 3 then
+		ribbons(pos, n, R, 6, "beam_flame_orange")
+	end
+	for i = 1, 6 * stage do
+		chunk(pos + randUnit() * R * 0.3, hemi(n, 0.3) * R * rng:NextNumber(0.6, 1.6), Vector3.one * R * rng:NextNumber(0.025, 0.05), if i % 3 == 0 then YEL else ORG, rng:NextNumber(1, 1.8), -R * 0.8)
+	end
+end
+
+-- -------------------------------------------------------------------------------- Q: VIOLET TALON
+-- Charge: counter-rotating pink/violet claw crescents around a pink slit eye, flares licking off.
+-- Shot: a spinning disc of claw crescents (a thrown talon wheel) with crossed slashes, violet flames.
+-- Blast: black ink + pink flash, three giant claw-slash scars across the view, violet flares
+-- curling up, violet shock band + sigil on the ground, diamond shards.
+local function chargeQ3(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
+	local g = group(DEEP)
+	local eye = diamondParts(PINK, g)
+	local claws = { fbeams(5, PINK, 2.4), fbeams(5, VIOLET, 2.4), fbeams(5, PINK, 2.4), fbeams(5, VIOLET, 2.4) }
+	local lines = inLines(9, { PINK, VIOLET, WHITE }, root())
+	local fl = fbeams(3, PURPLE, 2.4)
+	for _, x in ipairs(fl) do
+		x.b.FaceCamera = true
+	end
+	return chargeBase(getMouth, t0, maxT, maxD, function(pos, fwd, D, c, t)
+		local u, v = basis(fwd)
+		placeDiamond(eye, pos, v, D * (0.6 + 0.6 * c), D * 0.12)
+		for i, bs in ipairs(claws) do
+			local dirSign = if i % 2 == 0 then -1 else 1
+			arc(bs, pos, fwd, D * (0.55 + 0.1 * i) * (1.1 - 0.25 * c), D * (0.12 + 0.1 * c), t * 6 * dirSign + i * 1.6, math.pi * (0.55 + 0.25 * c), true, 1, "claw")
+		end
+		placeInLines(lines, pos, D, t, 1.4)
+		for i, x in ipairs(fl) do
+			local on = c > 0.4 and math.sin(t * 18 + i * 2.1) > 0
+			x.b.Enabled = on
+			if on then
+				local a = t * 3 + i * 2.1
+				local d = (u * math.cos(a) + v * math.sin(a) + fwd * 0.2).Unit
+				local L = D * (0.8 + 0.9 * c)
+				local tip = pos + d * (D * 0.5 + L)
+				x.a0.WorldCFrame = CFrame.lookAt(pos + d * D * 0.5, tip)
+				x.a1.WorldCFrame = CFrame.lookAt(tip, tip + d)
+				x.b.CurveSize0, x.b.CurveSize1 = L * 0.5, -L * 0.3
+				x.b.Width0, x.b.Width1 = D * 0.2, D * 0.02
+			end
+		end
+		if c >= 0.99 and rng:NextNumber() < 0.2 then
+			zap(pos, D * 0.9, PINK)
+		end
+	end, function()
+		g:Destroy()
+		for _, bs in ipairs(claws) do
+			killBeams(bs)
+		end
+		killBeams(fl)
+		for _, l in ipairs(lines) do
+			l.p:Destroy()
+		end
+	end)
+end
+
+local function projectileQ3(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
+	local g = group(DEEP)
+	local eye = diamondParts(PINK, g)
+	local rays = {}
+	for i = 1, 3 do
+		rays[i] = spikeParts(if i % 2 == 0 then PINK else VIOLET, g)
+	end
+	local wheel = { fbeams(5, PINK, 2.4), fbeams(5, VIOLET, 2.4), fbeams(5, PINK, 2.4) }
+	local cross = { fbeams(5, VIOLET, 2.4), fbeams(5, PINK, 2.4) }
+	local carrier = carrierPart()
+	local life = math.clamp(7 * D / speed, 0.12, 0.45)
+	trail(carrier, Vector3.new(0, D * 0.6, 0), Vector3.new(0, -D * 0.6, 0), ColorSequence.new(PINK, DEEP), life * 1.2, "beam_flame_violet")
+	emitter(carrier, "flame_violet_4x4", {
+		Rate = 50,
+		Lifetime = NumberRange.new(0.2, 0.35),
+		Speed = NumberRange.new(D, D * 2.5),
+		EmissionDirection = Enum.NormalId.Back,
+		SpreadAngle = Vector2.new(25, 25),
+		Size = NumberSequence.new(D * 0.8, D * 0.2),
+		Rotation = NumberRange.new(-40, 40),
+	})
+	local shardAcc = 0
+	return flight(origin, dir, speed, t0, range, D, function(pos, t, dt)
+		local cf = CFrame.lookAt(pos, pos + dir)
+		carrier.CFrame = cf
+		local u, v = basis(dir)
+		placeDiamond(eye, pos, (u * math.cos(t * 9) + v * math.sin(t * 9)), D * 0.9, D * 0.14)
+		for i, bs in ipairs(wheel) do
+			arc(bs, pos, dir, D * 0.75, D * 0.32, t * 20 + i / 3 * math.pi * 2, math.pi * 0.6, true, 1, "claw")
+		end
+		for i, bs in ipairs(cross) do
+			local n = (cf * CFrame.Angles(0, (if i == 1 then 1 else -1) * 1.1, 0)).LookVector
+			arc(bs, pos, n, D * 0.95, D * 0.22, -t * 14 + i * 2, math.pi * 0.7, true, 1, "claw")
+		end
+		placeRake(rays, pos, dir, D * 0.8, t, 0.6)
+		shardAcc += dt
+		if shardAcc > 0.05 then
+			shardAcc = 0
+			chunk(pos + randUnit() * D * 0.6, randUnit() * D * 3 - dir * speed * 0.05, Vector3.new(D * 0.05, D * 0.22, D * 0.05), if rng:NextNumber() < 0.5 then BLK else PINK, 0.35, 0, if rng:NextNumber() < 0.5 then FLAT else NEON)
+		end
+	end, function()
+		g:Destroy()
+		for _, bs in ipairs(wheel) do
+			killBeams(bs)
+		end
+		for _, bs in ipairs(cross) do
+			killBeams(bs)
+		end
+		task.delay(0.6, function()
+			carrier:Destroy()
+		end)
+	end)
+end
+
+local function explodeQ3(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
+	local near = nearCam(pos, R)
+	if near > 0 then
+		FX.flash(0.45 * near, 0.25, PINK)
+		FX.shake(near * (0.45 + 0.6 * power))
+	end
+	fovKick(pos, R, 4 + 4 * stage)
+	inkBurst(pos, R, 12 + 4 * stage, 0.25)
+	starburst(pos, R * 0.9, { PINK, VIOLET, WHITE }, DEEP, 6 + 4 * stage)
+	-- three claw-slash scars in the plane facing the camera
+	local toCam = (workspace.CurrentCamera.CFrame.Position - pos).Unit
+	local su, sv = basis(toCam)
+	local count = 2 + stage
+	for i = 1, count do
+		local off = (i - (count + 1) / 2) * R * 0.38
+		local center = pos + Vector3.yAxis * R * 1.25 + su * (off + R * 0.55) + sv * 0
+		local back = fbeams(6, DEEP, 2)
+		local front = fbeams(6, PINK, 2.6)
+		local a0 = math.rad(250) + rng:NextNumber(-0.1, 0.1)
+		local dl = (i - 1) * 0.05
+		job(0.55 + dl, function(_, t)
+			if t < dl then
+				return
+			end
+			local k = math.clamp((t - dl) / 0.55, 0, 1)
+			local sweep = math.pi * 0.75 * outQuart(math.min(k / 0.3, 1))
+			local w = R * 0.32 * (1 - k)
+			arc(back, center, toCam, R * 1.2, w * 1.35, a0, sweep, true, 1, "claw")
+			arc(front, center + toCam * 0.2, toCam, R * 1.2, w, a0, sweep, true, 1, "claw")
+			return
+		end, function()
+			killBeams(back)
+			killBeams(front)
+		end)
+	end
+	flares(pos, n, R, 4 + 2 * stage, { PURPLE, PINK, VIOLET }, 0.7)
+	shockBand(pos, n, R * 0.3, R * 2.1, R * 0.18, VIOLET, 0.45)
+	shockBand(pos, n, R * 0.2, R * 1.6, R * 0.1, PINK, 0.5, 0.05)
+	speedLines(pos, n, R, 12 + 8 * stage, { PINK, VIOLET, WHITE })
+	for i = 1, 2 + stage do
+		billboard(pos + hemi(n, 0.6) * R * rng:NextNumber(0, 0.4), R * rng:NextNumber(1, 1.5), "explosion_violet_4x4", rng:NextNumber(0.5, 0.7), nil, rng:NextNumber(0, 360), (i - 1) * 0.05)
+	end
+	if grounded then
+		plate(pos + n * 0.15, n, "sigil", PINK, 1.4, R * 0.6, R * 1.9, 1.5, 0.5)
+	end
+	if stage >= 2 then
+		local g = group(DEEP)
+		for _ = 1, 3 * stage do
+			local d = diamondParts(if rng:NextNumber() < 0.5 then PINK else VIOLET, g)
+			local dirv = hemi(n, 0.3)
+			local L = R * rng:NextNumber(0.25, 0.45)
+			job(0.7, function(k)
+				placeDiamond(d, pos + dirv * R * (0.3 + 1.6 * outQuart(k)), dirv, L * (1 - k * 0.6), L * 0.22)
+				return
+			end)
+		end
+		task.delay(0.75, function()
+			g:Destroy()
+		end)
+	end
+	if stage >= 3 then
+		ribbons(pos, n, R, 6, "beam_flame_violet")
+	end
+end
+
+-- ------------------------------------------------------------------------------ F: INFERNO METEOR
+-- Charge: the transform's black dome in miniature: a matte black orb with a yellow rim, three yellow
+-- bands wrapping it, glowing cracks spreading as it charges, rays bursting through at max.
+-- Shot: the cracked black orb tumbling inside spinning bands, twin flame ribbons, smoke, raking rays.
+-- Blast: a mini West transform: the orb flashes yellow, ink + white-out, many thick rays, bands
+-- snapping out, a lava fire ring with flame tongues, navy cubes, an explosion column.
+local function blackOrb(parent: Instance): (Part, Highlight)
+	local orb = ball(BLK, parent, FLAT)
+	local h = Instance.new("Highlight")
+	h.FillTransparency = 1
+	h.OutlineColor = YEL
+	h.OutlineTransparency = 0
+	h.DepthMode = Enum.HighlightDepthMode.Occluded
+	h.Adornee = orb
+	h.Parent = orb
+	return orb, h
+end
+
+local function chargeF3(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number)
+	local g = Instance.new("Model")
+	g.Parent = root()
+	local orb = blackOrb(g)
+	local cracks = crackNet(6, 5, g)
+	local bands = { fbeams(5, YEL, 2.5), fbeams(5, YEL, 2.5), fbeams(5, YEL, 2.5) }
+	local rg = group(ORG)
+	local rays = {}
+	for i = 1, 7 do
+		rays[i] = spikeParts(if i % 2 == 0 then YEL else ORG, rg)
+	end
+	local lines = inLines(8, { ORG, RED, YEL }, root())
+	return chargeBase(getMouth, t0, maxT, maxD, function(pos, fwd, D, c, t)
+		local r = D * 0.5
+		orb.Size = Vector3.one * D
+		orb.CFrame = CFrame.new(pos)
+		local rot = CFrame.Angles(t * 0.7, t * 1.1, 0)
+		placeCracks(cracks, pos, r, rot, (c - 0.35) / 0.65, 1)
+		for i, bs in ipairs(bands) do
+			local h = (i - 2) * r * 0.55
+			local rad = math.sqrt(math.max(r * r - h * h, 0.01)) + r * 0.08
+			arc(bs, pos + Vector3.new(0, h, 0), Vector3.yAxis, rad, r * 0.22, t * (4 + i) * (if i == 2 then -1 else 1), math.pi * 2, false, 1 - 0.85 * math.max(c - 0.75, 0) / 0.25)
+		end
+		for i, sp in ipairs(rays) do
+			local d = (CFrame.Angles(0, i * 0.9, 0) * CFrame.Angles(0.4 + (i % 3) * 0.35, 0, 0)).LookVector
+			local L = if c >= 0.85 then D * (0.6 + 1.6 * (c - 0.85) / 0.15) * (1 + 0.15 * math.sin(t * 25 + i)) else 0.05
+			placeSpike(sp, pos + d * (r + L), -d, L, if c >= 0.85 then D * 0.16 else 0.05)
+		end
+		placeInLines(lines, pos, D, t, 1.2)
+	end, function()
+		g:Destroy()
+		rg:Destroy()
+		for _, bs in ipairs(bands) do
+			killBeams(bs)
+		end
+		for _, l in ipairs(lines) do
+			l.p:Destroy()
+		end
+	end)
+end
+
+local function projectileF3(origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
+	local g = Instance.new("Model")
+	g.Parent = root()
+	local orb = blackOrb(g)
+	local cracks = crackNet(7, 5, g)
+	local bands = { fbeams(5, YEL, 2.5), fbeams(5, ORG, 2.5) }
+	local rg = group(ORG)
+	local rays = {}
+	for i = 1, 5 do
+		rays[i] = spikeParts(if i % 2 == 0 then YEL else ORG, rg)
+	end
+	local carrier = carrierPart()
+	local life = math.clamp(8 * D / speed, 0.15, 0.5)
+	trail(carrier, Vector3.new(0, D * 0.5, 0), Vector3.new(0, -D * 0.5, 0), FIRE_SEQ, life, "beam_flame_orange")
+	trail(carrier, Vector3.new(D * 0.5, 0, 0), Vector3.new(-D * 0.5, 0, 0), FIRE_SEQ, life, "beam_flame_orange")
+	emitter(carrier, "flame_crimson_4x4", {
+		Rate = 55,
+		Lifetime = NumberRange.new(0.25, 0.4),
+		Speed = NumberRange.new(D, D * 2.5),
+		EmissionDirection = Enum.NormalId.Back,
+		SpreadAngle = Vector2.new(30, 30),
+		Size = NumberSequence.new(D * 1.1, D * 0.3),
+		Rotation = NumberRange.new(0, 360),
+	})
+	emitter(carrier, "smoke_2x2", {
+		Rate = 14,
+		Lifetime = NumberRange.new(0.6, 0.9),
+		Speed = NumberRange.new(D * 0.3, D),
+		EmissionDirection = Enum.NormalId.Back,
+		SpreadAngle = Vector2.new(30, 30),
+		Size = NumberSequence.new(D * 0.8, D * 1.8),
+		Color = ColorSequence.new(Color3.fromRGB(30, 26, 30)),
+		Transparency = NumberSequence.new(0.2, 1),
+		Rotation = NumberRange.new(0, 360),
+	})
+	return flight(origin, dir, speed, t0, range, D, function(pos, t)
+		local r = D * 0.5
+		carrier.CFrame = CFrame.lookAt(pos, pos + dir)
+		orb.Size = Vector3.one * D
+		orb.CFrame = CFrame.new(pos)
+		placeCracks(cracks, pos, r, CFrame.Angles(t * 5, t * 3, 0), 1, 1)
+		for i, bs in ipairs(bands) do
+			local n = (CFrame.lookAt(pos, pos + dir) * CFrame.Angles(0, 0, i * 1.3) * CFrame.Angles(0.5, 0, 0)).LookVector
+			arc(bs, pos, n, r * 1.12, r * 0.28, t * 12 * (if i == 2 then -1 else 1), math.pi * 1.6, false, 1)
+		end
+		placeRake(rays, pos, dir, D, t, 0.55)
+	end, function()
+		g:Destroy()
+		rg:Destroy()
+		for _, bs in ipairs(bands) do
+			killBeams(bs)
+		end
+		task.delay(0.8, function()
+			carrier:Destroy()
+		end)
+	end)
+end
+
+local function explodeF3(pos: Vector3, n: Vector3, R: number, grounded: boolean, power: number, stage: number)
+	local near = nearCam(pos, R)
+	if near > 0 then
+		FX.shake(near * (0.8 + 0.8 * power))
+	end
+	fovKick(pos, R, 7 + 5 * stage)
+	-- dome pop: black orb swells (cracks blazing), flashes solid yellow, then everything detonates
+	local g = Instance.new("Model")
+	g.Parent = root()
+	local orb = blackOrb(g)
+	local cracks = crackNet(8, 5, g)
+	job(0.2, function(k)
+		local r = R * lerp(0.25, 0.6, outQuart(k))
+		orb.Size = Vector3.one * r * 2
+		orb.CFrame = CFrame.new(pos)
+		if k > 0.6 then
+			orb.Material = NEON
+			orb.Color = YEL
+		end
+		placeCracks(cracks, pos, r, CFrame.new(), 1, if k > 0.6 then 0 else 1)
+		return
+	end, function()
+		g:Destroy()
+		if near > 0 then
+			FX.flash(0.7 * near, 0.3, WHITE)
+		end
+		inkBurst(pos, R * 1.1, 12 + 4 * stage, 0.25)
+		starburst(pos, R * 1.1, { YEL, WHITE, ORG }, RED, 10 + 4 * stage)
+		bigRays(pos, n, R, 6 + 4 * stage, YEL, ORG)
+		bandSnap(pos, n, R * 1.1, { YEL, ORG, YEL }, 0.5)
+		shockBand(pos, n, R * 0.3, R * 2.6, R * 0.22, YEL, 0.45)
+		shockBand(pos, n, R * 0.2, R * 2, R * 0.14, RED, 0.55, 0.06)
+		speedLines(pos, n, R, 16 + 8 * stage, { ORG, RED, YEL })
+		for i = 1, 3 + 2 * stage do
+			billboard(pos + hemi(n, 0.5) * R * rng:NextNumber(0, 0.6), R * rng:NextNumber(1.2, 1.9), if i % 2 == 0 then "explosion_crimson_4x4" else "explosion_orange_4x4", rng:NextNumber(0.6, 0.85), nil, rng:NextNumber(0, 360), (i - 1) * 0.04)
+		end
+		fireRing(pos, n, R * 1.15, "flame_orange_4x4", 1.4 + 0.3 * stage, 12 + 4 * stage)
+		cubes(pos, n, R, 6 + 5 * stage)
+		if grounded then
+			plate(pos + n * 0.15, n, "crack_burst", ORG, 2, R * 1.4, R * 2, 0, 0.6)
+		end
+		if stage >= 2 then
+			flares(pos, n, R, 2 * stage, { PINK, PURPLE }, 0.7)
+		end
+		if stage >= 3 then
+			ribbons(pos, n, R, 8, "beam_flame_orange")
+			for i = 1, 4 do
+				billboard(pos + n * R * 0.45 * i, R * (1.3 + 0.2 * i), "explosion_crimson_4x4", 0.9, nil, rng:NextNumber(0, 360), 0.1 + i * 0.07)
+			end
+		end
+		for i = 1, 8 * stage do
+			chunk(pos + randUnit() * R * 0.3, hemi(n, 0.3) * R * rng:NextNumber(0.6, 1.8), Vector3.one * R * rng:NextNumber(0.025, 0.05), if i % 3 == 0 then YEL else ORG, rng:NextNumber(1, 1.8), -R * 0.8)
+		end
+	end)
+end
+
+-- Muzzle: a short band snap + starburst + forward speed lines, in the move's colours.
+local MUZ = {
+	R = { cols = { YEL, ORG }, shards = { YEL, WHITE, ORG }, outline = RED },
+	Q = { cols = { PINK, VIOLET }, shards = { PINK, VIOLET, WHITE }, outline = DEEP },
+	F = { cols = { YEL, RED }, shards = { ORG, YEL, RED }, outline = CRIMSON },
+}
+
+FX.charge = function(getMouth: () -> CFrame?, t0: number, maxT: number, maxD: number, move: string?)
+	if move == "Q" then
+		return chargeQ3(getMouth, t0, maxT, maxD)
+	elseif move == "F" then
+		return chargeF3(getMouth, t0, maxT, maxD)
+	end
+	return chargeR3(getMouth, t0, maxT, maxD)
+end
+
+FX.muzzle = function(pos: Vector3, dir: Vector3, D: number, power: number, move: string?)
+	local m = MUZ[move or "R"] or MUZ.R
+	starburst(pos, D * 1.6, m.shards, m.outline, 6 + math.floor(power * 4))
+	bandSnap(pos - dir * D * 0.3, dir, D * 1.2, m.cols, 0.28)
+	speedLines(pos, dir, D * 1.5, 8 + math.floor(power * 6), { m.cols[1], m.cols[2], WHITE })
+	shockBand(pos, dir, D * 0.4, D * 2.6, D * 0.18, m.cols[1], 0.3)
+end
+
+FX.projectile = function(move: string, origin: Vector3, dir: Vector3, speed: number, D: number, t0: number, range: number, power: number): Shot
+	if move == "Q" then
+		return projectileQ3(origin, dir, speed, D, t0, range, power)
+	elseif move == "F" then
+		return projectileF3(origin, dir, speed, D, t0, range, power)
+	end
+	return projectileR3(origin, dir, speed, D, t0, range, power)
+end
+
+FX.explode = function(move: string, pos: Vector3, normal: Vector3, R: number, grounded: boolean, power: number, failed: boolean?)
 	R *= Config.FIREBALL.EXPLOSION_SCALE -- visual size only; the server damage radius is unchanged
 	if failed then
 		explodeFail(pos, normal, R, power)
 		return
 	end
 	local n = if normal.Magnitude > 0.01 then normal.Unit else Vector3.yAxis
-	-- Stage 1 = tap (basic), 2 = partly charged (more layers), 3 = full charge (everything).
 	local stage = if power >= 0.99 then 3 elseif power >= 0.34 then 2 else 1
-	styleLayers(move, pos, n, R, stage, grounded)
 	if move == "Q" then
-		explodeQ(pos, normal, R, grounded, power, stage)
-		texExplodeQ(pos, n, R, grounded, power, stage)
+		explodeQ3(pos, n, R, grounded, power, stage)
 	elseif move == "F" then
-		explodeF(pos, normal, R, grounded, power, stage)
-		texExplodeF(pos, n, R, grounded, power, stage)
+		explodeF3(pos, n, R, grounded, power, stage)
 	else
-		explodeR(pos, normal, R, grounded, power, stage)
-		texExplodeR(pos, n, R, grounded, power, stage)
+		explodeR3(pos, n, R, grounded, power, stage)
 	end
 end
 
