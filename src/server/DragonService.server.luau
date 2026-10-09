@@ -319,7 +319,7 @@ end
 
 local nextId = 0
 
-fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: any)
+fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: any, mouthArg: any)
 	local move = moveOf(moveArg)
 	local char = player.Character
 	local dragon = dragonOf(char)
@@ -344,7 +344,14 @@ fireballR.OnServerEvent:Connect(function(player: Player, dirArg: any, moveArg: a
 	local D = DragonRig.fireballMaxD(dragon :: Model, FB.MAX_D_HEAD) * mv.size * DragonRig.sizeFactor(c, FB.MIN_SIZE)
 	local radius = D * FB.BLAST_PER_D
 	local dir = dirArg.Unit
-	local origin = mouth.Position + dir * D * 0.6
+	-- Spawn at the mouth the client actually sees (head turns are animated client-side only).
+	local mouthPos = mouth.Position
+	local hrpPart = char:FindFirstChild("HumanoidRootPart")
+	if typeof(mouthArg) == "Vector3" and hrpPart and hrpPart:IsA("BasePart") and (mouthArg - hrpPart.Position).Magnitude <= 14 * Config.SCALE then
+		mouthPos = mouthArg
+	end
+	mouth = CFrame.new(mouthPos) * mouth.Rotation
+	local origin = mouthPos + dir * D * 0.6
 
 	nextId += 1
 	local id = nextId

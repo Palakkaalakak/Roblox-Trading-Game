@@ -77,15 +77,16 @@ function DragonRig.mouthCFrame(model: Instance): CFrame?
 	if not (head and head:IsA("BasePart") and torso and torso:IsA("BasePart")) then
 		return nil
 	end
-	-- Forward = away from the torso, flattened; tip of the snout is about half a head-length ahead.
-	local d = head.Position - torso.Position
-	local fwd = Vector3.new(d.X, 0, d.Z)
-	fwd = if fwd.Magnitude > 0.01 then fwd.Unit else -torso.CFrame.LookVector
-	-- Mouth height: between the head and jaw centres (the head part's centre sits above the mouth).
+	-- Forward = the HEAD PART's own forward axis (so it follows neck/head turns and the aim look).
+	-- Parts keep design axes: forward is +Z when the import matches the manifest (flip 1), else -Z.
+	local weld = torso:FindFirstChild("DragonWeld")
+	local f = if weld and weld:GetAttribute("Flip") == -1 then -1 else 1
+	local fwd = head.CFrame:VectorToWorldSpace(Vector3.new(0, 0, f))
+	-- Mouth sits between the head and jaw centres (the jaw rotates with the head).
 	local jaw = model:FindFirstChild("Jaw")
-	local base = if jaw and jaw:IsA("BasePart") then head.Position:Lerp(jaw.Position, 0.7) else head.Position - Vector3.new(0, head.Size.Y * 0.25, 0)
+	local base = if jaw and jaw:IsA("BasePart") then head.Position:Lerp(jaw.Position, 0.7) else head.Position - head.CFrame.UpVector * head.Size.Y * 0.25
 	local len = math.max(head.Size.X, head.Size.Z) * 0.5
-	local at = Vector3.new(head.Position.X, base.Y, head.Position.Z) + fwd * len
+	local at = base + fwd * len
 	return CFrame.lookAt(at, at + fwd)
 end
 

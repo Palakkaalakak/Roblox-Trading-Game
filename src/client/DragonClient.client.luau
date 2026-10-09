@@ -153,7 +153,7 @@ local function releaseCharge()
 	local mouth = dragon and DragonRig.mouthCFrame(dragon)
 	if char and mouth then
 		lastFire[move] = os.clock()
-		fireballR:FireServer(aimDir(char, mouth.Position), move)
+		fireballR:FireServer(aimDir(char, mouth.Position), move, mouth.Position)
 	end
 end
 
